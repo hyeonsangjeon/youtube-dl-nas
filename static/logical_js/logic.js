@@ -12,8 +12,8 @@ $(function () {
     }
 
     if(wsEventBus==null){
-        wsEventBus = new WebSocket('ws://localhost:8080/websocket');
-        console.log("Server EventBus websocket was created");
+        wsEventBus = new WebSocket('ws://'+window.location.host+'/websocket');
+        console.log("Server EventBus websocket was created"+ window.location.host);
 
         wsEventBus.onopen = function(evt) {
             messagesTxt("WebSocket connection opened.");

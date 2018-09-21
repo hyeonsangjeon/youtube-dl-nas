@@ -18,4 +18,5 @@ EXPOSE 8080
 
 VOLUME ["/downfolder"]
 
-CMD [ "python", "-u", "./youtube-dl-server.py" ]
+CMD [ "./run.sh" ]
+#CMD [ "python", "-u", "./youtube-dl-server.py" ]
