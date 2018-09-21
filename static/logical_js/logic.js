@@ -36,7 +36,7 @@ $(function () {
 
         $.ajax({
             method : "POST"
-            , url : "http://localhost:8080/youtube-dl/q"
+            , url : "/youtube-dl/q"
             , data : JSON.stringify(data)
             , dataType : "json"
             , contentType: "application/json"
