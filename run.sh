@@ -1,5 +1,5 @@
-#bin/bash
+#!/bin/bash
 
-subber ./Auth.json
+subber /usr/src/app/Auth.json
 
-python -u youtube-dl-server.py
+python -u /usr/src/app/youtube-dl-server.py
