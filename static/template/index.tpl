@@ -32,7 +32,8 @@
                 <div class="row">
                     <form id="form1" action="/youtube-dl/q" method="POST">
                         <div class="input-group">
-                            <input name="url" id="url" type="url" class="form-control" placeholder="URL" value="https://www.youtube.com/watch?v=uMdgjd4x6wo">
+                            {*<input name="url" id="url" type="url" class="form-control" placeholder="URL" value="https://www.youtube.com/watch?v=uMdgjd4x6wo">*}
+                            <input name="url" id="url" type="url" class="form-control" placeholder="URL" >
                             <span class="input-group-btn">
                                 <a href="#" id ="send" class="btn btn-primary" >
                                   <span class="glyphicon glyphicon-share-alt"  aria-hidden="true"></span> Submit
