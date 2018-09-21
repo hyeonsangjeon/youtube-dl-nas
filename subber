@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+if [ $# -eq 0 ]; then
+  echo "No file supplied!"
+  exit 0
+fi
+
+file=$1
+
+if [ ! -e $file ]; then
+  echo "File $file not found!"
+  exit 1
+fi
+
+if [ ! -f $file ]; then
+  echo "File $file is not a regular file!"
+  exit 1
+fi
+
+perl -pe 's/{{(.*?)}}/$ENV{$1}/g' "$file" > temp
+mv temp "$file"
+
+exit 0
