@@ -12,7 +12,8 @@ RUN apt-get -y update && \
 COPY /subber /usr/bin/subber 
 RUN chmod +x /usr/bin/subber && \
      dos2unix /usr/bin/subber && \
-     ln -s /usr/src/app/downfolder /
+     ln -s /usr/src/app/downfolder /  && \
+     chmod +x /usr/src/app/run.sh
 
 EXPOSE 8080
 
