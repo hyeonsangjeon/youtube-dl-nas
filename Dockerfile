@@ -9,15 +9,17 @@ RUN apt-get update && \
      apt-get install -y libav-tools vim dos2unix && \
      rm -rf /var/lib/apt/lists/*
 
-COPY /subber /usr/bin/subber 
+
+COPY /subber /usr/bin/subber && \
+      /run.sh /
 RUN chmod +x /usr/bin/subber && \
      dos2unix /usr/bin/subber && \
      ln -s /usr/src/app/downfolder / \
-     chmod +x /usr/src/app/run.sh
+     chmod +x /run.sh
 
 EXPOSE 8080
 
 VOLUME ["/downfolder"]
 
-CMD [ "/bin/bash", "./run.sh" ]
+CMD [ "/bin/bash", "/run.sh" ]
 #CMD [ "python", "-u", "./youtube-dl-server.py" ]
