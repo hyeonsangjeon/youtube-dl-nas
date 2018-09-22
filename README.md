@@ -25,6 +25,10 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 #### To run docker, excute this command in a ternimal:
 The docker volume parameter `-v` is used by the queue operation to process the downloaded mount path to the host server
 
+- downloaded docker volume path :  '/downfloder'  
+- MY_ID, MY_PW : Required variables when you login validation
+- TZ :  optional variable.
+
 ## docker options are as follows,
 
 |Variables      |Description                                                   |
@@ -51,10 +55,18 @@ docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=12
 docker exec -i -t youtube-dl /bin/bash
 ```
 
+##### Example, when using synology docker provisioning platform
+- docker volume mount setting 
+![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/volume_set_synology.png?raw=true)
+
+- ID, Password setting to docker environment
+![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/id_pw_set_synology.png?raw=true)
 
 ### Reference
 [1]: https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png
 [2]: https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png
+[3]: https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/volume_set_synology.png
+[4]: https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/id_pw_set_synology.png
 
 `[1]`. https://docs.docker.com/engine/reference/commandline/cli/#environment-variables
 
