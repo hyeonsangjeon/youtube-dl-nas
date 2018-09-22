@@ -29,7 +29,7 @@ The docker volume parameter `-v` is used by the queue operation to process the d
 
 |Variables      |Description                                                   |
 |---------------|--------------------------------------------------------------|
-|-v  host:guest         |expose volume mount to host server                            |  
+|-v  host:guest         |/downfolder (do not change guest location. expose volume mount to host server)                            |  
 |-d           |background run                                                | 
 |-p   host:guest        |expose port conainer core-os port to your os (port fowarding) |
 |-e MY_ID          |using it login id, linux environment variables                                   |
@@ -38,12 +38,12 @@ The docker volume parameter `-v` is used by the queue operation to process the d
 
 ##### To run docker, excute this command in a ternimal:
 ```shell
-docker run -d --name youtube-dl -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/youtube-dl:/youtube-dl -p 8080:8080 modenaf360/youtube-dl-nas
+docker run -d --name youtube-dl -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/youtube-dl:/downfolder -p 8080:8080 modenaf360/youtube-dl-nas
 ```
 
 ##### If want set TimeZone, example using in South-Korea web content 
 ```shell
-docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=1234 -v /volume2/youtube-dl:/youtube-dl -p 8080:8080 modenaf360/youtube-dl-nas
+docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=1234 -v /volume2/youtube-dl:/downfolder -p 8080:8080 modenaf360/youtube-dl-nas
 ```
 
  If you want to get into docker container os, excute this command `[1]` :
