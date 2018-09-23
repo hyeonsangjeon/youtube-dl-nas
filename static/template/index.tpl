@@ -30,17 +30,16 @@
                 <p class="lead">Welcome {{userNm}}</p>
 
                 <div class="row">
-                    <form id="form1" action="/youtube-dl/q" method="POST">
+                    <form id="form1">
                         <div class="input-group">
                             <!--<input name="url" id="url" type="url" class="form-control" placeholder="URL" value="https://www.youtube.com/watch?v=uMdgjd4x6wo">-->
                             <input name="url" id="url" type="url" class="form-control" placeholder="URL" >
                             <span class="input-group-btn">
-                                <a href="#" id ="send" class="btn btn-primary" >
+                                <button href="#" id ="send" class="btn btn-primary" >
                                   <span class="glyphicon glyphicon-share-alt"  aria-hidden="true"></span> Submit
-                                </a>
+                                </button>
                             </span>
                         </div>
-
                     </form>
                 </div>
             </div>

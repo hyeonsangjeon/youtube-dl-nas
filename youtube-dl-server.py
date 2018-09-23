@@ -82,7 +82,7 @@ def q_put():
         dl_q.put(box)
         return {"success": True, "msg": 'We received your download. Please wait.'}
     else:
-        return {"success": False, "msg": "download queue somethings worng."}
+        return {"success": False, "msg": "download queue somethings wrong."}
 
 
 def dl_worker():
