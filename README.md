@@ -26,7 +26,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 The docker volume parameter `-v` is used by the queue operation to process the downloaded mount path to the host server
 
 - downloaded docker volume path :  '/downfloder'  
-- MY_ID, MY_PW : Required variables when you login validation
+- MY_ID, MY_PW : Required variables when you login validation, The start character  '!' '$' '&' is does not apply.
 - TZ :  optional variable.
 
 ## docker options are as follows,
@@ -36,8 +36,8 @@ The docker volume parameter `-v` is used by the queue operation to process the d
 |-v  host:guest         |/downfolder (do not change guest location. expose volume mount to host server)                            |  
 |-d           |background run                                                | 
 |-p   host:guest        |expose port conainer core-os port to your os (port fowarding) |
-|-e MY_ID          |using it login id, linux environment variables                                   |
-|-e MY_PW           |using it login password, linux environment variables                                   |
+|-e MY_ID          |using it login id, linux environment variables, do not use start character   '!' '$' '&'                                |
+|-e MY_PW           |using it login password, linux environment variables ,  do not use start character   '!' '$' '&'                                  |
 |-e TZ           |take it to user country, linux environment variables                                   |
 
 ##### To run docker, excute this command in a ternimal:
