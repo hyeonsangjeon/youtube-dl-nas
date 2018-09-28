@@ -56,7 +56,7 @@ def echo(ws):
         msg = WSAddr.wsClassVal.receive()
 
         if msg is not None:
-            a = 'Started downloading  : '
+            a = '[MSG], Started downloading  : '
             a = a + msg
             WSAddr.wsClassVal.send(a)
         else:
@@ -75,14 +75,15 @@ def q_size():
 
 @get('/youtube-dl/q', method='POST')
 def q_put():
-    url = request.json.get('url')
-
+    url = request.json.get("url")
+    resolution = request.json.get("resolution")
+    print(resolution)
     if "" != url:
-        box = (url, WSAddr.wsClassVal)
+        box = (url, WSAddr.wsClassVal, resolution)
         dl_q.put(box)
-        return {"success": True, "msg": 'We received your download. Please wait.'}
+        return {"success": True, "msg": '[MSG], We received your download. Please wait.'}
     else:
-        return {"success": False, "msg": "download queue somethings wrong."}
+        return {"success": False, "msg": "[MSG], download queue somethings wrong."}
 
 
 def dl_worker():
@@ -93,9 +94,18 @@ def dl_worker():
 
 
 def download(url):
-    url[1].send("Started downloading   " + url[0])
-    subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
-    url[1].send("Finished downloading   " + url[0])
+
+    url[1].send("[MSG], [Started] downloading   " + url[0] + "  resolution below " + url[2])
+
+    if(url[2] == "best"):
+        subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
+    else :
+        resolution = url[2][:-1]
+        print(resolution)
+        subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
+
+    url[1].send("[MSG], [Finished] downloading   " + url[0]+ "  resolution below " + url[2])
+    url[1].send("[COMPLETE]," + url[2]+ "," + url[0])
 
 
 dl_q = Queue();

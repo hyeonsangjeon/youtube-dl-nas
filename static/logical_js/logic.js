@@ -1,6 +1,13 @@
 var wsEventBus = null;  //eventBus register flag
+var thdYn = false;
 
 $(function () {
+
+    if(!thdYn){
+        $(".table-responsive").hide();
+    }else{
+        $(".table-responsive").show();
+    }
 
     //websocket support
     if (!window.WebSocket) {
@@ -16,15 +23,16 @@ $(function () {
         console.log("Server EventBus websocket was created"+ window.location.host);
 
         wsEventBus.onopen = function(evt) {
-            messagesTxt("WebSocket connection opened.");
+            messagesTxt("[MSG], WebSocket connection opened.");
         }
 
         wsEventBus.onmessage = function(evt) {
+            thdYn = true;
             messagesTxt( evt.data);
         }
 
         wsEventBus.onclose = function(evt) {
-            messagesTxt("WebSocket connection closed.");
+            messagesTxt("[MSG], WebSocket connection closed.");
         }
 
     }
@@ -33,6 +41,7 @@ $(function () {
 
         var data={};
         data.url = $("#url").val();
+        data.resolution = $("#selResolution").val();
 
         $.ajax({
             method : "POST"
@@ -69,7 +78,17 @@ $(function () {
 
 
     function messagesTxt(msg){
-        $('#messages').html('<li>' + msg + '</li>');
+
+        var noti = msg.split(",");
+        console.log("noti :"+noti[0])
+        if(noti[0] == "[COMPLETE]"){
+            if(thdYn){
+                $(".table-responsive").show();
+            }
+            $("#completeInfo").append("<tr><td>"+noti[1]+"</td><td>"+noti[2]+"</td></tr>");
+        }else{
+            $('#messages').html('<li>' + noti[1] + '</li>');
+        }
     };
 
 });
