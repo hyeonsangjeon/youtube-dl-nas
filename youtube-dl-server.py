@@ -6,14 +6,11 @@ from threading import Thread
 from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
 
-
 class WSAddr:
     def __init__(self):
         self.wsClassVal = ''
 
-
 app = Bottle()
-
 
 @get('/')
 def dl_queue_list():
@@ -77,10 +74,15 @@ def q_size():
 def q_put():
     url = request.json.get("url")
     resolution = request.json.get("resolution")
-    print(resolution)
+
     if "" != url:
         box = (url, WSAddr.wsClassVal, resolution)
         dl_q.put(box)
+
+        if (Thr.dl_thread.isAlive() == False):
+            thr = Thr()
+            thr.restart()
+
         return {"success": True, "msg": '[MSG], We received your download. Please wait.'}
     else:
         return {"success": False, "msg": "[MSG], download queue somethings wrong."}
@@ -94,27 +96,34 @@ def dl_worker():
 
 
 def download(url):
-
     url[1].send("[MSG], [Started] downloading   " + url[0] + "  resolution below " + url[2])
-
-    if(url[2] == "best"):
+    if (url[2] == "best"):
         subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
-    else :
+    else:
         resolution = url[2][:-1]
-        print(resolution)
         subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
 
-    url[1].send("[MSG], [Finished] downloading   " + url[0]+ "  resolution below " + url[2])
-    url[1].send("[COMPLETE]," + url[2]+ "," + url[0])
+    url[1].send("[MSG], [Finished] downloading   " + url[0] + "  resolution below " + url[2])
+    url[1].send("[COMPLETE]," + url[2] + "," + url[0])
+
+
+class Thr:
+    def __init__(self):
+        self.dl_thread = ''
+
+    def restart(self):
+        self.dl_thread = Thread(target=dl_worker)
+        self.dl_thread.start()
 
 
 dl_q = Queue();
 done = False;
-dl_thread = Thread(target=dl_worker)
-dl_thread.start()
+Thr.dl_thread = Thread(target=dl_worker)
+Thr.dl_thread.start()
 
 run(host='0.0.0.0', port=8080, server=GeventWebSocketServer)
 
 done = True
 
-dl_thread.join()
+Thr.dl_thread.join()
+
