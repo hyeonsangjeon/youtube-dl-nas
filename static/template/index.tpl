@@ -36,6 +36,8 @@
                             <span class="input-group-btn">
                                 <select title="Pick a number" id="selResolution" class="form-control" style="width:100px;">
                                     <option>best</option>
+                                    <option>2160p</option>
+                                    <option>1440p</option>
                                     <option>1080p</option>
                                     <option>720p</option>
                                     <option>480p</option>
