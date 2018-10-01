@@ -16,7 +16,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 
 ### Update Info
 - 2018.09.28 : [Add functional option] Resolution selectable, Downloaded result html table representation
-- 2018.10.01 : [Minor Patch] Patching worker thread dead symptom patch when moving the browser during download
+- 2018.10.01 : [Minor Patch] Patching worker thread dead symptom when moving the browser during download
 
 
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
