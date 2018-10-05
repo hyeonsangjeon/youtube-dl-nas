@@ -86,7 +86,9 @@ $(function () {
                 $(".table-responsive").show();
             }
             $("#completeInfo").append("<tr><td>"+noti[1]+"</td><td>"+noti[2]+"</td></tr>");
-        }else{
+        }else if(noti[0] == "[QUEUE]"){
+            $('#queue').html('<li>' + noti[1] + '</li>');
+        } else{
             $('#messages').html('<li>' + noti[1] + '</li>');
         }
     };
