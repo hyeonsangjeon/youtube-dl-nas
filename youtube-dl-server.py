@@ -106,7 +106,7 @@ def q_put_rest():
         else:
             box = (url, "", resolution, "api")
             dl_q.put(box)
-            return {"success": True, "msg": 'download has started', "Currently downloading count": json.dumps(dl_q.qsize()) }
+            return {"success": True, "msg": 'download has started', "Remaining downloading count": json.dumps(dl_q.qsize()) }
 
 
 def dl_worker():
