@@ -1,10 +1,13 @@
 import json
 import subprocess
 from queue import Queue
+
+import time
 from bottle import run, Bottle, request, static_file, response, redirect, template, get
 from threading import Thread
 from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
+from socket import error
 
 class WSAddr:
     def __init__(self):
@@ -59,7 +62,6 @@ def echo(ws):
         else:
             break
 
-
 @get('/youtube-dl/static/:filename#.*#')
 def server_static(filename):
     return static_file(filename, root='./static')
@@ -76,7 +78,7 @@ def q_put():
     resolution = request.json.get("resolution")
 
     if "" != url:
-        box = (url, WSAddr.wsClassVal, resolution)
+        box = (url, WSAddr.wsClassVal, resolution, "web")
         dl_q.put(box)
 
         if (Thr.dl_thread.isAlive() == False):
@@ -88,24 +90,63 @@ def q_put():
         return {"success": False, "msg": "[MSG], download queue somethings wrong."}
 
 
+
+@get('/youtube-dl/rest', method='POST')
+def q_put_rest():
+    url = request.json.get("url")
+    resolution = request.json.get("resolution")
+
+    with open('Auth.json') as data_file:
+        data = json.load(data_file)  # Auth info, when docker run making file
+        req_id = request.json.get("id")
+        req_pw = request.json.get("pw")
+
+        if (req_id != data["MY_ID"] or req_pw != data["MY_PW"]):
+            return {"success": False, "msg": "Invalid password or account."}
+        else:
+            box = (url, "", resolution, "api")
+            dl_q.put(box)
+            return {"success": True, "msg": 'download has started', "Currently downloading count": json.dumps(dl_q.qsize()) }
+
+
 def dl_worker():
     while not done:
         item = dl_q.get()
-        download(item)
+        if(item[3]=="web"):
+            download(item)
+        else:
+            download_rest(item)
         dl_q.task_done()
 
 
 def download(url):
-    url[1].send("[MSG], [Started] downloading   " + url[0] + "  resolution below " + url[2])
+    # url[1].send("[MSG], [Started] downloading   " + url[0] + "  resolution below " + url[2])
+    result=""
     if (url[2] == "best"):
-        subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
+        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
     else:
         resolution = url[2][:-1]
-        subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
+        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
 
-    url[1].send("[MSG], [Finished] downloading   " + url[0] + "  resolution below " + url[2])
-    url[1].send("[COMPLETE]," + url[2] + "," + url[0])
+    try:
+        if(result.returncode==0):
+            url[1].send("[MSG], [Finished] " + url[0] + "  resolution below " + url[2]+", Remain download Count "+ json.dumps(dl_q.qsize()))
+            url[1].send("[QUEUE], Remaining download Count : " + json.dumps(dl_q.qsize()))
+            url[1].send("[COMPLETE]," + url[2] + "," + url[0])
+        else:
+            url[1].send("[MSG], [Finished] downloading  failed  " + url[0])
+            url[1].send("[COMPLETE]," + "url access failure" + "," + url[0])
+    except error:
+        print("Be Thread Safe")
 
+
+def download_rest(url):
+    result=""
+    if (url[2] == "best"):
+        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
+    else:
+        resolution = url[2][:-1]
+        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
 
 class Thr:
     def __init__(self):
