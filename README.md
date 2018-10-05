@@ -53,7 +53,7 @@ docker run -d --name youtube-dl -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/y
 ```shell
 docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=1234 -v /volume2/youtube-dl:/downfolder -p 8080:8080 modenaf360/youtube-dl-nas
 ```
-#### Request restful API 
+#### Request restful API & Response
 ```shell
 curl -X POST http://localhost:8080/youtube-dl/rest \
   -d '{
@@ -62,6 +62,13 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
 	"id":"iamgroot",
 	"pw":"1234"
 }'
+```
+```shell
+{
+    "success": true,
+    "msg": "download has started",
+    "Currently downloading count": "7"
+}
 ```
 
  If you want to get into docker container os, excute this command `[1]` :
