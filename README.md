@@ -67,7 +67,7 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
 {
     "success": true,
     "msg": "download has started",
-    "Currently downloading count": "7"
+    "Remaining downloading count": "7"
 }
 ```
 
