@@ -59,6 +59,7 @@
             </div>
 
             <p class"lead"><div id="messages"></div></p>
+            <p class"lead"><div id="queue"></div></p>
 
             <div class="table-responsive" style="overflow: hidden;">
                 <div style="overflow-y:auto; height:150px; width:auto; " >
