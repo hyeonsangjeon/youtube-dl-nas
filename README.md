@@ -17,6 +17,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 ### Update Info
 - 2018.09.28 : [Add functional option] Resolution selectable, Downloaded result html table representation
 - 2018.10.01 : [Minor Patch] Patching worker thread dead symptom when moving the browser during download, add resolution 1440p, 2160p(4k)
+- 2018.10.06 : [Patch] Prevent thread death due to websocket exception in walker thread after download, add REST API 
 
 
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
@@ -51,6 +52,16 @@ docker run -d --name youtube-dl -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/y
 ##### If want set TimeZone, example using in South-Korea web content 
 ```shell
 docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=1234 -v /volume2/youtube-dl:/downfolder -p 8080:8080 modenaf360/youtube-dl-nas
+```
+#### Request restful API 
+```shell
+curl -X POST http://localhost:8080/youtube-dl/rest \
+  -d '{
+	"url":"https://thisisdown.com/xxx",
+	"resolution":"best", 
+	"id":"iamgroot",
+	"pw":"1234"
+}'
 ```
 
  If you want to get into docker container os, excute this command `[1]` :
