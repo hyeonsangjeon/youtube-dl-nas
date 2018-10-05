@@ -15,7 +15,8 @@ COPY /run.sh /
 RUN chmod +x /usr/bin/subber && \
      dos2unix /usr/bin/subber && \
      ln -s /usr/src/app/downfolder / && \
-     chmod +x /run.sh
+     chmod +x /run.sh && \
+     dos2unix /run.sh
 
 EXPOSE 8080
 
