@@ -18,7 +18,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2018.09.28 : [Add functional option] Resolution selectable, Downloaded result html table representation
 - 2018.10.01 : [Minor Patch] Patching worker thread dead symptom when moving the browser during download, add resolution 1440p, 2160p(4k)
 - 2018.10.06 : [Patch] Prevent thread death due to websocket exception in walker thread after download, add REST API 
-- 2018.11.08 : [Patch] binary excution error update,  : 'youtube_dl.utils.RegexNotFoundError: Unable to extract Initial JS player signature function name'. some url like(https://youtu.be/)  
+- 2018.11.08 : [Patch] binary excution error update,  : 'youtube_dl.utils.RegexNotFoundError: Unable to extract Initial JS player signature function name'. some url like(https://youtu.be/), Handling Variables on Application Ports for Using the docker Network Host Mode,Specify release version in html page   
 
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
 ![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png?raw=true)
@@ -43,6 +43,7 @@ The docker volume parameter `-v` is used by the queue operation to process the d
 |-e MY_ID          |using it login id, linux environment variables, do not use start character   '!' '$' '&'                                |
 |-e MY_PW           |using it login password, linux environment variables ,  do not use start character   '!' '$' '&'                                  |
 |-e TZ           |take it to user country, linux environment variables                                   |
+|-e APP_PORT           |optinal variable. default is 8080   |
 
 ##### To run docker, excute this command in a ternimal:
 ```shell
@@ -53,6 +54,14 @@ docker run -d --name youtube-dl -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/y
 ```shell
 docker run -d --name youtube-dl -e TZ=Asia/Seoul -e MY_ID=modenaf360 -e MY_PW=1234 -v /volume2/youtube-dl:/downfolder -p 8080:8080 modenaf360/youtube-dl-nas
 ```
+
+##### example, how to using docker host network and changing the application port :
+```shell
+# use --net=host -e APP_PORT=custom_port
+docker run -d --name youtube-dl --net=host -e APP_PORT=9999 -e MY_ID=modenaf360 -e MY_PW=1234  -v /volume2/youtube-dl:/downfolder modenaf360/youtube-dl-nas
+```
+
+
 #### Request restful API & Response
 ```shell
 curl -X POST http://localhost:8080/youtube-dl/rest \
