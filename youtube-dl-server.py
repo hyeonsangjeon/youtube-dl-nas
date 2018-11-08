@@ -15,6 +15,8 @@ class WSAddr:
 
 app = Bottle()
 
+port = 8080
+
 @get('/')
 def dl_queue_list():
     return template("./static/template/login.tpl", msg="")
@@ -162,7 +164,13 @@ done = False;
 Thr.dl_thread = Thread(target=dl_worker)
 Thr.dl_thread.start()
 
-run(host='0.0.0.0', port=8080, server=GeventWebSocketServer)
+with open('Auth.json') as env_file:
+    data = json.load(env_file)  # Auth info, when docker run making file
+
+if (data['APP_PORT'] !=''):
+    port = data['APP_PORT']
+
+run(host='0.0.0.0', port=port, server=GeventWebSocketServer)
 
 done = True
 
