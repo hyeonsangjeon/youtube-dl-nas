@@ -18,6 +18,8 @@ RUN chmod +x /usr/bin/subber && \
      chmod +x /run.sh && \
      dos2unix /run.sh
 
+RUN pip install -U youtube-dl
+
 EXPOSE 8080
 
 VOLUME ["/downfolder"]

@@ -18,7 +18,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2018.09.28 : [Add functional option] Resolution selectable, Downloaded result html table representation
 - 2018.10.01 : [Minor Patch] Patching worker thread dead symptom when moving the browser during download, add resolution 1440p, 2160p(4k)
 - 2018.10.06 : [Patch] Prevent thread death due to websocket exception in walker thread after download, add REST API 
-
+- 2018.11.08 : [Patch] binary excution error update,  : 'youtube_dl.utils.RegexNotFoundError: Unable to extract Initial JS player signature function name'. some url like(https://youtu.be/)  
 
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
 ![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png?raw=true)
