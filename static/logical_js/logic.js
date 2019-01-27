@@ -19,7 +19,7 @@ $(function () {
     }
 
     if(wsEventBus==null){
-        wsEventBus = new WebSocket('ws://'+window.location.host+'/websocket');
+        wsEventBus = new WebSocket('wss://'+window.location.host+'/websocket');
         console.log("Server EventBus websocket was created"+ window.location.host);
 
         wsEventBus.onopen = function(evt) {
