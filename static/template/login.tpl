@@ -40,7 +40,7 @@
         <!--<button class="btn btn-lg btn-primary btn-block" id="loginBtn" type="submit">Sign in</button>-->
         <button class="btn btn-lg btn-primary btn-block" id="loginBtn" >Sign in</button>
     </form>
-    <p class="text-center">latest Ver 0.1108</p>
+    <p class="text-center">latest Ver 0.0213</p>
 
 </div> <!-- /container -->
 
