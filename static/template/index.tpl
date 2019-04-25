@@ -80,7 +80,8 @@
             <div class="mastfoot">
                 <div class="inner">
                     <p>Web frontend for <a href="https://github.com/hyeonsangjeon/youtube-dl-nas">youtube-dl-nas</a>, by @Hyeon Sang</a>.</p>
-                    <p>latest Ver 0.0213</p>
+                    <p>latest Ver 0.0425</p>
+                    <p>[donate Ripple address]   rN9qNpgnBaZwqCg8CvUZRPqCcPPY7wfWep </p>
                 </div>
             </div>
 
