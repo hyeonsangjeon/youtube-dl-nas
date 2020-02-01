@@ -81,7 +81,8 @@
                 <div class="inner">
                     <p>Web frontend for <a href="https://github.com/hyeonsangjeon/youtube-dl-nas">youtube-dl-nas</a>, by @Hyeon Sang</a>.</p>
                     <p>latest Ver 0.0425</p>
-                    <p>[Donate Ethereum address]   0x82ca8ae93521bb8563334bd5a8a0c028f7a21e72 </p>
+                    <a href="https://www.youtube.com/watch?v=s9mO5q6GiAc">https://www.youtube.com/watch?v=s9mO5q6GiAc</a>
+                    <p></p>
                 </div>
             </div>
 
