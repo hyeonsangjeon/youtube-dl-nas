@@ -69,7 +69,7 @@ docker run -d --name youtube-dl --net=host -e APP_PORT=9999 -e MY_ID=modenaf360 
 ```shell
 curl -X POST http://localhost:8080/youtube-dl/rest \
   -d '{
-	"url":"https://thisisdown.com/xxx",
+	"url":"https://www.youtube.com/watch?v=s9mO5q6GiAc",
 	"resolution":"best", 
 	"id":"iamgroot",
 	"pw":"1234"
