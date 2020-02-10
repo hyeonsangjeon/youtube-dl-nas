@@ -32,7 +32,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 #### To run docker, excute this command in a ternimal:
 The docker volume parameter `-v` is used by the queue operation to process the downloaded mount path to the host server
 
-- downloaded docker volume path :  '/downfloder'  
+- downloaded docker volume path :  '/downfolder'  
 - MY_ID, MY_PW : Required variables when you login validation, The start character  '!' '$' '&' is does not apply.
 - TZ :  optional variable.
 
