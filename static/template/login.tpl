@@ -29,7 +29,7 @@
         <input type="hidden" class="form-control" id="testVal" name="testVal" value="1234141414321">
         <h2 class="form-signin-heading">Youtube-dl sign in</h2>
         <label for="id" class="sr-only">id</label>
-        <input type="id" id="id" name="id" class="form-control" placeholder="id" required autofocus>
+        <input type="username" id="id" name="id" class="form-control" placeholder="id" required autofocus>
         <label for="myPw" class="sr-only">Password</label>
         <input type="password" id="myPw" name="myPw" class="form-control" placeholder="Password" required>
         % if msg is not '':
