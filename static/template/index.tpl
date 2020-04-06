@@ -44,6 +44,7 @@
                                     <option>360p</option>
                                     <option>240p</option>
                                     <option>144p</option>
+                                    <option>audio</option>
                                 </select>
                             </span>
                             <input name="url" id="url" type="url" class="form-control" placeholder="URL" >
