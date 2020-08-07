@@ -44,7 +44,8 @@
                                     <option>360p</option>
                                     <option>240p</option>
                                     <option>144p</option>
-                                    <option>audio</option>
+                                    <option>audio-m4a</option>
+                                    <option>audio-mp3</option>
                                 </select>
                             </span>
                             <input name="url" id="url" type="url" class="form-control" placeholder="URL" >
