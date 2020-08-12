@@ -20,9 +20,10 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2018.10.06 : [Patch] Prevent thread death due to websocket exception in walker thread after download, add REST API 
 - 2018.11.08 : [Patch] binary excution error update,  : 'youtube_dl.utils.RegexNotFoundError: Unable to extract Initial JS player signature function name'. some url like(https://youtu.be/), Handling Variables on Application Ports for Using the docker Network Host Mode,Specify release version in html page
 - 2019.02.13 : [Patch] binary excution error update,  : 'caused by ExtractorError("Could not find JS function 'encodeURIComponent'; please report this issue on https://yt-dl.org/bug ..'. Binary Excution file update docker rebuild,Specify release version in html page
-- 2019.04.25 : [Patch] Failed to fetch jessie backports repository patch during build Dockerfile, Add Scheduler update "pip install -U youtube-dl" once a day.You no longer need to update pip youtube-dl when inexecutable in the container.  
 - 2020.02.10 : [Patch] Modifying so this will work behind HTTPS as well.
 - 2020.04.07 : [Patch] Audio only option for web-ui and REST call. Change username field type for compatiblity
+- 2019.04.25 : [Patch] Failed to fetch jessie backports repository patch during build Dockerfile, Add Scheduler update "pip install -U youtube-dl" once a day.You no longer need to update pip youtube-dl when inexecutable in the container.  
+- 2020.08-12 : [Patch] Added audio-mp3 option 
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
 ![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png?raw=true)
 
