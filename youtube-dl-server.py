@@ -126,12 +126,13 @@ def download(url):
     result=""
     if (url[2] == "best"):
         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
-    elif (url[2] == "audio"):
+    elif (url[2] == "audio-m4a"):
          result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
+    elif (url[2] == "audio-mp3"):
+         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
     else:
         resolution = url[2][:-1]
         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
-
     try:
         if(result.returncode==0):
             url[1].send("[MSG], [Finished] " + url[0] + "  resolution below " + url[2]+", Remain download Count "+ json.dumps(dl_q.qsize()))
@@ -179,4 +180,3 @@ run(host='0.0.0.0', port=port, server=GeventWebSocketServer)
 done = True
 
 Thr.dl_thread.join()
-
