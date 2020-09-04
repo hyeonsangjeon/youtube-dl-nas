@@ -16,6 +16,7 @@ class WSAddr:
 app = Bottle()
 
 port = 8080
+proxy = ""
 
 @get('/')
 def dl_queue_list():
@@ -125,14 +126,14 @@ def download(url):
     # url[1].send("[MSG], [Started] downloading   " + url[0] + "  resolution below " + url[2])
     result=""
     if (url[2] == "best"):
-        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
+        result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
     elif (url[2] == "audio-m4a"):
-         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
+         result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
     elif (url[2] == "audio-mp3"):
-         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
+         result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
     else:
         resolution = url[2][:-1]
-        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
+        result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
     try:
         if(result.returncode==0):
             url[1].send("[MSG], [Finished] " + url[0] + "  resolution below " + url[2]+", Remain download Count "+ json.dumps(dl_q.qsize()))
@@ -148,12 +149,12 @@ def download(url):
 def download_rest(url):
     result=""
     if (url[2] == "best"):
-        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
+        result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]])
     elif (url[2] == "audio"):
-         result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
+         result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]])
     else:
         resolution = url[2][:-1]
-        result = subprocess.run(["youtube-dl", "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
+        result = subprocess.run(["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]])
 
 class Thr:
     def __init__(self):
@@ -174,6 +175,8 @@ with open('Auth.json') as env_file:
 
 if (data['APP_PORT'] !=''):
     port = data['APP_PORT']
+if (data['PROXY'] !=''):
+    proxy = data['PROXY']
 
 run(host='0.0.0.0', port=port, server=GeventWebSocketServer)
 
