@@ -48,6 +48,7 @@ The docker volume parameter `-v` is used by the queue operation to process the d
 |-e MY_PW           |using it login password, linux environment variables ,  do not use start character   '!' '$' '&'                                  |
 |-e TZ           |take it to user country, linux environment variables                                   |
 |-e APP_PORT           |optinal variable. default is 8080   |
+|-e PROXY           |optinal variable. set youtube-dl proxy, default is ""   |
 
 ##### To run docker, excute this command in a ternimal:
 ```shell
