@@ -132,7 +132,7 @@ def build_youtube_dl_cmd(url):
         cmd = ["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
     else:
         resolution = url[2][:-1]
-        cmd = ["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]]
+        cmd = ["youtube-dl", "--proxy", proxy, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]]
     print (" ".join(cmd))
     return cmd
 
