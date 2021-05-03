@@ -82,7 +82,7 @@
             <div class="mastfoot">
                 <div class="inner">
                     <p>Web frontend for <a href="https://github.com/hyeonsangjeon/youtube-dl-nas">youtube-dl-nas</a>, by @Hyeon Sang</a>.</p>
-                    <p>latest Ver 0.1113</p>
+                    <p>latest Ver 1.0503</p>
                     <a href="https://www.youtube.com/watch?v=s9mO5q6GiAc">https://www.youtube.com/watch?v=s9mO5q6GiAc</a>
                     <p></p>
                 </div>

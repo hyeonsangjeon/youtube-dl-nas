@@ -23,8 +23,9 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2020.02.10 : [Patch] Modifying so this will work behind HTTPS as well.
 - 2020.04.07 : [Patch] Audio only option for web-ui and REST call. Change username field type for compatiblity
 - 2019.04.25 : [Patch] Failed to fetch jessie backports repository patch during build Dockerfile, Add Scheduler update "pip install -U youtube-dl" once a day.You no longer need to update pip youtube-dl when inexecutable in the container.  
-- 2020.08-12 : [Patch] Added audio-mp3 option 
+- 2020.08.12 : [Patch] Added audio-mp3 option 
 - 2020.11.13 : [Patch] Added docker optinal variable to support youtube-dl proxy
+- 2021.05.03 : [Patch] Fix random mkv or mp4 format when specifying resolution
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
 ![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png?raw=true)
 
