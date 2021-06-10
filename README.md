@@ -12,6 +12,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - base : [`python queue server`](https://github.com/manbearwiz/youtube-dl-server).
 - websocket : [`bottle-websocket`](https://github.com/zeekay/bottle-websocket).
 
+<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/Architecture-Youtube-dl-nas.png" width="90%">
 ![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png?raw=true)
 
 ### Update Info
