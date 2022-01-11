@@ -84,7 +84,7 @@ def q_put():
         box = (url, WSAddr.wsClassVal, resolution, "web")
         dl_q.put(box)
 
-        if (Thr.dl_thread.isAlive() == False):
+        if (Thr.dl_thread.is_alive() == False):
             thr = Thr()
             thr.restart()
 
