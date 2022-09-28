@@ -3,3 +3,4 @@ gevent-websocket
 bottle
 youtube-dl
 apscheduler
+nlptutti
