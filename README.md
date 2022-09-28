@@ -29,6 +29,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2020.11.13 : [Patch] Added docker optinal variable to support youtube-dl proxy
 - 2021.05.03 : [Patch] Fix random mkv or mp4 format when specifying resolution
 - 2021.12.09 : [Patch] Fix proxy setting bug
+- 2022.09.28 : [Patch] Clears URL input when submitting the form.
 #### You can check the status of download queue processing in real time using websocket from the message below the text box.
 ![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server.png?raw=true)
 
