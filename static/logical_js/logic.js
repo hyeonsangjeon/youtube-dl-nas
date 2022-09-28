@@ -54,6 +54,7 @@ $(function () {
                     messagesTxt(data.msg);
                 },400);
                 //
+                $("#form1").trigger("reset");
             }
             , error:function (jqXHR, textStatus, errorThrown) {
                 if(jqXHR.status==422){
