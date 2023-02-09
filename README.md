@@ -1,5 +1,6 @@
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/LICENSE)
 ![Docker Pulls Shield](https://img.shields.io/docker/pulls/modenaf360/youtube-dl-nas)
+![Docker Stars Shield](https://img.shields.io/docker/stars/modenaf360/youtube-dl-nas)
 # youtube-dl-nas
 
 simple youtube download micro web queue server. 
