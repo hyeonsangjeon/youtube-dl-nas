@@ -52,9 +52,9 @@ $(function () {
             , success:function(data,status){
                 window.setTimeout(function(){
                     messagesTxt(data.msg);
-                },400);
-                //
-                $("#form1").trigger("reset");
+                },400);               
+                //$("#form1").trigger("reset");
+                $("#form1").value = ""
             }
             , error:function (jqXHR, textStatus, errorThrown) {
                 if(jqXHR.status==422){
