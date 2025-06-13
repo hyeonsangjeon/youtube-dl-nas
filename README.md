@@ -19,6 +19,9 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 ![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png?raw=true)
 
 ### Update Info
+- 2025.06.13 : [Patch] update python version, UI/UX overhaul, added file download and delete functionality.
+- 2025.06.12 : [Patch] Don’t reset the form; use .value = "" to avoid reselecting options like mp3 each time.
+- 2025.06.11 : [Patch] Add 1s delay between retries to allow recovery from network blips.
 - 2023.02.19 : [Patch] Changed the executable from youtube-dl to yt-dlp for fixed error about 'Unable to extract uploader id' and download speed..
 - 2022.09.29 : [Patch] Check for updates essential packages on first startup container.
 - 2022.09.28 : [Patch] Clears URL input when submitting the form.

@@ -1,36 +1,42 @@
-# youtube-dl-nas Server Dockerfile
-# https://github.com/hyeonsangjeon/youtube-dl-nas.git
+# Base image with Python 3.10
+FROM python:3.10-slim
 
-# update container python 3.8
-FROM python:3.8
 LABEL maintainer="wingnut0310 <wingnut0310@gmail.com>"
 
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update -y 
-RUN apt-get install -y v4l-utils
-# Install ffmpeg.
-RUN apt-get install ffmpeg -y
-#RUN apt-get install -y libav-tools 
-RUN apt-get install -y vim dos2unix && \
-     rm -rf /var/lib/apt/lists/*
+# Install required system packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        v4l-utils \
+        dos2unix \
+        vim \
+    && rm -rf /var/lib/apt/lists/*
 
-
-COPY /subber /usr/bin/subber 
+# Copy files
+COPY /subber /usr/bin/subber
 COPY /run.sh /
-COPY / /usr/src/app/ 
-RUN chmod +x /usr/bin/subber && \
-     dos2unix /usr/bin/subber && \
-     ln -s /usr/src/app/downfolder / && \
-     chmod +x /run.sh && \
-     dos2unix /run.sh
+COPY / /usr/src/app/
 
+# Fix permissions and formatting
+RUN chmod +x /usr/bin/subber /run.sh && \
+    dos2unix /usr/bin/subber /run.sh && \
+    ln -s /usr/src/app/downfolder /
+
+# Set working directory
 WORKDIR /usr/src/app/
-RUN pip install -r requirements.txt
-RUN pip install -U youtube-dl
 
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -U youtube-dl
+
+# Expose port and define volume
 EXPOSE 8080
-
 VOLUME ["/downfolder"]
 
-CMD [ "/bin/bash", "/run.sh" ]
-#CMD [ "python", "-u", "./youtube-dl-server.py" ]
+# Default command
+CMD ["/bin/bash", "/run.sh"]

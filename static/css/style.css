@@ -28,10 +28,14 @@ a, a:focus, a:hover {
 
 html, body {
   height: 100%;
-  background-color: #50afb7;
+  margin: 0;
+  padding: 0;
+  font-family: 'Roboto', sans-serif;
+  background: linear-gradient(135deg, #a1c4fd, #c2e9fb); 
 }
 body {
   color: #fff;
+  background: linear-gradient(135deg, #a1c4fd, #c2e9fb);
   text-align: center;
   text-shadow: 0 1px 3px rgba(0, 0, 0, .5);
 }
@@ -44,22 +48,51 @@ body {
   height: 100%;
   /* For at least Firefox */
   min-height: 100%;
-  -webkit-box-shadow: inset 0 0 100px rgba(0, 0, 0, .5);
-  box-shadow: inset 0 0 100px rgba(0, 0, 0, .5);
+  -webkit-box-shadow: inset 0 0 5rem rgba(0, 0, 0, .5);
+  box-shadow: inset 0 0 5rem rgba(0, 0, 0, .5);
+  background: linear-gradient(135deg, #a1c4fd, #c2e9fb); /* Same background as signin.css */
 }
 .site-wrapper-inner {
   display: table-cell;
   vertical-align: top;
+  padding: 20px;
+  transition: padding 0.3s ease;
 }
+
+/* 커버 컨테이너 기본 설정 - 웹에서 훨씬 더 넓게 */
 .cover-container {
+  position: relative;
+  z-index: 10;
   margin-right: auto;
   margin-left: auto;
+  max-width: 1500px;
+  width: 85%; 
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  padding: 40px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+  
+  /* Smooth transition effect */
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+  will-change: width, padding, margin;
 }
 
 /* Padding for spacing */
 
 .inner {
   padding: 30px;
+  transition: padding 0.3s ease;
+}
+.inner.cover {
+  text-align: center;
+  margin-bottom: 30px;
+  transition: margin 0.3s ease;
 }
 
 
@@ -123,13 +156,33 @@ body {
  */
 
 .mastfoot {
-  color: #999;
-  /* IE8 proofing */
-  color: rgba(255, 255, 255, .5);
+    position: relative; /* Remove fixed or absolute */
+    z-index: 1; /* Set low z-index */
+    margin-top: 40px;
+    padding: 20px 0;
+    background: transparent; /* Transparent background */
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.jhs {
-  background-color: #999;
+.mastfoot .inner {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+}
+
+.mastfoot .inner p {
+    margin: 5px 0;
+}
+
+.mastfoot .inner a {
+    color: rgba(255, 255, 255, 0.9);
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.mastfoot .inner a:hover {
+    color: white;
+    text-decoration: underline;
 }
 
 /*
@@ -160,5 +213,770 @@ body {
   .masthead, .mastfoot, .cover-container {
     width: 700px;
   }
+}
+
+/* Heading and lead text */
+.cover-heading {
+    font-size: 2.5em;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.lead {
+    font-size: 1.2em;
+    color: #555;
+}
+
+/* Input group styles */
+.input-group .form-control {
+    border-radius: 4px;
+}
+
+/* Button styles */
+.btn-primary {
+    border-radius: 4px;
+    background-color: #56ab2f;
+    border: none;
+    transition: background-color 0.3s ease;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: #3e8e41;
+}
+
+/* Table Styles */
+.table-responsive {
+    position: relative;
+    z-index: 5;
+    overflow: visible !important;
+    margin-top: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: margin 0.3s ease;
+}
+
+.table {
+    color: #262626;
+}
+
+.table thead p.text-center {
+    margin: 0;
+}
+
+/* Footer Styles */
+.mastfoot .inner {
+    text-align: center;
+    font-size: 0.9em;
+    color: #777;
+    margin-top: 30px;
+}
+
+/* Responsive Media Queries */
+@media (max-width: 768px) {
+    .cover-heading {
+        font-size: 2em;
+    }
+    .lead {
+        font-size: 1.1em;
+    }
+}
+
+/* Styles to improve readability of the message area */
+#messages, #queue {
+  color: #333;
+  font-weight: 500;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#messages li, #queue li {
+  color: #333;
+  background-color: transparent; 
+  font-size: 16px;
+  padding: 8px 12px;
+  margin: 5px auto;
+  border-radius: 4px;
+  display: inline-block;
+  text-align: left;
+  list-style: none;
+
+}
+
+/* Progress bar styles */
+#progress-container {
+    position: relative;
+    z-index: 5;
+    margin: 20px auto; /* Maintain center alignment with auto */
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    width: 100%; /* Set to 100% to match parent element width */
+    max-width: none; /* Remove max-width restriction */
+}
+
+.progress {
+    height: 25px;
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.progress-bar {
+    background-color: #56ab2f;
+    transition: width 0.6s ease;
+    border-radius: 4px;
+    line-height: 25px;
+    text-align: center;
+    min-width: 120px; /* Minimum width for the text */
+}
+
+.progress-bar-striped {
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+    background-size: 40px 40px;
+}
+
+.progress-bar.active {
+    animation: progress-bar-stripes 2s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    from {
+        background-position: 40px 0;
+    }
+    to {
+        background-position: 0 0;
+    }
+}
+
+#progress-text {
+    color: white;
+    font-weight: 500;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Thumbnail area styles */
+#thumbnail-container {
+    position: relative;
+    z-index: 5;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin: 20px auto;
+    max-width: 520px;
+}
+
+#video-thumbnail {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 20px auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transition: transform 0.3s ease;
+}
+
+#video-thumbnail:hover {
+    transform: scale(1.02);
+}
+
+#video-info {
+    margin-top: 15px;
+}
+
+#video-title-display {
+    color: #333;
+    margin: 10px 0 5px 0;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+#video-channel-display {
+    color: #666;
+    margin: 0;
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* Download history area styles */
+.download-history {
+    position: relative;
+    z-index: 5;
+    background: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    background: linear-gradient(135deg, #667eea 0%, #a24b51 100%);
+    color: white;
+    margin: 0;
+    transition: all 0.3s ease;
+}
+
+.history-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: white;
+}
+
+.history-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.table-container {
+    max-height: 600px; /* Increase height */
+    overflow-y: auto;
+    transition: max-height 0.3s ease;
+}
+
+.table-modern {
+    margin: 0;
+    background: white;
+}
+
+.table-modern thead th {
+    background: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+    color: #495057;
+    padding: 15px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    text-align: center; /* Center alignment */
+    vertical-align: middle; /* Vertical center alignment */
+}
+
+.table-modern tbody tr {
+    transition: all 0.2s ease;
+}
+
+.table-modern tbody tr:hover {
+    background-color: #f8f9fa;
+    transform: translateX(2px);
+}
+
+.table-modern td {
+    padding: 12px;
+    vertical-align: middle;
+    border-bottom: 1px solid #e9ecef;
+    text-align: center; /* Center alignment for body cells */
+}
+
+/* Column width adjustments */
+.col-resolution {
+    width: 15%;
+    min-width: 100px;
+}
+
+.col-channel {
+    width: 20%;
+    min-width: 120px;
+}
+
+.col-title {
+    width: 55%; /* Title column wider */
+    min-width: 200px;
+    text-align: center !important;
+}
+
+.col-actions {
+    width: 10%;
+    min-width: 60px;
+    text-align: center;
+}
+
+/* Title ellipsis handling */
+.video-title {
+    display: block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help; /* Pointer cursor for better UX */
+}
+
+/* Apply ellipsis to channel names */
+.channel-name {
+    display: block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 해상도 태그 스타일링 */
+.resolution-tag {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 auto; /* 가운데 정렬을 위한 마진 */
+}
+
+.resolution-high {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.resolution-medium {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+}
+
+.resolution-low {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+}
+
+.resolution-audio {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    color: white;
+}
+
+
+.action-delete {
+    background: none;
+    border: none;
+    color: #dc3545;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: inline-block;
+}
+
+.action-delete:hover {
+    background-color: #dc3545;
+    color: white;
+    transform: scale(1.1);
+}
+
+/* 빈 상태 메시지 */
+.empty-state {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    padding: 40px 20px !important;
+    background: #f8f9fa;
+}
+
+
+#progress-container {
+    position: relative;
+    z-index: 5;
+    margin: 20px auto;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    width: 100%; 
+    max-width: none; 
+}
+
+
+.progress {
+    height: 25px;
+    border-radius: 12px;
+    background-color: #e9ecef;
+    overflow: hidden;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.progress-bar {
+    height: 100%;
+    border-radius: 12px;
+    background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar.active {
+    animation: progress-bar-stripes 2s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    from { background-position: 40px 0; }
+    to { background-position: 0 0; }
+}
+
+#progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    font-size: 12px;
+}
+
+
+@media (min-width: 768px) {
+    #progress-container {
+        width: 85%;
+        max-width: none; 
+    }
+}
+
+@media (min-width: 992px) {
+    #progress-container {
+        width: 80%;
+    }
+}
+
+@media (min-width: 1200px) {
+    #progress-container {
+        width: 75%;
+    }
+}
+
+/* 썸네일 컨테이너 */
+#thumbnail-container {
+    position: relative;
+    z-index: 5;
+    text-align: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+#video-thumbnail {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+#video-title-display {
+    margin: 10px 0 5px 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#video-channel-display {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 1200px) {
+    .cover-container {
+        max-width: 95%;
+        padding: 30px;
+    }
+}
+
+@media (max-width: 992px) {
+  .cover-container {
+    max-width: 90%;
+    padding: 25px;
+  }
+}
+
+@media (max-width: 768px) {
+  .cover-container {
+    width: 95%;
+    max-width: none; 
+    padding: 20px;
+    margin-top: 10px;
+  }
+  
+  .site-wrapper-inner {
+    padding: 15px;
+  }
+  
+  .inner {
+    padding: 20px;
+  }
+  
+  .history-header {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+    padding: 15px 20px;
+  }
+  
+  .history-controls {
+    justify-content: center;
+  }
+  
+  .table-container {
+    max-height: 450px;
+  }
+  
+  .col-title {
+    width: 45%;
+  }
+  
+  .col-channel {
+    width: 25%;
+  }
+  
+
+  .video-title {
+    max-width: 150px;
+  }
+  
+  .channel-name {
+    max-width: 100px;
+  }
+}
+
+@media (max-width: 576px) {
+  .cover-container {
+    width: 98%;
+    padding: 15px;
+    margin-top: 5px;
+  }
+  
+  .site-wrapper-inner {
+    padding: 10px;
+  }
+  
+  .inner {
+    padding: 15px;
+  }
+  
+  .table-container {
+    max-height: 400px;
+  }
+  
+  .table-modern td {
+    padding: 8px 4px;
+    font-size: 12px;
+  }
+  
+  .video-title {
+    max-width: 120px;
+  }
+  
+  .channel-name {
+    max-width: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cover-container {
+    width: 100%;
+    padding: 12px;
+    margin: 5px auto;
+    border-radius: 10px; 
+  }
+  
+  .site-wrapper-inner {
+    padding: 8px;
+  }
+  
+  .inner {
+    padding: 12px;
+  }
+  
+  .inner.cover {
+    margin-bottom: 20px;
+  }
+  
+  .history-header {
+    padding: 12px 15px;
+    border-radius: 10px 10px 0 0;
+  }
+  
+  .table-container {
+    max-height: 350px;
+  }
+  
+  .table-modern td {
+    padding: 6px 3px;
+    font-size: 11px;
+  }
+  
+  .video-title {
+    max-width: 100px;
+  }
+  
+  .channel-name {
+    max-width: 70px;
+  }
+}
+
+/* Optimize table columns for large screens */
+@media (min-width: 1200px) {
+  .col-resolution {
+    width: 12%;
+    min-width: 120px;
+  }
+  
+  .col-channel {
+    width: 18%;
+    min-width: 180px;
+  }
+  
+  .col-title {
+    width: 60%;
+    min-width: 400px;
+  }
+  
+  .col-actions {
+    width: 10%;
+    min-width: 100px;
+  }
+  
+  .video-title {
+    max-width: 500px;
+  }
+  
+  .channel-name {
+    max-width: 250px;
+  }
+  
+  .table-container {
+    max-height: 700px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .col-title {
+    width: 65%;
+    min-width: 500px;
+  }
+  
+  .video-title {
+    max-width: 600px;
+  }
+  
+  .channel-name {
+    max-width: 300px;
+  }
+  
+  .table-container {
+    max-height: 800px;
+  }
+}
+
+/* 입력 폼도 더 넓게 */
+@media (min-width: 992px) {
+  .input-group {
+    max-width: 1000px;
+    margin: 20px auto;
+  }
+}
+
+@media (min-width: 1200px) {
+  .input-group {
+    max-width: 1200px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .input-group {
+    max-width: 1400px;
+  }
+}
+
+/* Remove incorrect media query */
+@media (min-width: 992px) {
+  .masthead, .mastfoot, .cover-container {
+    width: auto; 
+  }
+}
+
+/* Keep footer fixed styles */
+.mastfoot {
+  position: relative;
+  z-index: 1;
+  margin-top: 40px;
+  padding: 20px 0;
+  border-top: 1px solid #e9ecef;
+  text-align: center;
+  transform: none !important;
+  transition: none !important;
+  will-change: auto !important;
+  backface-visibility: visible !important;
+}
+
+.mastfoot .inner {
+  color: #6c757d;
+  font-size: 14px;
+  transform: none !important;
+  transition: none !important;
+  position: static;
+}
+
+.mastfoot .inner p {
+  margin: 5px 0;
+  transform: none !important;
+  transition: none !important;
+}
+
+.mastfoot .inner a {
+  color: #667eea;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.mastfoot .inner a:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+/* Fix all footer elements */
+.mastfoot,
+.mastfoot *,
+.mastfoot *::before,
+.mastfoot *::after {
+  transform: none !important;
+  animation: none !important;
+  will-change: auto !important;
+  backface-visibility: visible !important;
+}
+
+/* Video title download link styles */
+a.video-title {
+    color: #337ab7;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.2s ease, text-decoration 0.2s ease;
+}
+
+a.video-title:hover {
+    text-decoration: underline;
+    color: #23527c;
+}
+
+/* Add download icon (optional) */
+a.video-title::after {
+    content: '↓';  /* Unicode download arrow */
+    margin-left: 5px;
+    font-size: 0.85em;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+a.video-title:hover::after {
+    opacity: 1;
 }
 

@@ -7,11 +7,12 @@ javadocs/*
 logs/
 .idea
 __pycache__/
-
+.devcontainer/
+.github/
 # IntelliJ IDEA
 **/.idea
 *.iml
-
+Auth.json_bak
 ### JetBrains template
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio and Webstorm
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
