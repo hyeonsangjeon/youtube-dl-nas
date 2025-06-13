@@ -33,6 +33,8 @@ This project has undergone several updates to enhance functionality and user exp
 - **HTTPS Compatibility**: Modified to work seamlessly behind HTTPS.
 - **Scheduler Update**: Automated daily updates for `yt-dlp` to ensure compatibility with the latest changes.
 - **REST API**: Added REST API for programmatic interaction with the server.
+- **Progress Bar**: Added visual progress indicators to track download status in real-time.
+- **File Management Controls**: Implemented buttons for selective or bulk deletion of downloaded files on the server.
 
 These updates make the project more robust, user-friendly, and adaptable to various use cases.
 
