@@ -6,6 +6,7 @@
 simple youtube download micro web queue server. 
 To prevent a queue attack when using NAS as a server, a making account was created when creating a docker container, and a new UI was added.
 This Queue server based on python3 and debian Linux.
+
 https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 
 - web server : [`bottle`](https://github.com/bottlepy/bottle) 
@@ -17,6 +18,23 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 <img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/Architecture-Youtube-dl-nas.png" width="90%">
 
 ![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png?raw=true)
+
+### Recent Updated Features
+
+This project has undergone several updates to enhance functionality and user experience:
+
+- **UI/UX Overhaul**: Redesigned interface for improved usability and aesthetics.
+- **File Management**: Added functionality to download and delete files directly from the UI.
+- **Improved Stability**: Introduced a 1-second delay between retries to handle network blips effectively.
+- **Switch to `yt-dlp`**: Replaced `youtube-dl` with `yt-dlp` for better performance and error handling.
+- **Proxy Support**: Added optional proxy configuration for `youtube-dl`.
+- **Resolution Options**: Support for resolutions up to 2160p (4K) and audio-only downloads.
+- **WebSocket Integration**: Real-time download queue status updates via WebSocket.
+- **HTTPS Compatibility**: Modified to work seamlessly behind HTTPS.
+- **Scheduler Update**: Automated daily updates for `yt-dlp` to ensure compatibility with the latest changes.
+- **REST API**: Added REST API for programmatic interaction with the server.
+
+These updates make the project more robust, user-friendly, and adaptable to various use cases.
 
 ### Update Info
 - 2025.06.13 : [Patch] update python version, UI/UX overhaul, added file download and delete functionality.
