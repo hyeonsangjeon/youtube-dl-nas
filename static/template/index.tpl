@@ -252,9 +252,6 @@
                     <div class="history-header">
                         <h3 class="history-title">Download History</h3>
                         <div class="history-controls">
-                            <button id="clear-all-history" class="btn btn-danger btn-sm">
-                                <span class="glyphicon glyphicon-trash" aria-hidden="true"></span> Clear All
-                            </button>
                             <button id="refresh-history" class="btn btn-info btn-sm">
                                 <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
                             </button>

@@ -36,6 +36,7 @@ Version 25.0708 - July 8, 2025
 
   Technical Updates:
   - Moved download_history.json to ./metadata/ directory for single volume mount persistence and protection from clear all operation
+  - Disabled the clear-all button to prevent accidental mass deletion
   - fixed Chrome download failure for filenames with special characters.
   - Auth.json now includes TERMS_ACCEPTED flag and SECRET_KEY
   - Session cookies now use dynamically generated cryptographic keys
