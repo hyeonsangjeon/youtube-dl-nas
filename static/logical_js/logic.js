@@ -706,24 +706,24 @@ $(function () {
         });
     }
 
-    function clearAllHistory() {
-        $.ajax({
-            method: "POST",
-            url: "/youtube-dl/history/clear",
-            success: function(response) {
-                if (response.success) {
-                    $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-                    saveLocalState();
-                    console.log("All history cleared successfully");
-                } else {
-                    console.error("Failed to clear history:", response.msg);
-                }
-            },
-            error: function() {
-                console.error("Error occurred while clearing history");
-            }
-        });
-    }
+    // function clearAllHistory() {
+    //     $.ajax({
+    //         method: "POST",
+    //         url: "/youtube-dl/history/clear",
+    //         success: function(response) {
+    //             if (response.success) {
+    //                 $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
+    //                 saveLocalState();
+    //                 console.log("All history cleared successfully");
+    //             } else {
+    //                 console.error("Failed to clear history:", response.msg);
+    //             }
+    //         },
+    //         error: function() {
+    //             console.error("Error occurred while clearing history");
+    //         }
+    //     });
+    // }
 
     function deleteHistoryItem(uuid) {
 
@@ -752,15 +752,15 @@ $(function () {
     }
 
     // event handler
-    $(document).on("click", "#clear-all-history", function() {
-        showConfirmModal(
-            "Clear All History", 
-            "Are you sure you want to delete all download history? This action cannot be undone.",
-            function() {
-                clearAllHistory();
-            }
-        );
-    });
+    // $(document).on("click", "#clear-all-history", function() {
+    //     showConfirmModal(
+    //         "Clear All History", 
+    //         "Are you sure you want to delete all download history? This action cannot be undone.",
+    //         function() {
+    //             clearAllHistory();
+    //         }
+    //     );
+    // });
 
     $(document).on("click", "#refresh-history", function() {
         if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
