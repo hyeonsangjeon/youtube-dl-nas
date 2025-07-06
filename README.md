@@ -26,7 +26,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - 2025.07.06 : [Patch] 
 Version 25.0708 - July 8, 2025
 
-<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true" width="30%">
+<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true" width="50%">
 
   New Features:
   - Added Terms of Use agreement screen for first-time users
