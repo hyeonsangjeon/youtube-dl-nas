@@ -15,7 +15,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 - base : [`python queue server`](https://github.com/manbearwiz/youtube-dl-server).
 - websocket : [`bottle-websocket`](https://github.com/zeekay/bottle-websocket).
 
-<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/Architecture-Youtube-dl-nas.png" width="90%">
+<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/Architecture-Youtube-dl-nas.png?raw=true" width="60%">
 
 ![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png?raw=true)
 
@@ -25,7 +25,9 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 
 - 2025.07.06 : [Patch] 
 Version 25.0708 - July 8, 2025
-![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true)
+
+<img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true" width="30%">
+
   New Features:
   - Added Terms of Use agreement screen for first-time users
   - Added subtitle download function
