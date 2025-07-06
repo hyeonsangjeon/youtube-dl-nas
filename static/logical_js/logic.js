@@ -99,6 +99,32 @@ var sessionId = null;
 var reconnectAttempts = 0;
 var maxReconnectAttempts = 5;
 var reconnectDelay = 1000; // 1second
+//---------------------------------------------------------------------------------------------------//
+$(document).ready(function() {
+    // resolution/subtitle format selection event
+    $('#selResolution').on('change', function() {
+        const selectedValue = $(this).val();
+        const subtitleContainer = $('#subtitleLanguageContainer');
+        
+        console.log('Resolution changed to:', selectedValue);
+        
+        // Display language selection box when selecting SRT or VTT
+        if (selectedValue === 'srt' || selectedValue === 'vtt') {
+            subtitleContainer.show();
+            console.log('Showing subtitle language selector');
+        } else {
+            subtitleContainer.hide();
+            console.log('Hiding subtitle language selector');
+        }
+    });
+    
+    // Set initial state
+    const initialValue = $('#selResolution').val();
+    if (initialValue === 'srt' || initialValue === 'vtt') {
+        $('#subtitleLanguageContainer').show();
+    }
+});
+//---------------------------------------------------------------------------------------------------//
 
 $(function () {
     let historyRestoreCount = 0;
@@ -267,7 +293,17 @@ $(function () {
         
         var data = {};
         data.url = $("#url").val();
-        data.resolution = $("#selResolution").val();
+        
+        
+        subtitleLan = '';
+        if ($("#selResolution").val() == 'vtt' || $("#selResolution").val() == 'srt') {
+            subtitleLan = $("#selSubtitleLanguage").val();            
+            data.resolution = `${$("#selResolution").val()}|${subtitleLan}`;
+        }else{
+            data.resolution = $("#selResolution").val();
+        }
+        console.log("Selected resolution:", data.resolution);
+        
 
         if (!data.url) {
             addMessage("Please enter a URL", 'warning');
@@ -415,6 +451,7 @@ $(function () {
                 
             
                 if (uuid) {
+                    console.log(`Restoring history item with UUID: ${uuid}`);
                     addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename);
                     historyRestoreCount++;
                 } else {
@@ -459,24 +496,32 @@ $(function () {
             
         } else if (messageType === "[COMPLETE]") {
             console.log("Complete message received");
-            
-            const parts = messageContent.split(',');
-            const resolution = parts[0] || "";
-            const channel = parts[1] || "";
-            const title = parts[2] || "";
-            const filepath = parts[3] || "";
-            const filename = parts[4] || "";
-            const uuid = parts[5]; 
-            
-            addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename);
-            
-            $(".table-responsive").show();
-            thdYn = true;
-            saveLocalState();
-            
-            const displayTitle = title.length > 50 ? title.substring(0, 50) + '...' : title;
-            addMessage(`✅ Download completed: ${displayTitle}`, 'success');
-            
+            try {
+                // JSON 파싱으로 변경
+                const completeData = JSON.parse(messageContent);
+                
+                const resolution = completeData.resolution || "";
+                const channel = completeData.channel || "";
+                const title = completeData.title || "";
+                const filepath = completeData.filepath || "";
+                const filename = completeData.filename || "";
+                const uuid = completeData.uuid || "";
+                
+                console.log("Parsed complete data:", completeData);
+                
+                addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename);
+                
+                $(".table-responsive").show();
+                thdYn = true;
+                saveLocalState();
+                
+                const displayTitle = title.length > 50 ? title.substring(0, 50) + '...' : title;
+                addMessage(`✅ Download completed: ${displayTitle}`, 'success');
+                
+            } catch (e) {
+                console.error("Error parsing complete message:", e, "Raw content:", messageContent);
+                addMessage("Error processing download completion", 'error');
+            }
         } else if (messageType === "[RESTORE_ACTIVE]") {
             try {
                 const activeData = JSON.parse(messageContent);
@@ -582,10 +627,10 @@ $(function () {
         let downloadUrl = '';
 
         downloadUrl = `/static/downfolder/${uuid}`;
-        console.log(`Download URL set to: ${downloadUrl}`);                
-        
-        const titleElement = downloadUrl ? 
-            `<a href="${downloadUrl}" download class="video-title" title="${safeTitle}">${safeTitle}</a>` : 
+        console.log(`Download URL set to: ${downloadUrl}`);
+
+        const titleElement = downloadUrl ?
+            `<a href="${downloadUrl}" download class="video-title" title="${safeTitle}">${safeTitle}</a>` :
             `<span class="video-title" title="${safeTitle}">${safeTitle}</span>`;
         
         const newRow = `
@@ -681,6 +726,7 @@ $(function () {
     }
 
     function deleteHistoryItem(uuid) {
+
         $.ajax({
             method: "POST",
             url: `/youtube-dl/history/delete/${uuid}`, 

@@ -633,25 +633,6 @@ body {
 }
 
 
-@media (min-width: 768px) {
-    #progress-container {
-        width: 85%;
-        max-width: none; 
-    }
-}
-
-@media (min-width: 992px) {
-    #progress-container {
-        width: 80%;
-    }
-}
-
-@media (min-width: 1200px) {
-    #progress-container {
-        width: 75%;
-    }
-}
-
 /* 썸네일 컨테이너 */
 #thumbnail-container {
     position: relative;
@@ -980,3 +961,226 @@ a.video-title:hover::after {
     opacity: 1;
 }
 
+/*------------Subtitle language selection styles---------------*/
+#subtitleLanguageContainer {
+    transition: all 0.3s ease-in-out;
+    opacity: 1;
+}
+
+#subtitleLanguageContainer[style*="display: none"] {
+    opacity: 0;
+}
+
+/* 자막 선택 박스 스타일링 */
+#selSubtitleLanguage {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 2px solid #dee2e6;
+    color: #495057;
+    font-weight: 500;
+}
+
+#selSubtitleLanguage:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    outline: none;
+}
+
+/* 자막 해상도 태그 스타일 */
+.resolution-subtitle {
+    background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+    color: white;
+    font-weight: 600;
+}
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+    #selSubtitleLanguage {
+        width: 100px !important;
+        font-size: 12px;
+    }
+}
+
+/* 모달 관련 스타일 - 글자 색상 개선 */
+.confirm-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.confirm-content {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4);
+}
+
+.confirm-content h4 {
+    color: #333;
+    font-weight: 600;
+    margin-bottom: 15px;
+    font-size: 20px;
+}
+
+.confirm-content p {
+    color: #444;
+    font-size: 16px;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.confirm-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+.confirm-buttons button {
+    min-width: 100px;
+    padding: 8px 16px;
+    transition: all 0.2s ease;
+}
+
+.confirm-buttons .confirm-cancel {
+    background-color: #f8f9fa;
+    color: #495057;
+    border: 1px solid #ced4da;
+}
+
+.confirm-buttons .confirm-cancel:hover {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.confirm-buttons .confirm-ok {
+    background-color: #dc3545;
+    color: white;
+    border: 1px solid #dc3545;
+}
+
+.confirm-buttons .confirm-ok:hover {
+    background-color: #c82333;
+    border-color: #bd2130;
+}
+
+/* 모바일 반응형 */
+@media (max-width: 576px) {
+    .confirm-content {
+        padding: 20px;
+        width: 85%;
+    }
+    
+    .confirm-content h4 {
+        font-size: 18px;
+    }
+    
+    .confirm-content p {
+        font-size: 14px;
+    }
+    
+    .confirm-buttons button {
+        min-width: 80px;
+        font-size: 14px;
+    }
+}
+/* Terms styles START-------------------------------------------------------------------------*/
+.terms-container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            color: #333;
+        }
+        
+        .terms-header {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .terms-header h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .copyright-disclaimer {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 5px solid #007bff;
+            border-radius: 5px;
+            margin-bottom: 25px;
+        }
+        
+        .copyright-disclaimer h4 {
+            color: #0056b3;
+            margin-top: 0;
+            font-weight: 600;
+        }
+        
+        .terms-content p {
+            margin-bottom: 15px;
+            line-height: 1.6;
+            color: #444;
+        }
+        
+        .terms-agreement {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .checkbox-container input {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+        
+        .checkbox-container label {
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+            cursor: pointer;
+        }
+        
+        .terms-actions {
+            display: flex;
+            justify-content: center;
+            margin-top: 25px;
+        }
+        
+        .terms-actions button {
+            padding: 10px 30px;
+            font-size: 16px;
+        }
+        
+        #agreeBtn {
+            background: #28a745;
+            border-color: #28a745;
+        }
+        
+        #agreeBtn:hover {
+            background: #218838;
+            border-color: #1e7e34;
+        }
+        
+        #agreeBtn:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+            cursor: not-allowed;
+        }
+/* Terms styles END-------------------------------------------------------------------------*/

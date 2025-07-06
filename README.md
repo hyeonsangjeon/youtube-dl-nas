@@ -19,27 +19,54 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 
 ![screenshot1](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/youtube-dl-server-login.png?raw=true)
 
+
+
 ### Recent Updated Features
 
-This project has undergone several updates to enhance functionality and user experience:
+- 2025.07.06 : [Patch] 
+Version 25.0708 - July 8, 2025
+![screenshot](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true)
+  New Features:
+  - Added Terms of Use agreement screen for first-time users
+  - Added subtitle download function
+  - Enhanced security with dynamic secret key generation
+  - Improved copyright compliance with clear usage guidelines
 
-- **UI/UX Overhaul**: Redesigned interface for improved usability and aesthetics.
-- **File Management**: Added functionality to download and delete files directly from the UI.
-- **Improved Stability**: Introduced a 1-second delay between retries to handle network blips effectively.
-- **Switch to `yt-dlp`**: Replaced `youtube-dl` with `yt-dlp` for better performance and error handling.
-- **Proxy Support**: Added optional proxy configuration for `youtube-dl`.
-- **Resolution Options**: Support for resolutions up to 2160p (4K) and audio-only downloads.
-- **WebSocket Integration**: Real-time download queue status updates via WebSocket.
-- **HTTPS Compatibility**: Modified to work seamlessly behind HTTPS.
-- **Scheduler Update**: Automated daily updates for `yt-dlp` to ensure compatibility with the latest changes.
-- **REST API**: Added REST API for programmatic interaction with the server.
-- **Progress Bar**: Added visual progress indicators to track download status in real-time.
-- **File Management Controls**: Implemented buttons for selective or bulk deletion of downloaded files on the server.
+  Technical Updates:
+  - Moved download_history.json to ./metadata/ directory for single volume mount persistence and protection from clear all operation
+  - fixed Chrome download failure for filenames with special characters.
+  - Auth.json now includes TERMS_ACCEPTED flag and SECRET_KEY
+  - Session cookies now use dynamically generated cryptographic keys
+  - Added safeguards to prevent unauthorized usage
+
+  Security:
+  - Implemented unique secret key generation on initial setup
+  - Random 32-character alphanumeric key enhances session protection
+  - Previous session tokens automatically invalidated on key regeneration
+
+  Note: This update requires acceptance of Terms of Use before accessing the application.
+
 
 These updates make the project more robust, user-friendly, and adaptable to various use cases.
 
 ### Update Info
+
 - 2025.06.13 : [Patch] update python version, UI/UX overhaul, added file download and delete functionality.
+    This project has undergone several updates to enhance functionality and user experience:
+
+    - **UI/UX Overhaul**: Redesigned interface for improved usability and aesthetics.
+    - **File Management**: Added functionality to download and delete files directly from the UI.
+    - **Improved Stability**: Introduced a 1-second delay between retries to handle network blips effectively.
+    - **Switch to `yt-dlp`**: Replaced `youtube-dl` with `yt-dlp` for better performance and error handling.
+    - **Proxy Support**: Added optional proxy configuration for `youtube-dl`.
+    - **Resolution Options**: Support for resolutions up to 2160p (4K) and audio-only downloads.
+    - **WebSocket Integration**: Real-time download queue status updates via WebSocket.
+    - **HTTPS Compatibility**: Modified to work seamlessly behind HTTPS.
+    - **Scheduler Update**: Automated daily updates for `yt-dlp` to ensure compatibility with the latest changes.
+    - **REST API**: Added REST API for programmatic interaction with the server.
+    - **Progress Bar**: Added visual progress indicators to track download status in real-time.
+    - **File Management Controls**: Implemented buttons for selective or bulk deletion of downloaded files on the server.
+
 - 2025.06.12 : [Patch] Don’t reset the form; use .value = "" to avoid reselecting options like mp3 each time.
 - 2025.06.11 : [Patch] Add 1s delay between retries to allow recovery from network blips.
 - 2023.02.19 : [Patch] Changed the executable from youtube-dl to yt-dlp for fixed error about 'Unable to extract uploader id' and download speed..
@@ -143,3 +170,9 @@ docker exec -i -t youtube-dl /bin/bash
 
 `[1]`. https://docs.docker.com/engine/reference/commandline/cli/#environment-variables
 
+
+## Legal Disclaimer
+
+This tool is based on yt-dlp and is provided **solely for personal and legitimate use** in accordance with applicable laws. Users are responsible for complying with copyright laws, and downloading or distributing copyrighted material without permission from the rightsholder may violate applicable laws. This project does not encourage or support unauthorized use.
+
+The developer bears no legal responsibility for any unauthorized or illegal use by users.

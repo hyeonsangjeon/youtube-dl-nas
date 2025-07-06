@@ -15,6 +15,7 @@ RUN apt-get update && \
         v4l-utils \
         dos2unix \
         vim \
+        procps\
     && rm -rf /var/lib/apt/lists/*
 
 # Copy files

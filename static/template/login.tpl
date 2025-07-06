@@ -34,7 +34,7 @@
         %end
         <button class="btn btn-lg btn-primary btn-block" id="loginBtn">Sign in</button>
     </form>
-    <p class="text-center">Version 25.0613</p>
+    <p class="text-center">Version 25.0706</p>
 </div> <!-- /container -->
 <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
 <script src="youtube-dl/static/js/ie10-viewport-bug-workaround.js"></script>

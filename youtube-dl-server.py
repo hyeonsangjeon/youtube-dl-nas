@@ -6,13 +6,15 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
-from bottle import run, Bottle, request, static_file, response, redirect, template, get, abort
+from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort
 from threading import Thread
 from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
 from socket import error
 from geventwebsocket.exceptions import WebSocketError
 import os
+import secrets
+import string
 
 # single use global download manager
 class GlobalDownloadManager:
@@ -21,13 +23,11 @@ class GlobalDownloadManager:
         self.download_history = []  # history of download info
         self.connected_clients = set() #every websocket clients
         self.is_downloading = False
-        self.history_file = './download_history.json'
+        self.history_file = './metadata/download_history.json'
         self.load_history()
     
     def load_history(self):
-        """Load saved history"""
-        
-        import os
+        """Load saved history"""        
         if os.path.exists(self.history_file):
             try:
                 with open(self.history_file, 'r', encoding='utf-8') as f:
@@ -37,7 +37,7 @@ class GlobalDownloadManager:
                 print(f"Failed to load history: {e}")
                 self.download_history = []
     
-    def save_history(self):
+    def save_history(self):        
         """Save history to file"""
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
@@ -104,10 +104,15 @@ class GlobalDownloadManager:
     
     def complete_download(self, completion_info):
         """Handle download completion"""
-        self.download_history.append({
+        if 'uuid' not in completion_info or not completion_info['uuid']:
+            completion_info['uuid'] = str(uuid.uuid4())
+            
+        # 히스토리에 추가
+        history_item = {
             'timestamp': datetime.now().isoformat(),
             **completion_info
-        })
+        }
+        self.download_history.append(history_item)
 
         # Limit history size (max 100 items)
         if len(self.download_history) > 100:
@@ -115,16 +120,20 @@ class GlobalDownloadManager:
 
         # Save to file
         self.save_history()
-
-        # Send completion message
-        resolution = completion_info.get('resolution', '')
-        channel = completion_info.get('channel', '')
-        title = completion_info.get('title', '')
-        uuid = completion_info.get('uuid', '')
-        filepath = completion_info.get('filepath', '')
-        filename = completion_info.get('filename', '')
-
-        self.broadcast_to_all_clients(f"[COMPLETE],{resolution},{channel},{title},{filepath},{filename},{uuid}")
+                
+        # Send completion message in JSON format
+        complete_data = {
+            'resolution': completion_info.get('resolution', ''),
+            'channel': completion_info.get('channel', ''),
+            'title': completion_info.get('title', ''),
+            'filepath': completion_info.get('filepath', ''),
+            'filename': completion_info.get('filename', ''),
+            'uuid': completion_info.get('uuid', '')
+        }
+        
+        # Serialize to JSON and send
+        message = f"[COMPLETE], {json.dumps(complete_data, ensure_ascii=False)}"
+        self.broadcast_to_all_clients(message)
 
         # Reset current download information
         self.current_download = None
@@ -218,28 +227,92 @@ port = 8080
 proxy = ""
 
 @get('/')
-def dl_queue_list():
+def dl_queue_list():        
+    """Displays the login page or redirects to terms page if not accepted."""
+    #Check the terms agreement flag in the Auth.json file
+    try:
+        with open('Auth.json') as data_file:
+            data = json.load(data_file)
+            # Check the TERMS_ACCEPTED flag
+            terms_accepted = data.get('TERMS_ACCEPTED', 'N')
+            
+            # If the flag is not 'Y', redirect to the terms agreement page.
+            if terms_accepted != 'Y':
+                redirect('/terms')
+    except Exception as e:
+        print(f"Error checking terms acceptance: {e}")
+        # If an error occurs, redirect to the terms and conditions page for security reasons.
+        redirect('/terms')
+        
     return template("./static/template/login.tpl", msg="")
 
 @get('/login', method='POST')
 def dl_queue_login():
     with open('Auth.json') as data_file:
         data = json.load(data_file)
+        
         req_id = request.forms.get("id")
         req_pw = request.forms.get("myPw")
 
         if (req_id == data["MY_ID"] and req_pw == data["MY_PW"]):
-            response.set_cookie("account", req_id, secret="34y823423b23b4234#$@$@#be")
+            secret_key = data.get("SECRET_KEY")
+            response.set_cookie("account", req_id, secret=secret_key)
             redirect("/youtube-dl")
         else:
             return template("./static/template/login.tpl", msg="id or password is not correct")
 
+@route('/terms')
+def terms_page():
+    """Displays the terms of use page."""
+    return template('static/template/terms.tpl')
+
+@post('/accept-terms')
+def accept_terms():
+    """Updates Auth.json with terms acceptance."""
+    try:
+        # Reading the Auth.json file
+        with open('Auth.json', 'r') as data_file:
+            data = json.load(data_file)
+        
+        # Set the TERMS_ACCEPTED flag to 'Y'
+        data['TERMS_ACCEPTED'] = 'Y'
+        
+        # Generate a cryptographically secure random secret key (32 characters)
+        alphabet = string.ascii_letters + string.digits + string.punctuation
+        random_secret = ''.join(secrets.choice(alphabet) for _ in range(32))
+        # Save the generated secret key
+        data['SECRET_KEY'] = random_secret
+        
+        # Save updated content to a file
+        with open('Auth.json', 'w') as data_file:
+            json.dump(data, data_file, indent=2)
+        
+        return {'success': True}
+    except Exception as e:
+        print(f"Error accepting terms: {e}")
+        return {'success': False, 'msg': str(e)}
+    
+
 @get('/youtube-dl')
 def dl_queue_main():
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-
-    userNm = request.get_cookie("account", secret="34y823423b23b4234#$@$@#be")
+    
+    # Check the terms agreement flag in the Auth.json file
+    try:
+        with open('Auth.json') as data_file:
+            data = json.load(data_file)
+            # Check the TERMS_ACCEPTED flag
+            terms_accepted = data.get('TERMS_ACCEPTED', 'N')
+            
+            # If the flag is not 'Y', redirect to the terms agreement page.
+            if terms_accepted != 'Y':
+                redirect('/terms')
+    except Exception as e:
+        print(f"Error checking terms acceptance: {e}")
+        # If an error occurs, redirect to the terms and conditions page for security reasons.
+        redirect('/terms')
+        
+    secret_key = data.get("SECRET_KEY")
+    userNm = request.get_cookie("account", secret=secret_key)
     print("CHK : ", userNm)
 
     if (userNm == data["MY_ID"]):
@@ -296,11 +369,12 @@ def q_put_rest():
 # History deletion API
 @get('/youtube-dl/history/clear', method='POST')
 def clear_history():
-    """Clear all history"""
-    userNm = request.get_cookie("account", secret="34y823423b23b4234#$@$@#be")
+    """Clear all history"""    
     with open('Auth.json') as data_file:
         data = json.load(data_file)
-    
+    secret_key = data.get("SECRET_KEY")
+    userNm = request.get_cookie("account", secret=secret_key)
+
     if userNm != data["MY_ID"]:
         return {"success": False, "msg": "Unauthorized"}
     # Delete all files under .downfolder
@@ -308,6 +382,9 @@ def clear_history():
         try:
             for filename in os.listdir("./downfolder"):
                 file_path = os.path.join("./downfolder", filename)
+                # metadata 디렉토리는 건드리지 않음
+                if filename == "metadata":
+                    continue
                 if os.path.isfile(file_path):
                     os.remove(file_path)
             print("All files in ./downfolder have been deleted.")
@@ -353,10 +430,14 @@ def get_filename_by_uuid(uuid):
 @get('/youtube-dl/history/delete/<uuid>', method='POST')
 def delete_history_item(uuid):
     """Delete a history item with a specific UUID"""
-    userNm = request.get_cookie("account", secret="34y823423b23b4234#$@$@#be")
+    
     with open('Auth.json') as data_file:
         data = json.load(data_file)
-    
+    secret_key = data.get("SECRET_KEY")
+    if not secret_key:
+        return {"success": False, "msg": "Secret key not found in Auth.json"}
+    userNm = request.get_cookie("account", secret=secret_key)
+
     if userNm != data["MY_ID"]:
         return {"success": False, "msg": "Unauthorized"}
 
@@ -381,17 +462,23 @@ def delete_history_item(uuid):
         return {"success": False, "msg": "Failed to delete history item"}
 
     if success:
-        print(f"Removed from download manager: {success}")                    
+        print(f"Removed from download manager: {success}")
+        return {"success": True, "msg": "History item deleted successfully"}
     else:
         return {"success": False, "msg": "Failed to delete history item"}
 
 @get('/youtube-dl/history', method='GET')
 def get_history():
     """Retrieve history"""
-    userNm = request.get_cookie("account", secret="34y823423b23b4234#$@$@#be")
+    
     with open('Auth.json') as data_file:
         data = json.load(data_file)
+    secret_key = data.get("SECRET_KEY")
+    if not secret_key:
+        return {"success": False, "msg": "Secret key not found in Auth.json"}
     
+    userNm = request.get_cookie("account", secret=secret_key)
+
     if userNm != data["MY_ID"]:
         return {"success": False, "msg": "Unauthorized"}
     
@@ -402,7 +489,7 @@ def get_history():
     }
     
 def save_download_history(info):
-    history_path = "download_history.json"
+    history_path = "./metadata/download_history.json"
     history = []
     if os.path.exists(history_path):
         try:
@@ -426,25 +513,32 @@ def dl_worker():
 def build_youtube_dl_cmd(url):
     with open('Auth.json') as data_file:
         data = json.load(data_file)  # Auth info, when docker run making file
+        unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~\`=;,^#(){}\[\] ]"
+        safe_replacement = "_"
         if (url[2] == "best"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]]
+            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]]
         # url[2] == "audio" for download_rest()
         elif (url[2] == "audio-m4a" or url[2] == "audio"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
+            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
         elif (url[2] == "audio-mp3"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
+            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
+        elif re.match(r"(vtt|srt)", url[2]):
+            sub_format = url[2].split('|')[0]
+            sub_lang = url[2].split('|')[1]            
+            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/%(title)s.%(ext)s",  "--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download", url[0]]
         else:
             resolution = url[2][:-1]
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]]
+            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]]
         print (" ".join(cmd))
         return cmd
     
 
 
-
-
 def download(url):
     try:
+        # Generate UUID at function start time
+        download_uuid = str(uuid.uuid4())
+        
         # Download information initialization
         video_title = url[0]
         channel_name = ""
@@ -481,9 +575,9 @@ def download(url):
             # channel name extraction
             channel_result = subprocess.run(["yt-dlp", "--get-filename", "-o", "%(uploader)s", "--no-warnings", url[0]],
                                           capture_output=True, text=True, timeout=10)
+            
             if channel_result.returncode == 0 and channel_result.stdout.strip():
-                channel_name = channel_result.stdout.strip()
-                print(f"Channel extracted: {channel_name}")
+                channel_name = channel_result.stdout.strip()                
                 download_manager.send_channel(channel_name)
 
             # thumbnail URL extraction
@@ -513,9 +607,10 @@ def download(url):
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1
         )
-
         
 
+        dn_type = download_info.get('resolution')
+        
         # Read yt-dlp output
         while True:
             line = process.stdout.readline()
@@ -525,15 +620,29 @@ def download(url):
                 print(f"yt-dlp output: {line.strip()}")
 
                  # Extract filename from exec command (alternative method)
-                exec_match = re.search(
+                if re.match(r"(vtt|srt)",dn_type):
+                    
+                    exec_match = re.search(
+                    #r"\[download\] Destination: (\.\/downfolder\/.+?\.(srt|vtt))\$", 
+                    r"\[(?:info|download)\] (?:Writing video subtitles to|Destination): (\.\/downfolder\/.*?\.(srt|vtt))", 
+                    line
+                    )
+                    if exec_match and not final_filepath:                        
+                        subtitle_path = exec_match.group(1)
+                        filename = os.path.basename(subtitle_path)
+                        final_filepath = subtitle_path
+                        print(f"Extracted subtitle filename: {filename}")
+                else:                    
+                    exec_match = re.search(
                     r"touch\s+(?:'|\")?(.+?)(?:'|\")?\s+&&\s+mv\s+(?:'|\")?(.+?)(?:'|\")?\s+\./downfolder/", 
                     line
-                )
-                if exec_match and not final_filepath:
-                    source_path = exec_match.group(2)                                        
-                    filename = os.path.basename(source_path)
-                    final_filepath = os.path.join("./downfolder", filename)
-                    print(f"Extracted filename from exec: {filename}")
+                    )
+                    if exec_match and not final_filepath:                        
+                        source_path = exec_match.group(2)                                        
+                        filename = os.path.basename(source_path)
+                        final_filepath = os.path.join("./downfolder", filename)                        
+                        print(f"Extracted filename from exec: {filename}")     
+                
 
                 # Download start detection
                 if "[download] Destination:" in line and ".incomplete/" in line:
@@ -570,7 +679,7 @@ def download(url):
             download_manager.update_progress(100)
             # Save download history
             download_info = {  
-                'uuid': str(uuid.uuid4()),              
+                'uuid': download_uuid,              
                 'timestamp': datetime.now().isoformat(),
                 'url': url[0],
                 'resolution': url[2],
@@ -589,6 +698,7 @@ def download(url):
         else:
             download_manager.send_message(f"[Finished] downloading failed {display_info}")
             download_manager.complete_download({
+                'uuid': download_uuid,
                 'url': url[0],
                 'resolution': url[2],
                 'title': video_title,
@@ -603,6 +713,7 @@ def download(url):
         print(f"Download error: {e}")
         download_manager.send_message("Download error occurred")
         download_manager.complete_download({
+            'uuid': str(uuid.uuid4()), # Generate new UUID for error case
             'url': url[0] if url else 'unknown',
             'resolution': url[2] if len(url) > 2 else 'unknown',
             'title': video_title if 'video_title' in locals() else 'unknown',
@@ -611,37 +722,84 @@ def download(url):
             'progress': 0
         })
 
-
-
-
-
 def download_rest(url):
     result = subprocess.run(build_youtube_dl_cmd(url))
 
+import mimetypes
 @get('/static/downfolder/<uuid>')
 def serve_download(uuid):
     """File download using UUID"""
-    userNm = request.get_cookie("account", secret="34y823423b23b4234#$@$@#be")
+
+    
     with open('Auth.json') as data_file:
         data = json.load(data_file)
+    secret_key = data.get("SECRET_KEY")
+    
+    if not secret_key:
+        abort(500, "Secret key not found in Auth.json")
+        
+    userNm = request.get_cookie("account", secret=secret_key)        
     
     if userNm != data["MY_ID"]:
-        return {"success": False, "msg": "Unauthorized"}
+        abort(403, "Unauthorized")
     
-    history_path = "download_history.json"
+    # Find file information by UUID
+    history_path = "./metadata/download_history.json"
     if not os.path.exists(history_path):
-        abort(404, "File not found")
-    filename = get_filename_by_uuid(uuid)
+        abort(404, "History file not found")
     
-    print("FileName : ", filename)
-    if not filename:
-        abort(404, "File not found")
-    file_path = os.path.join("./downfolder", filename)
-    if not os.path.exists(file_path):
-        abort(404, "File not found")
-    # Provide file
-    #return static_file(filename, root='./downfolder', mimetype='application/octet-stream', download=filename)
-    return static_file(filename, root='./downfolder', download=True)
+    
+    try:
+        with open(history_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        
+        # Retrieving file information by UUID
+        file_info = None
+        for item in history:
+            if item.get('uuid') == uuid:
+                file_info = item
+                break        
+        if not file_info:
+            abort(404, "File not found in history")
+        
+        # Check file path
+        filename = file_info.get('filename')
+        filepath = file_info.get('filepath')
+        
+        if not filename and not filepath:
+            abort(404, "File path not found")
+        
+        # Determine the actual file path
+        if filename and filename != "unknown":
+            actual_filename = filename
+        elif filepath and filepath != "unknown":
+            actual_filename = os.path.basename(filepath)
+        else:
+            abort(404, "Valid filename not found")
+        
+        file_path = os.path.join("./downfolder", actual_filename)
+        if not os.path.exists(file_path):
+            abort(404, "Physical file not found")
+        
+        # Organize file names to allow safe downloads from your browser
+        print(f"Serving file: {actual_filename}")
+        safe_download_name = re.sub(r'[\\/:*?"<>|⧸]', '-', actual_filename)
+        safe_download_name = safe_download_name.replace("'\"'\"'", "'")  # 이스케이핑된 따옴표 처리
+        # Check to preserve file extensions
+        original_ext = os.path.splitext(actual_filename)[1]
+        if original_ext and not safe_download_name.endswith(original_ext):
+            safe_download_name += original_ext
+        
+        print(f"Serving file: {actual_filename} as {safe_download_name}")
+        
+        # Find the original file with actual_filename and use safe_download_name for the download name.
+        return static_file(actual_filename, root='./downfolder', download=safe_download_name)
+    
+        
+    except Exception as e:
+        print(f"Error in serve_download: {e}")
+        abort(500, "Internal server error")
+    
 
 # WebSocket handler
 @get('/websocket')
@@ -679,7 +837,7 @@ def websocket_handler(ws):
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        # 클라이언트 연결 해제
+        # Disconnect the client
         download_manager.remove_client(ws)
         if ws_addr.wsClassVal == ws:
             ws_addr.wsClassVal = None

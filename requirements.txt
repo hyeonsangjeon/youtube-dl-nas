@@ -4,4 +4,4 @@ bottle
 yt-dlp
 youtube-dl
 apscheduler
-nlptutti
+nlptutti==0.0.0.9
