@@ -24,7 +24,7 @@ https://hub.docker.com/r/modenaf360/youtube-dl-nas/
 ### Recent Updated Features
 
 - 2025.07.06 : [Patch] 
-Version 25.0708 - July 8, 2025
+Version 25.0706 - July 8, 2025
 
 <img src="https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/pic/TermsNConditions.png?raw=true" width="50%">
 
