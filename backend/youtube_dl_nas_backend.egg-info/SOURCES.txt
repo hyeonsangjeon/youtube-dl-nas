@@ -4,12 +4,16 @@ app/config.py
 app/database.py
 app/main.py
 app/models/__init__.py
+app/models/download.py
 app/models/user.py
 app/routers/__init__.py
 app/routers/health.py
 app/routers/legacy.py
 app/schemas/__init__.py
 app/schemas/common.py
+app/schemas/download.py
+app/services/__init__.py
+app/ws/__init__.py
 tests/test_health.py
 youtube_dl_nas_backend.egg-info/PKG-INFO
 youtube_dl_nas_backend.egg-info/SOURCES.txt

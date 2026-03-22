@@ -3,14 +3,15 @@
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
-import app.models.download  # noqa: F401
-
-# Import all models so that Base.metadata is populated before autogenerate
-from alembic import context
 from app.config import settings
 from app.database import Base
+
+# Import all models so that Base.metadata is populated before autogenerate
+import app.models.user  # noqa: F401
+import app.models.download  # noqa: F401
 
 # Alembic Config object providing access to values in alembic.ini
 config = context.config

@@ -11,9 +11,6 @@ __pycache__/
 .github/
 .claude/
 
-AGENTS.md
-CLAUDE.md
-TODO.md
 
 # Virtual environment
 .venv/
