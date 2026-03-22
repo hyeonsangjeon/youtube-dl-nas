@@ -9,14 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.models.download import Download  # noqa: F401 — Base.metadata 등록용
-from app.routers import auth, health
+from app.routers import auth, download, health, legacy
+from app.services.download_manager import download_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan: initialize DB on startup."""
+    """Application lifespan: initialize DB on startup, manage download worker."""
     await init_db()
+    await download_manager.start()
     yield
+    await download_manager.stop()
 
 
 app = FastAPI(
@@ -35,3 +38,5 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(download.router)
+app.include_router(legacy.router)
