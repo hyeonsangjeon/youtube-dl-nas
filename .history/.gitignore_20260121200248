@@ -9,37 +9,6 @@ logs/
 __pycache__/
 .devcontainer/
 .github/
-.claude/
-
-AGENTS.md
-CLAUDE.md
-TODO.md
-
-# Virtual environment
-.venv/
-venv/
-env/
-
-# DB files (for local development, not for production)
-metadata/app.db
-*.db
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# OS
-.DS_Store
-
-# Alembic
-# versions/ is tracked (migration files should be committed)
-# But exclude autogenerate temp files
-
-# egg-info
-youtube_dl_nas_backend.egg-info/
-
-
 # IntelliJ IDEA
 **/.idea
 *.iml
@@ -60,7 +29,6 @@ Auth.json_bak
 .idea/sqlDataSources.xml
 .idea/dynamic.xml
 .idea/uiDesigner.xml
-doc/
 
 # Gradle:
 .idea/gradle.xml

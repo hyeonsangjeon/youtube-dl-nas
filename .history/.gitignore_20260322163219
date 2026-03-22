@@ -12,8 +12,6 @@ __pycache__/
 .claude/
 
 AGENTS.md
-CLAUDE.md
-TODO.md
 
 # Virtual environment
 .venv/

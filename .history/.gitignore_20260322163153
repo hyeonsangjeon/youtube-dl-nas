@@ -11,9 +11,6 @@ __pycache__/
 .github/
 .claude/
 
-AGENTS.md
-CLAUDE.md
-TODO.md
 
 # Virtual environment
 .venv/
@@ -34,7 +31,7 @@ metadata/app.db
 
 # Alembic
 # versions/ is tracked (migration files should be committed)
-# But exclude autogenerate temp files
+# 하지만 autogenerate 임시파일은 제외
 
 # egg-info
 youtube_dl_nas_backend.egg-info/
