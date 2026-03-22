@@ -1,5 +1,8 @@
 """Application configuration via pydantic-settings."""
 
+import secrets
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +15,13 @@ class Settings(BaseSettings):
     MY_ID: str = "admin"
     MY_PW: str = "admin"
     SECRET_KEY: str = ""
+
+    @model_validator(mode="after")
+    def _generate_secret_key(self) -> "Settings":
+        """Auto-generate SECRET_KEY if not provided."""
+        if not self.SECRET_KEY:
+            self.SECRET_KEY = secrets.token_urlsafe(32)
+        return self
 
     # 서버
     APP_PORT: int = 8000

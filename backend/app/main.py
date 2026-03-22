@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.models.download import Download  # noqa: F401 — Base.metadata 등록용
-from app.routers import health
+from app.routers import auth, health
 
 
 @asynccontextmanager
@@ -34,3 +34,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
