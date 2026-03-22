@@ -8,7 +8,6 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
-.github/
 .claude/
 
 AGENTS.md
@@ -149,3 +148,4 @@ local.properties
 # Code Recommenders
 .recommenders/
 
+.github/agents/ai-strategy-consultant.md
