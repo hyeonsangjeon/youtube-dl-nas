@@ -43,7 +43,7 @@ async def test_create_download_no_auth() -> None:
             "/api/downloads",
             json={"url": "https://example.com/video"},
         )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

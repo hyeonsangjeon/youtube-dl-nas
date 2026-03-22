@@ -32,4 +32,4 @@ async def test_serve_file_no_auth() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/files/some-uuid")
     # HTTPBearer returns 403 when no token is provided
-    assert response.status_code == 403
+    assert response.status_code == 401
