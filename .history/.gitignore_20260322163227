@@ -8,11 +8,11 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
+.github/
 .claude/
 
 AGENTS.md
 CLAUDE.md
-TODO.md
 
 # Virtual environment
 .venv/
@@ -148,5 +148,3 @@ local.properties
 # Code Recommenders
 .recommenders/
 
-.github/agents/ai-strategy-consultant.md
-.history/

@@ -8,36 +8,14 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
-.claude/
+.github/
 
-AGENTS.md
-CLAUDE.md
-TODO.md
-
-# Virtual environment
-.venv/
-venv/
-env/
-
-# DB files (for local development, not for production)
-metadata/app.db
-*.db
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# OS
-.DS_Store
-
-# Alembic
-# versions/ is tracked (migration files should be committed)
-# But exclude autogenerate temp files
-
-# egg-info
-youtube_dl_nas_backend.egg-info/
-
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
 
 # IntelliJ IDEA
 **/.idea
@@ -148,5 +126,3 @@ local.properties
 # Code Recommenders
 .recommenders/
 
-.github/agents/ai-strategy-consultant.md
-.history/

@@ -8,18 +8,16 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
+.github/
 .claude/
 
-AGENTS.md
-CLAUDE.md
-TODO.md
 
 # Virtual environment
 .venv/
 venv/
 env/
 
-# DB files (for local development, not for production)
+# DB files (for local dev)
 metadata/app.db
 *.db
 
@@ -32,8 +30,8 @@ metadata/app.db
 .DS_Store
 
 # Alembic
-# versions/ is tracked (migration files should be committed)
-# But exclude autogenerate temp files
+# versions/는 추적함 (마이그레이션 파일은 커밋 대상)
+# 하지만 autogenerate 임시파일은 제외
 
 # egg-info
 youtube_dl_nas_backend.egg-info/
@@ -148,5 +146,3 @@ local.properties
 # Code Recommenders
 .recommenders/
 
-.github/agents/ai-strategy-consultant.md
-.history/
