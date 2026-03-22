@@ -11,12 +11,15 @@ from app.database import init_db
 from app.models.download import Download  # noqa: F401 — Base.metadata 등록용
 from app.routers import auth, download, health, legacy
 from app.services.download_manager import download_manager
+from app.ws.handler import router as ws_router
+from app.ws.manager import ws_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize DB on startup, manage download worker."""
     await init_db()
+    download_manager.set_broadcast(ws_manager.broadcast)
     await download_manager.start()
     yield
     await download_manager.stop()
@@ -40,3 +43,4 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(download.router)
 app.include_router(legacy.router)
+app.include_router(ws_router)

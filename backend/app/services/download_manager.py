@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -21,6 +22,27 @@ class DownloadManager:
     def __init__(self) -> None:
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
+        self._current_download_id: str | None = None
+        self._broadcast_fn: Callable[..., Awaitable[None]] | None = None
+
+    def set_broadcast(self, fn: Callable[..., Awaitable[None]]) -> None:
+        """Set broadcast callback. Called from main.py lifespan."""
+        self._broadcast_fn = fn
+
+    @property
+    def current_download_id(self) -> str | None:
+        """Return the ID of the currently processing download."""
+        return self._current_download_id
+
+    @property
+    def queue_size(self) -> int:
+        """Return the number of items waiting in the queue."""
+        return self._queue.qsize()
+
+    async def _broadcast(self, message: dict) -> None:
+        """Send a message via the broadcast callback if set."""
+        if self._broadcast_fn:
+            await self._broadcast_fn(message)
 
     async def start(self) -> None:
         """Start the background worker."""
@@ -64,12 +86,18 @@ class DownloadManager:
         """Continuously process downloads from the queue."""
         while True:
             download_id = await self._queue.get()
+            self._current_download_id = download_id
             try:
                 await self._process_download(download_id)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Error processing download %s", download_id)
                 await self._update_status(download_id, "failed")
+                await self._broadcast({
+                    "type": "failed",
+                    "data": {"download_id": download_id, "error": str(exc)},
+                })
             finally:
+                self._current_download_id = None
                 self._queue.task_done()
 
     async def _process_download(self, download_id: str) -> None:
@@ -101,6 +129,16 @@ class DownloadManager:
                 download.progress = 5.0
                 await session.commit()
 
+        await self._broadcast({
+            "type": "metadata",
+            "data": {
+                "download_id": download_id,
+                "title": meta.title,
+                "channel": meta.channel,
+                "thumbnail_url": meta.thumbnail_url,
+            },
+        })
+
         # Run download and track progress
         async for progress in run_download(url, resolution):
             async with AsyncSessionLocal() as session:
@@ -118,6 +156,25 @@ class DownloadManager:
                         download.progress = 100.0
                         download.completed_at = datetime.now(timezone.utc)
                     await session.commit()
+
+            await self._broadcast({
+                "type": "progress",
+                "data": {
+                    "download_id": download_id,
+                    "percent": progress.percent,
+                    "status": progress.status,
+                },
+            })
+
+            if progress.status == "completed":
+                await self._broadcast({
+                    "type": "complete",
+                    "data": {
+                        "download_id": download_id,
+                        "filename": progress.filename,
+                        "status": "completed",
+                    },
+                })
 
     async def _update_status(self, download_id: str, status: str) -> None:
         """Update the status of a download record."""
