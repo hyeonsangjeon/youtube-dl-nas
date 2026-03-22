@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -60,3 +62,12 @@ def override_settings(monkeypatch):
     monkeypatch.setattr(settings, "MY_ID", "admin")
     monkeypatch.setattr(settings, "MY_PW", "admin")
     monkeypatch.setattr(settings, "SECRET_KEY", "test-secret-key-for-testing")
+
+
+@pytest.fixture(autouse=True)
+def disable_scheduler(monkeypatch):
+    """Prevent scheduler from running during tests."""
+    from app.services import scheduler as sched_module
+
+    monkeypatch.setattr(sched_module.scheduler, "start", AsyncMock())
+    monkeypatch.setattr(sched_module.scheduler, "stop", AsyncMock())

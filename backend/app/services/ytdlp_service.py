@@ -96,8 +96,13 @@ def build_download_cmd(url: str, resolution: str) -> list[str]:
         ]
     elif re.match(r"(vtt|srt)", resolution):
         parts = resolution.split("|")
+        if len(parts) < 2 or not parts[1].strip():
+            raise ValueError(
+                f"Subtitle resolution must be in format 'srt|lang' or 'vtt|lang', "
+                f"got: '{resolution}'"
+            )
         sub_format = parts[0]
-        sub_lang = parts[1] if len(parts) > 1 else "en"
+        sub_lang = parts[1]
         return [
             *base,
             "-o", f"{download_dir}/%(title)s.%(ext)s",

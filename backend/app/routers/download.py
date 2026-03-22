@@ -24,6 +24,11 @@ async def create_download(
     _user: str = Depends(get_current_user),
 ) -> DownloadResponse:
     """Enqueue a new download."""
+    if not request.url or not request.url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL: must start with http:// or https://",
+        )
     download_id = await download_manager.enqueue(request.url, request.resolution)
     result = await db.execute(select(Download).where(Download.id == download_id))
     download = result.scalar_one_or_none()
