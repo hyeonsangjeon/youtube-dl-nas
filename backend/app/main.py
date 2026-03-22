@@ -9,8 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.models.download import Download  # noqa: F401 — Base.metadata 등록용
-from app.routers import auth, download, health, legacy
+from app.routers import auth, download, files, health, legacy
 from app.services.download_manager import download_manager
+from app.services.scheduler import scheduler
 from app.ws.handler import router as ws_router
 from app.ws.manager import ws_manager
 
@@ -21,7 +22,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     download_manager.set_broadcast(ws_manager.broadcast)
     await download_manager.start()
+    await scheduler.start()
     yield
+    await scheduler.stop()
     await download_manager.stop()
 
 
@@ -42,5 +45,6 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(download.router)
+app.include_router(files.router)
 app.include_router(legacy.router)
 app.include_router(ws_router)

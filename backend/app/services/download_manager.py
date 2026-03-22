@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -114,67 +115,79 @@ class DownloadManager:
             url = download.url
             resolution = download.resolution or "best"
 
-        # Extract metadata
-        meta = await extract_metadata(url)
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Download).where(Download.id == download_id)
-            )
-            download = result.scalar_one_or_none()
-            if download:
-                download.title = meta.title
-                download.channel = meta.channel
-                download.thumbnail_url = meta.thumbnail_url
-                download.status = "downloading"
-                download.progress = 5.0
-                await session.commit()
-
-        await self._broadcast({
-            "type": "metadata",
-            "data": {
-                "download_id": download_id,
-                "title": meta.title,
-                "channel": meta.channel,
-                "thumbnail_url": meta.thumbnail_url,
-            },
-        })
-
-        # Run download and track progress
-        async for progress in run_download(url, resolution):
+        # Extract metadata (skip for subtitle-only downloads)
+        if not re.match(r"(vtt|srt)", resolution):
+            meta = await extract_metadata(url)
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     select(Download).where(Download.id == download_id)
                 )
                 download = result.scalar_one_or_none()
                 if download:
-                    download.progress = progress.percent
-                    download.status = progress.status
-                    if progress.filename:
-                        download.filename = progress.filename
-                        download.filepath = f"{settings.DOWNLOAD_DIR}/{progress.filename}"
-                    if progress.status == "completed":
-                        download.progress = 100.0
-                        download.completed_at = datetime.now(timezone.utc)
+                    download.title = meta.title
+                    download.channel = meta.channel
+                    download.thumbnail_url = meta.thumbnail_url
+                    download.status = "downloading"
+                    download.progress = 5.0
                     await session.commit()
 
             await self._broadcast({
-                "type": "progress",
+                "type": "metadata",
                 "data": {
                     "download_id": download_id,
-                    "percent": progress.percent,
-                    "status": progress.status,
+                    "title": meta.title,
+                    "channel": meta.channel,
+                    "thumbnail_url": meta.thumbnail_url,
                 },
             })
+        else:
+            logger.info("Skipping metadata for subtitle download %s", download_id)
+            await self._update_status(download_id, "downloading")
 
-            if progress.status == "completed":
+        # Run download and track progress
+        try:
+            async for progress in run_download(url, resolution):
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(
+                        select(Download).where(Download.id == download_id)
+                    )
+                    download = result.scalar_one_or_none()
+                    if download:
+                        download.progress = progress.percent
+                        download.status = progress.status
+                        if progress.filename:
+                            download.filename = progress.filename
+                            download.filepath = f"{settings.DOWNLOAD_DIR}/{progress.filename}"
+                        if progress.status == "completed":
+                            download.progress = 100.0
+                            download.completed_at = datetime.now(timezone.utc)
+                        await session.commit()
+
                 await self._broadcast({
-                    "type": "complete",
+                    "type": "progress",
                     "data": {
                         "download_id": download_id,
-                        "filename": progress.filename,
-                        "status": "completed",
+                        "percent": progress.percent,
+                        "status": progress.status,
                     },
                 })
+
+                if progress.status == "completed":
+                    await self._broadcast({
+                        "type": "complete",
+                        "data": {
+                            "download_id": download_id,
+                            "filename": progress.filename,
+                            "status": "completed",
+                        },
+                    })
+        except ValueError as e:
+            logger.error("Invalid download parameters for %s: %s", download_id, e)
+            await self._update_status(download_id, "failed")
+            await self._broadcast({
+                "type": "failed",
+                "data": {"download_id": download_id, "error": str(e)},
+            })
 
     async def _update_status(self, download_id: str, status: str) -> None:
         """Update the status of a download record."""
