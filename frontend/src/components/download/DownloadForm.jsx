@@ -65,7 +65,7 @@ export default function DownloadForm() {
         }}
       >
         {/* Main row */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col md:flex-row gap-3">
           {/* URL input */}
           <div className="relative flex-1">
             <Link
@@ -95,7 +95,7 @@ export default function DownloadForm() {
             <select
               value={resolution}
               onChange={(e) => setResolution(e.target.value)}
-              className="px-3 py-2.5 rounded-[var(--radius-sm)] text-sm
+              className="w-full md:w-[140px] px-3 py-2.5 rounded-[var(--radius-sm)] text-sm
                          bg-[var(--bg-input)] text-[var(--text-primary)]
                          border border-[var(--border)] outline-none cursor-pointer
                          focus:border-[var(--accent)] transition-colors"
@@ -112,7 +112,7 @@ export default function DownloadForm() {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center justify-center gap-2 px-5 py-2.5
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5
                        rounded-[var(--radius-sm)] text-sm font-semibold text-white
                        transition-all duration-200 cursor-pointer whitespace-nowrap
                        disabled:opacity-50 disabled:cursor-not-allowed"
@@ -136,7 +136,8 @@ export default function DownloadForm() {
         {/* Subtitle toggle row */}
         <div className="flex items-center gap-4 mt-3">
           <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
-            <div
+            <button
+              type="button"
               className="relative w-8 h-[18px] rounded-full transition-colors duration-200 cursor-pointer"
               style={{ background: subtitles ? "var(--accent)" : "var(--bg-input)" }}
               onClick={() => setSubtitles((v) => !v)}
@@ -145,7 +146,7 @@ export default function DownloadForm() {
                 className="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform duration-200"
                 style={{ left: subtitles ? 16 : 2 }}
               />
-            </div>
+            </button>
             <Subtitles size={14} />
             Subtitles
           </label>

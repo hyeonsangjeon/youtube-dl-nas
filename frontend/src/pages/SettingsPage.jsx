@@ -21,7 +21,8 @@ function SettingRow({ label, children }) {
   );
 }
 
-function SectionCard({ icon: Icon, title, delay = 0, children }) {
+function SectionCard({ icon, title, delay = 0, children }) {
+  const SIcon = icon;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -34,7 +35,7 @@ function SectionCard({ icon: Icon, title, delay = 0, children }) {
       }}
     >
       <div className="flex items-center gap-2 mb-4">
-        <Icon size={18} style={{ color: "var(--accent-light)" }} />
+        <SIcon size={18} style={{ color: "var(--accent-light)" }} />
         <h2 className="font-semibold text-[var(--text-primary)]">{title}</h2>
       </div>
       {children}

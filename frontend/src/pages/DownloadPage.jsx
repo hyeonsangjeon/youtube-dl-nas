@@ -1,12 +1,13 @@
 import { useCallback } from "react";
 import { useWS } from "../context/WebSocketContext";
+import ConnectionBanner from "../components/common/ConnectionBanner";
 import DownloadForm from "../components/download/DownloadForm";
 import ActiveDownload from "../components/download/ActiveDownload";
 import DownloadQueue from "../components/download/DownloadQueue";
 import HistoryTable from "../components/download/HistoryTable";
 
 export default function DownloadPage() {
-  const { downloadState, currentDownload, history, setHistory } = useWS();
+  const { isConnected, downloadState, currentDownload, history, setHistory } = useWS();
 
   const handleRemove = useCallback(
     (id) => setHistory((prev) => prev.filter((h) => h.id !== id)),
@@ -22,10 +23,12 @@ export default function DownloadPage() {
         Manage your download queue and history
       </p>
 
+      <ConnectionBanner isConnected={isConnected} />
+
       <div className="flex flex-col gap-4">
         <DownloadForm />
 
-        {downloadState.is_downloading && currentDownload && (
+        {currentDownload && (
           <ActiveDownload download={currentDownload} />
         )}
 

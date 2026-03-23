@@ -71,11 +71,11 @@ export default function HistoryTable({ items, onRemove }) {
               <img
                 src={item.thumbnail_url}
                 alt=""
-                className="w-16 h-9 rounded-md object-cover flex-shrink-0"
+                className="hidden md:block w-16 h-9 rounded-md object-cover flex-shrink-0"
               />
             ) : (
               <div
-                className="w-16 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                className="hidden md:flex w-16 h-9 rounded-md items-center justify-center flex-shrink-0"
                 style={{ background: "var(--bg-input)" }}
               >
                 <Film size={14} className="text-[var(--text-muted)]" />

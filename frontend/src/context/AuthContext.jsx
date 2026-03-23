@@ -1,5 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { createContext, useContext, useCallback, useState } from "react";
 import { login as apiLogin } from "../api/endpoints";
 
 const AuthContext = createContext();
@@ -7,12 +6,6 @@ const AuthContext = createContext();
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("access_token"));
   const isAuthenticated = !!token;
-
-  // Sync state if localStorage is cleared externally
-  useEffect(() => {
-    const stored = localStorage.getItem("access_token");
-    if (stored !== token) setToken(stored);
-  }, []);
 
   const login = useCallback(async (id, pw) => {
     const data = await apiLogin(id, pw);

@@ -18,11 +18,11 @@ export default function MobileTabBar() {
         backdropFilter: "blur(20px)",
       }}
     >
-      {TABS.map(({ to, icon: Icon, label }) => (
+      {TABS.map((tab) => (
         <NavLink
-          key={to}
-          to={to}
-          end={to === "/"}
+          key={tab.to}
+          to={tab.to}
+          end={tab.to === "/"}
           className={({ isActive }) =>
             `flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg transition-colors duration-200
              ${
@@ -32,8 +32,8 @@ export default function MobileTabBar() {
              }`
           }
         >
-          <Icon size={20} />
-          <span className="text-[10px] font-medium">{label}</span>
+          <tab.icon size={20} />
+          <span className="text-[10px] font-medium">{tab.label}</span>
         </NavLink>
       ))}
     </nav>

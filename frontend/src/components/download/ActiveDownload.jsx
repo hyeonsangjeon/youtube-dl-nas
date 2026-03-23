@@ -12,7 +12,7 @@ export default function ActiveDownload({ download }) {
       const t = setTimeout(() => setVisible(false), 3000);
       return () => clearTimeout(t);
     }
-    setVisible(true);
+    return undefined;
   }, [download?.status]);
 
   if (!download || !visible) return null;
@@ -43,17 +43,17 @@ export default function ActiveDownload({ download }) {
           border: "1px solid var(--border)",
         }}
       >
-        <div className="flex gap-4 items-center">
+        <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
           {/* Thumbnail */}
           {thumbnail_url ? (
             <img
               src={thumbnail_url}
               alt=""
-              className="w-24 h-[54px] rounded-lg object-cover flex-shrink-0"
+              className="w-full sm:w-24 h-auto sm:h-[54px] rounded-lg object-cover flex-shrink-0"
             />
           ) : (
             <div
-              className="w-24 h-[54px] rounded-lg flex items-center justify-center flex-shrink-0"
+              className="w-full sm:w-24 h-[120px] sm:h-[54px] rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ background: "var(--bg-input)" }}
             >
               <Film size={20} className="text-[var(--text-muted)]" />
@@ -62,9 +62,21 @@ export default function ActiveDownload({ download }) {
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[var(--text-primary)] truncate">
-              {title || "Getting video information..."}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                {title || "Getting video information..."}
+              </p>
+              {!isFailed && (
+                <span
+                  className="text-sm font-mono font-medium flex-shrink-0"
+                  style={{
+                    color: isComplete ? "var(--success)" : "var(--accent-light)",
+                  }}
+                >
+                  {statusText()}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
               {channel || "Extracting metadata..."}
             </p>
@@ -74,27 +86,28 @@ export default function ActiveDownload({ download }) {
               <ProgressBar percent={percent} />
             </div>
 
-            {/* Error message */}
-            {isFailed && error && (
-              <p className="text-xs text-[var(--danger)] mt-1 truncate">
-                {error}
-              </p>
+            {/* Failed badge + error */}
+            {isFailed && (
+              <div className="mt-2 flex items-start gap-2">
+                <span
+                  className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase
+                             tracking-wider rounded-full flex-shrink-0"
+                  style={{
+                    background: "rgba(255, 107, 107, 0.12)",
+                    color: "var(--danger)",
+                    border: "1px solid var(--danger)",
+                  }}
+                >
+                  Failed
+                </span>
+                {error && (
+                  <p className="text-xs text-[var(--danger)] leading-snug">
+                    {error}
+                  </p>
+                )}
+              </div>
             )}
           </div>
-
-          {/* Status text */}
-          <span
-            className="text-sm font-mono font-medium flex-shrink-0"
-            style={{
-              color: isComplete
-                ? "var(--success)"
-                : isFailed
-                  ? "var(--danger)"
-                  : "var(--accent-light)",
-            }}
-          >
-            {statusText()}
-          </span>
         </div>
       </motion.div>
     </AnimatePresence>

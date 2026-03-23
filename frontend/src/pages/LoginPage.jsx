@@ -137,7 +137,6 @@ export default function LoginPage() {
               onClick={() => setShowPw((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]
                          hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
-              tabIndex={-1}
             >
               {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>

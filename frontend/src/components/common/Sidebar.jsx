@@ -32,7 +32,7 @@ export default function Sidebar({ collapsed, onToggle }) {
           Y
         </div>
         {!collapsed && (
-          <span className="font-semibold text-sm text-[var(--text-primary)] whitespace-nowrap">
+          <span className="font-semibold text-sm text-[var(--text-primary)] whitespace-nowrap overflow-hidden">
             youtube-dl-nas
           </span>
         )}
@@ -40,11 +40,12 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       {/* Navigation */}
       <nav className="flex-1 flex flex-col gap-1 px-3 py-4">
-        {NAV_ITEMS.map(({ to, icon: Icon, label, badge }) => (
+        {NAV_ITEMS.map((item) => (
           <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-sm)] transition-all duration-200 group relative
                ${
@@ -59,13 +60,13 @@ export default function Sidebar({ collapsed, onToggle }) {
                 {isActive && (
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-[var(--accent)]" />
                 )}
-                <Icon size={20} className="flex-shrink-0" />
+                <item.icon size={20} className="flex-shrink-0" />
                 {!collapsed && (
                   <span className="text-sm font-medium whitespace-nowrap flex-1">
-                    {label}
+                    {item.label}
                   </span>
                 )}
-                {!collapsed && badge && <Badge variant="soon">{badge}</Badge>}
+                {!collapsed && item.badge && <Badge variant="soon">{item.badge}</Badge>}
               </>
             )}
           </NavLink>

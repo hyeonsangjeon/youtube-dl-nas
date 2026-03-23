@@ -90,18 +90,18 @@ export default function useWebSocket(enabled = true) {
         break;
 
       case "complete":
-        setCurrentDownload((prev) => ({
-          ...prev,
-          download_id: data.download_id,
-          status: "completed",
-          percent: 100,
-          filename: data.filename,
-        }));
         setDownloadState((prev) => ({
           ...prev,
           is_downloading: false,
           current_download_id: null,
         }));
+        setCurrentDownload((prev) => prev ? {
+          ...prev,
+          status: "completed",
+          percent: 100,
+          filename: data.filename,
+        } : null);
+        setTimeout(() => setCurrentDownload(null), 3000);
         // Refresh history from server
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           setHistory([]);
@@ -110,20 +110,22 @@ export default function useWebSocket(enabled = true) {
         break;
 
       case "failed":
-        setCurrentDownload((prev) => ({
-          ...prev,
-          download_id: data.download_id,
-          status: "failed",
-          error: data.error,
-        }));
         setDownloadState((prev) => ({
           ...prev,
           is_downloading: false,
           current_download_id: null,
         }));
+        setCurrentDownload((prev) => prev ? {
+          ...prev,
+          status: "failed",
+          error: data.error,
+        } : null);
+        setTimeout(() => setCurrentDownload(null), 5000);
         break;
     }
   }, []);
+
+  const connectRef = useRef(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -143,7 +145,7 @@ export default function useWebSocket(enabled = true) {
 
       if (shouldReconnectRef.current && retriesRef.current < MAX_RETRIES) {
         retriesRef.current += 1;
-        timerRef.current = setTimeout(connect, RETRY_DELAY);
+        timerRef.current = setTimeout(() => connectRef.current?.(), RETRY_DELAY);
       }
     };
 
@@ -153,6 +155,10 @@ export default function useWebSocket(enabled = true) {
 
     wsRef.current = ws;
   }, [handleMessage]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const sendMessage = useCallback((msg) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
