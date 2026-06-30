@@ -101,6 +101,10 @@ var maxReconnectAttempts = 5;
 var reconnectDelay = 1000; // 1second
 //---------------------------------------------------------------------------------------------------//
 $(document).ready(function() {
+    if (!$('body').hasClass('dashboard-page')) {
+        return;
+    }
+
     // resolution/subtitle format selection event
     $('#selResolution').on('change', function() {
         const selectedValue = $(this).val();
@@ -127,26 +131,23 @@ $(document).ready(function() {
 //---------------------------------------------------------------------------------------------------//
 
 $(function () {
+    if (!$('body').hasClass('dashboard-page')) {
+        return;
+    }
+
     let historyRestoreCount = 0;
     let isHistoryRestoring = false;
     let maxMessages = 5;
-    let messageCleanupTimer = null;
+    let historyItems = [];
+    let historyPrefs = loadHistoryPrefs();
+    let selectedHistoryUuid = null;
+    let activeDownload = null;
+    let queueCount = 0;
+    let statusPollTimer = null;
+    const emptyColspan = 7;
 
     console.log("Document ready - initializing...");
 
-    // Restore state from local storage
-    restoreLocalState();
-    
-    // Add function to check if the current page is a login page
-    function isLoginPage() {
-        return $('.form-signin').length > 0 && $('#loginBtn').length > 0;
-    }
-
-    if(!thdYn){
-        $(".table-responsive").hide();
-    }
-
-    // WebSocket connection and reconnection logic (using a single connection)
     function connectWebSocket() {
         if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
             console.log("WebSocket already connected, skipping...");
@@ -166,9 +167,10 @@ $(function () {
                 console.log("WebSocket opened");
                 reconnectAttempts = 0;
                 reconnectDelay = 1000;
-                
+                updateConnectionStatus('Online', 'completed');
                 messagesTxt("[MSG], WebSocket connection opened.");
-                
+                fetchStatus();
+
                 setTimeout(() => {
                     if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
                         console.log("Requesting history...");
@@ -186,29 +188,33 @@ $(function () {
             wsEventBus.onclose = function(evt) {
                 console.log("WebSocket closed, attempting to reconnect...");
                 wsEventBus = null;
+                updateConnectionStatus('Reconnecting', 'pending');
                 messagesTxt("[MSG], Connection lost. Reconnecting...");
                 attemptReconnect();
             }
 
             wsEventBus.onerror = function(evt) {
                 console.log("WebSocket error: ", evt);
+                updateConnectionStatus('Error', 'failed');
                 messagesTxt("[MSG], Connection error occurred.");
             }
         } catch (error) {
             console.error("WebSocket connection failed:", error);
             wsEventBus = null;
+            updateConnectionStatus('Offline', 'failed');
             attemptReconnect();
         }
     }
 
     function attemptReconnect() {
         if (reconnectAttempts >= maxReconnectAttempts) {
+            updateConnectionStatus('Offline', 'failed');
             messagesTxt("[MSG], Failed to reconnect. Please refresh the page.");
             return;
         }
 
         reconnectAttempts++;
-        
+
         setTimeout(() => {
             console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`);
             connectWebSocket();
@@ -217,7 +223,41 @@ $(function () {
         reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
     }
 
-    // local storage save
+    function loadHistoryPrefs() {
+        const defaults = {
+            sort: 'date-desc',
+            status: 'all',
+            type: 'all',
+            search: ''
+        };
+
+        try {
+            const savedPrefs = localStorage.getItem('historyPrefs');
+            return savedPrefs ? Object.assign(defaults, JSON.parse(savedPrefs)) : defaults;
+        } catch (error) {
+            console.error("Failed to load history prefs:", error);
+            return defaults;
+        }
+    }
+
+    function saveHistoryPrefs() {
+        localStorage.setItem('historyPrefs', JSON.stringify(historyPrefs));
+    }
+
+    function applyHistoryPrefsToControls() {
+        $('#history-search').val(historyPrefs.search);
+        $('#history-sort').val(historyPrefs.sort);
+        $('#history-status-filter').val(historyPrefs.status);
+        $('#history-type-filter').val(historyPrefs.type);
+    }
+
+    function updateConnectionStatus(label, state) {
+        const chip = $('#connection-status');
+        chip.text(label);
+        chip.removeClass('status-completed status-failed status-pending');
+        chip.addClass(state === 'completed' ? 'status-completed' : state === 'failed' ? 'status-failed' : 'status-pending');
+    }
+
     function saveLocalState() {
         const state = {
             downloadHistory: getDownloadHistory(),
@@ -226,13 +266,12 @@ $(function () {
         localStorage.setItem('downloadState', JSON.stringify(state));
     }
 
-    // local storage restore
     function restoreLocalState() {
         try {
             const savedState = localStorage.getItem('downloadState');
             if (savedState) {
                 const state = JSON.parse(savedState);
-                
+
                 if (Date.now() - state.lastUpdate < 24 * 60 * 60 * 1000) {
                     restoreDownloadHistory(state.downloadHistory);
                 }
@@ -243,33 +282,18 @@ $(function () {
     }
 
     function getDownloadHistory() {
-        const history = [];
-        $("#completeInfo tr").each(function() {
-            const cells = $(this).find('td');
-            if (cells.length >= 3) {
-                history.push({
-                    resolution: cells.eq(0).text().trim(),
-                    channel: cells.eq(1).text().trim(),
-                    title: cells.eq(2).text().trim(),
-                    uuid: $(this).find('.action-delete').data('uuid') // uuid 추가
-                });
-            }
-        });
-        return history;
+        return historyItems.slice();
     }
 
     function restoreDownloadHistory(history) {
-        if (history && history.length > 0) {
-            $("#completeInfo").empty();
-            history.forEach((item) => {
-                addHistoryItemWithUuid(item.resolution, item.channel, item.title, item.uuid || generateUuid());
-            });
+        historyItems = (history || []).map(normalizeHistoryItem);
+        renderHistory();
+        if (historyItems.length > 0) {
             $(".table-responsive").show();
             thdYn = true;
         }
     }
 
-    // UUID test
     function generateUuid() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
             var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -277,77 +301,404 @@ $(function () {
         });
     }
 
-    function addHistoryItem(resolution, channel, title) {
-        const uuid = generateUuid();
-        addHistoryItemWithUuid(resolution, channel, title, uuid);
+    function normalizeHistoryItem(item) {
+        const normalized = Object.assign({
+            uuid: generateUuid(),
+            timestamp: '',
+            url: '',
+            resolution: '',
+            channel: '',
+            title: '',
+            status: 'unknown',
+            filepath: '',
+            filename: '',
+            file_exists: false,
+            file_size_bytes: 0,
+            download_type: '',
+            progress: 0
+        }, item || {});
+
+        if (!normalized.uuid) {
+            normalized.uuid = generateUuid();
+        }
+        if (!normalized.download_type) {
+            normalized.download_type = getHistoryType(normalized.resolution);
+        }
+        if (!normalized.status) {
+            normalized.status = 'unknown';
+        }
+        return normalized;
     }
 
-    // initialize WebSocket connection
-    connectWebSocket();
+    function upsertHistoryItem(item, append) {
+        const normalized = normalizeHistoryItem(item);
+        const index = historyItems.findIndex((historyItem) => historyItem.uuid === normalized.uuid);
 
-    // download request handler
-    $(document).on("click","#send",function(){
-        console.log("Send button clicked");
-        
-        clearMessages();
-        
-        var data = {};
-        data.url = $("#url").val();
-        
-        
-        subtitleLan = '';
-        if ($("#selResolution").val() == 'vtt' || $("#selResolution").val() == 'srt') {
-            subtitleLan = $("#selSubtitleLanguage").val();            
-            data.resolution = `${$("#selResolution").val()}|${subtitleLan}`;
-        }else{
-            data.resolution = $("#selResolution").val();
+        if (index >= 0) {
+            historyItems[index] = normalized;
+        } else if (append) {
+            historyItems.push(normalized);
+        } else {
+            historyItems.unshift(normalized);
         }
-        console.log("Selected resolution:", data.resolution);
-        
+    }
 
-        if (!data.url) {
-            addMessage("Please enter a URL", 'warning');
-            return false;
+    function removeHistoryItem(uuid) {
+        historyItems = historyItems.filter((item) => item.uuid !== uuid);
+    }
+
+    function renderHistory() {
+        const filteredItems = getFilteredHistoryItems();
+        const body = $("#completeInfo");
+        const cards = $("#history-card-list");
+        const resultLabel = filteredItems.length === historyItems.length ?
+            `${historyItems.length} downloads` :
+            `${filteredItems.length} of ${historyItems.length} downloads`;
+        $('#history-result-count').text(resultLabel);
+
+        if (historyItems.length === 0) {
+            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>`);
+            cards.html(renderEmptyCard("No downloads yet", "Start downloading to see history here"));
+            renderDetailDrawer(null);
+            return;
         }
 
-        console.log("Sending request with data:", data);
-
-        $('#thumbnail-container').hide();
-        $('#video-thumbnail').attr('src', '');
-        $('#video-title-display').text('');
-        $('#video-channel-display').text('');
-
-        $.ajax({
-            method: "POST",
-            url: "/youtube-dl/q",
-            data: JSON.stringify(data),
-            dataType: "json",
-            contentType: "application/json",
-            success: function(response, status) {
-                console.log("AJAX success:", response);
-                $('#progress-container').show();
-                updateProgress(0);
-                currentVideoTitle = '';
-                currentChannel = '';
-                addMessage("Download request submitted successfully", 'success');
-            },
-            error: function(jqXHR, textStatus, errorThrown) {
-                console.log("AJAX error - textStatus:", textStatus);
-                console.log("AJAX error - errorThrown:", errorThrown);
-                console.log("AJAX error - response:", jqXHR.responseText);
-                addMessage("Request failed: " + textStatus, 'error');
+        if (filteredItems.length === 0) {
+            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No matching downloads<br><small>Try a different search or filter</small></td></tr>`);
+            cards.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
+            if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
+                renderDetailDrawer(null);
             }
+            $(".table-responsive").show();
+            return;
+        }
+
+        body.html(filteredItems.map(renderHistoryRow).join(''));
+        cards.html(filteredItems.map(renderHistoryCard).join(''));
+        $(".table-responsive").show();
+        if (selectedHistoryUuid) {
+            const selected = historyItems.find((item) => item.uuid === selectedHistoryUuid);
+            renderDetailDrawer(selected || null);
+        }
+    }
+
+    function getFilteredHistoryItems() {
+        const searchText = (historyPrefs.search || '').toLowerCase().trim();
+        const filtered = historyItems.filter((item) => {
+            const statusMatches = historyPrefs.status === 'all' || item.status === historyPrefs.status;
+            const typeMatches = historyPrefs.type === 'all' || item.download_type === historyPrefs.type;
+            const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''}`.toLowerCase();
+            const searchMatches = !searchText || searchTarget.indexOf(searchText) >= 0;
+            return statusMatches && typeMatches && searchMatches;
         });
 
-        $('#url').val('').focus();
-        return false;
-    });
+        return filtered.sort((a, b) => {
+            if (historyPrefs.sort === 'date-asc') {
+                return getTimestampValue(a.timestamp) - getTimestampValue(b.timestamp);
+            }
+            if (historyPrefs.sort === 'title-asc') {
+                return (a.title || '').localeCompare(b.title || '');
+            }
+            if (historyPrefs.sort === 'title-desc') {
+                return (b.title || '').localeCompare(a.title || '');
+            }
+            if (historyPrefs.sort === 'channel-asc') {
+                return (a.channel || '').localeCompare(b.channel || '');
+            }
+            if (historyPrefs.sort === 'channel-desc') {
+                return (b.channel || '').localeCompare(a.channel || '');
+            }
+            if (historyPrefs.sort === 'quality-asc') {
+                return (a.resolution || '').localeCompare(b.resolution || '');
+            }
+            if (historyPrefs.sort === 'quality-desc') {
+                return (b.resolution || '').localeCompare(a.resolution || '');
+            }
+            if (historyPrefs.sort === 'status-asc') {
+                return (a.status || '').localeCompare(b.status || '');
+            }
+            if (historyPrefs.sort === 'status-desc') {
+                return (b.status || '').localeCompare(a.status || '');
+            }
+            return getTimestampValue(b.timestamp) - getTimestampValue(a.timestamp);
+        });
+    }
+
+    function renderHistoryRow(item) {
+        const safeUuid = escapeAttr(item.uuid);
+        const safeTitle = escapeAttr(item.title || 'Untitled');
+        const safeChannel = escapeAttr(item.channel || 'Unknown');
+        const safeTimestamp = escapeAttr(item.timestamp || '');
+        const titleText = escapeHtml(item.title || 'Untitled');
+        const channelText = escapeHtml(item.channel || 'Unknown');
+        const resolutionText = escapeHtml(item.resolution || 'unknown');
+        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const dateText = formatTimestamp(item.timestamp);
+        const statusText = escapeHtml(item.status || 'unknown');
+        const sizeText = formatFileSize(item);
+        const canDownload = item.file_exists && item.uuid;
+        const titleElement = canDownload ?
+            `<a href="${getDownloadHref(item)}" download class="video-title" title="${safeTitle}">${titleText}</a>` :
+            `<span class="video-title" title="${safeTitle}">${titleText}</span>`;
+        const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
+
+        return `
+            <tr class="history-row ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
+                <td><span class="download-date" title="${safeTimestamp}">${dateText}</span></td>
+                <td>
+                    <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
+                    <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
+                </td>
+                <td><span class="channel-name" title="${safeChannel}">${channelText}</span></td>
+                <td>${titleElement}</td>
+                <td><span class="status-tag ${getStatusClass(item.status)}">${statusText}</span></td>
+                <td><span class="file-size ${item.file_exists ? '' : 'file-missing'}">${sizeText}</span></td>
+                <td class="actions-cell">${renderActionButtons(item, 'row')}</td>
+            </tr>
+        `;
+    }
+
+    function renderHistoryCard(item) {
+        const safeUuid = escapeAttr(item.uuid);
+        const titleText = escapeHtml(item.title || 'Untitled');
+        const channelText = escapeHtml(item.channel || 'Unknown');
+        const resolutionText = escapeHtml(item.resolution || 'unknown');
+        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const statusText = escapeHtml(item.status || 'unknown');
+        const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
+
+        return `
+            <article class="history-card ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
+                <div class="history-card-main">
+                    <div class="history-card-topline">
+                        <span class="download-date">${formatTimestamp(item.timestamp)}</span>
+                        <span class="status-tag ${getStatusClass(item.status)}">${statusText}</span>
+                    </div>
+                    <h3>${titleText}</h3>
+                    <p>${channelText}</p>
+                    <div class="history-card-tags">
+                        <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
+                        <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
+                        <span class="file-size ${item.file_exists ? '' : 'file-missing'}">${formatFileSize(item)}</span>
+                    </div>
+                </div>
+                <div class="history-card-actions">${renderActionButtons(item, 'card')}</div>
+            </article>
+        `;
+    }
+
+    function renderEmptyCard(title, message) {
+        return `
+            <div class="history-empty-card">
+                <span class="glyphicon glyphicon-inbox" aria-hidden="true"></span>
+                <strong>${escapeHtml(title)}</strong>
+                <p>${escapeHtml(message)}</p>
+            </div>
+        `;
+    }
+
+    function getDownloadHref(item) {
+        return `/static/downfolder/${encodeURIComponent(item.uuid)}`;
+    }
+
+    function renderActionButtons(item, context) {
+        const safeUuid = escapeAttr(item.uuid);
+        const isDetail = context === 'detail';
+        const canRetry = item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
+        const downloadButton = item.file_exists ? `
+            <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="Download file">
+                <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? '<span>Download File</span>' : ''}
+            </a>` : '';
+        const retryButton = canRetry ? `
+            <button class="action-btn action-retry" data-uuid="${safeUuid}" title="Retry download">
+                <span class="glyphicon glyphicon-repeat"></span>${isDetail ? '<span>Retry Download</span>' : ''}
+            </button>` : '';
+        const fileDeleteButton = item.file_exists ? `
+            <button class="action-btn action-file-delete" data-uuid="${safeUuid}" title="Delete file and related history">
+                <span class="glyphicon glyphicon-remove"></span>${isDetail ? '<span>Delete File</span>' : ''}
+            </button>` : '';
+        const detailClass = context === 'detail' ? ' detail-action-group' : '';
+
+        return `
+            <div class="action-group${detailClass}">
+                ${downloadButton}
+                ${retryButton}
+                <button class="action-btn action-history-delete" data-uuid="${safeUuid}" title="Delete history only">
+                    <span class="glyphicon glyphicon-trash"></span>${isDetail ? '<span>Delete History</span>' : ''}
+                </button>
+                ${fileDeleteButton}
+            </div>
+        `;
+    }
+
+    function selectHistoryItem(uuid) {
+        selectedHistoryUuid = uuid;
+        const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
+        renderDetailDrawer(item || null);
+        renderHistory();
+    }
+
+    function renderDetailDrawer(item) {
+        const drawer = $('#history-detail-drawer');
+        if (!item) {
+            drawer.html(`
+                <div class="detail-empty">
+                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
+                    <h2>Select a download</h2>
+                    <p>Open a history item to view URL, file details, and actions.</p>
+                </div>
+            `);
+            return;
+        }
+
+        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const statusText = escapeHtml(item.status || 'unknown');
+        const url = item.url || '';
+        const urlHtml = url ?
+            `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>` :
+            '<span class="muted">No URL saved</span>';
+
+        drawer.html(`
+            <article class="detail-panel" data-uuid="${escapeAttr(item.uuid)}">
+                <button type="button" id="close-detail" class="detail-close" title="Close details">
+                    <span class="glyphicon glyphicon-remove"></span>
+                </button>
+                <div class="detail-heading">
+                    <div>
+                        <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
+                        <span class="status-tag ${getStatusClass(item.status)}">${statusText}</span>
+                    </div>
+                    <h2 title="${escapeAttr(item.title || 'Untitled')}">${escapeHtml(item.title || 'Untitled')}</h2>
+                    <p>${escapeHtml(item.channel || 'Unknown channel')}</p>
+                </div>
+                <dl class="detail-list">
+                    ${renderDetailField('Downloaded', formatTimestamp(item.timestamp))}
+                    ${renderDetailField('Resolution', item.resolution || 'unknown')}
+                    ${renderDetailField('Size', formatFileSize(item))}
+                    ${renderDetailField('Filename', item.filename || 'No file saved')}
+                    ${renderDetailField('UUID', item.uuid || '')}
+                </dl>
+                <div class="detail-url">
+                    <span>Source URL</span>
+                    ${urlHtml}
+                </div>
+                <div class="detail-actions">${renderActionButtons(item, 'detail')}</div>
+            </article>
+        `);
+    }
+
+    function renderDetailField(label, value) {
+        return `
+            <div>
+                <dt>${escapeHtml(label)}</dt>
+                <dd>${escapeHtml(value)}</dd>
+            </div>
+        `;
+    }
+
+    function getTimestampValue(timestamp) {
+        const value = Date.parse(timestamp || '');
+        return isNaN(value) ? 0 : value;
+    }
+
+    function formatTimestamp(timestamp) {
+        if (!timestamp) {
+            return 'Unknown';
+        }
+
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) {
+            return timestamp;
+        }
+
+        return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    }
+
+    function pad2(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function formatFileSize(item) {
+        const size = Number(item.file_size_bytes || 0);
+        if (!item.file_exists) {
+            return item.filename ? 'Missing' : '-';
+        }
+        if (size <= 0) {
+            return '0 B';
+        }
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = size;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value = value / 1024;
+            unitIndex++;
+        }
+
+        const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+        return `${value.toFixed(precision)} ${units[unitIndex]}`;
+    }
+
+    function getHistoryType(resolution) {
+        resolution = resolution || '';
+        if (resolution.indexOf('audio') === 0) {
+            return 'audio';
+        }
+        if (/^(vtt|srt)/.test(resolution)) {
+            return 'subtitle';
+        }
+        return 'video';
+    }
+
+    function getResolutionClass(resolution) {
+        resolution = resolution || '';
+        if (resolution.indexOf('best') >= 0 || resolution.indexOf('1080') >= 0 || resolution.indexOf('1440') >= 0 || resolution.indexOf('2160') >= 0) {
+            return 'resolution-high';
+        } else if (resolution.indexOf('720') >= 0) {
+            return 'resolution-medium';
+        } else if (resolution.indexOf('audio') >= 0) {
+            return 'resolution-audio';
+        } else if (/^(vtt|srt)/.test(resolution)) {
+            return 'resolution-subtitle';
+        } else {
+            return 'resolution-low';
+        }
+    }
+
+    function getStatusClass(status) {
+        if (status === 'completed') {
+            return 'status-completed';
+        }
+        if (status === 'failed' || status === 'error') {
+            return 'status-failed';
+        }
+        return 'status-pending';
+    }
+
+    function escapeHtml(value) {
+        return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function(char) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char];
+        });
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value);
+    }
 
     function updateProgress(percentage) {
         console.log("Updating progress to:", percentage);
+        if (activeDownload) {
+            activeDownload.progress = percentage;
+        }
         $('#progress-bar').css('width', percentage + '%');
         $('#progress-bar').attr('aria-valuenow', percentage);
-        
+
         var displayText = Math.round(percentage) + '%';
         if (currentVideoTitle) {
             displayText = Math.round(percentage) + '% - ' + currentVideoTitle;
@@ -356,17 +707,104 @@ $(function () {
             }
         }
         $('#progress-text').text(displayText);
-        
+        updateActivityPanel(activeDownload);
+
         if (percentage >= 100) {
             setTimeout(function() {
                 $('#progress-container').hide();
                 updateProgress(0);
                 currentVideoTitle = '';
                 currentChannel = '';
+                activeDownload = null;
+                updateActivityPanel(null);
                 setTimeout(function() {
                     $('#thumbnail-container').hide();
                 }, 2000);
             }, 3000);
+        }
+    }
+
+    function applyCurrentDownload(downloadData) {
+        activeDownload = downloadData ? Object.assign({}, activeDownload || {}, downloadData) : null;
+        if (activeDownload) {
+            currentVideoTitle = activeDownload.title || currentVideoTitle || '';
+            currentChannel = activeDownload.channel || currentChannel || '';
+        }
+        updateActivityPanel(activeDownload);
+    }
+
+    function applyStatusResponse(response) {
+        if (!response || !response.success) {
+            return;
+        }
+
+        updateQueueCount(Number(response.queue_count || 0));
+        if (response.current_download) {
+            applyCurrentDownload(response.current_download);
+            if (response.current_download.progress !== undefined) {
+                updateProgress(Number(response.current_download.progress || 0));
+            }
+        } else if (!response.is_downloading) {
+            activeDownload = null;
+            updateActivityPanel(null);
+        }
+    }
+
+    function fetchStatus() {
+        $.ajax({
+            method: "GET",
+            url: "/youtube-dl/status",
+            dataType: "json",
+            success: applyStatusResponse,
+            error: function() {
+                updateConnectionStatus('Status unavailable', 'failed');
+            }
+        });
+    }
+
+    function startStatusPolling() {
+        if (statusPollTimer) {
+            clearInterval(statusPollTimer);
+        }
+        fetchStatus();
+        statusPollTimer = setInterval(fetchStatus, 10000);
+    }
+
+    function updateQueueCount(count) {
+        queueCount = Math.max(0, count || 0);
+        $('#queue-count').text(`Queue ${queueCount}`);
+    }
+
+    function updateActivityPanel(downloadData) {
+        const data = downloadData || null;
+        if (!data) {
+            $('#activity-title').text(queueCount > 0 ? 'Waiting in queue' : 'Idle');
+            $('#activity-summary').text(queueCount > 0 ? 'Requests are queued' : 'No active download');
+            $('#activity-channel').text(queueCount > 0 ? 'The worker will pick up the next request.' : 'Waiting for the next request.');
+            $('#activity-status').text(queueCount > 0 ? 'queued' : 'idle')
+                .removeClass('status-completed status-failed status-pending')
+                .addClass('status-pending');
+            $('#activity-thumbnail-image').hide().attr('src', '');
+            $('#activity-thumbnail-placeholder').show();
+            return;
+        }
+
+        const status = data.status || 'working';
+        const title = data.title || currentVideoTitle || 'Preparing download';
+        const channel = data.channel || currentChannel || 'Resolving media information';
+        $('#activity-title').text(title);
+        $('#activity-summary').text(status === 'extracting_info' ? 'Getting video information' : 'Download in progress');
+        $('#activity-channel').text(channel);
+        $('#activity-status').text(status)
+            .removeClass('status-completed status-failed status-pending')
+            .addClass(getStatusClass(status));
+
+        if (data.thumbnail) {
+            $('#activity-thumbnail-image').attr('src', data.thumbnail).show();
+            $('#activity-thumbnail-placeholder').hide();
+        } else {
+            $('#activity-thumbnail-image').hide().attr('src', '');
+            $('#activity-thumbnail-placeholder').show();
         }
     }
 
@@ -376,19 +814,19 @@ $(function () {
         }
 
         const messageId = 'msg-' + Date.now();
-        const alertClass = type === 'error' ? 'alert-danger' : 
-                          type === 'warning' ? 'alert-warning' : 
+        const alertClass = type === 'error' ? 'alert-danger' :
+                          type === 'warning' ? 'alert-warning' :
                           type === 'success' ? 'alert-success' : 'alert-info';
-        
+
         const messageHtml = `
             <div id="${messageId}" class="alert ${alertClass} alert-dismissible" style="margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                     <span aria-hidden="true">&times;</span>
                 </button>
-                ${message}
+                ${escapeHtml(message)}
             </div>
         `;
-        
+
         $("#messages").prepend(messageHtml);
 
         const messages = $("#messages .alert");
@@ -415,109 +853,91 @@ $(function () {
         });
     }
 
+    function getAjaxErrorMessage(jqXHR, fallback) {
+        if (jqXHR.responseJSON && jqXHR.responseJSON.msg) {
+            return jqXHR.responseJSON.msg;
+        }
+        try {
+            const response = JSON.parse(jqXHR.responseText);
+            return response.msg || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
     function messagesTxt(msg) {
         console.log("Processing message:", msg);
-        
+
         const firstCommaIndex = msg.indexOf(',');
         if (firstCommaIndex === -1) {
             console.log("Invalid message format:", msg);
             return;
         }
-        
+
         const messageType = msg.substring(0, firstCommaIndex);
         const messageContent = msg.substring(firstCommaIndex + 1).trim();
-        
+
         console.log("Message type:", messageType);
         console.log("Message content:", messageContent);
-        
+
         if (messageType === "[RESTORE_HISTORY]") {
             try {
                 if (!isHistoryRestoring) {
                     isHistoryRestoring = true;
                     historyRestoreCount = 0;
+                    historyItems = [];
+                    renderHistory();
                     console.log("Starting history restoration...");
-                    $("#completeInfo").empty();
                 }
-                
+
                 const historyData = JSON.parse(messageContent);
-                console.log("Restoring history item:", historyData);
-                
-                const resolution = historyData.resolution || "";
-                const channel = historyData.channel || "";
-                const title = historyData.title || "";
-                const uuid = historyData.uuid; // server side uuid  
-                const filepath = historyData.filepath || "";
-                const filename = historyData.filename || "";
-                
-            
-                if (uuid) {
-                    console.log(`Restoring history item with UUID: ${uuid}`);
-                    addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename);
-                    historyRestoreCount++;
-                } else {
-                    console.warn("No UUID found in history data:", historyData);
-                }
-                
+                upsertHistoryItem(historyData, true);
+                historyRestoreCount++;
             } catch (e) {
                 console.error("Error parsing history data:", e, "Raw content:", messageContent);
             }
-            
+
         } else if (messageType === "[HISTORY_RESTORE_COMPLETE]") {
             console.log(`History restoration completed. Restored ${historyRestoreCount} items.`);
             isHistoryRestoring = false;
-            
-            $('.empty-state').remove();
-            
-            if (historyRestoreCount === 0) {
-                $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-            } else {
-                console.log(`Successfully displayed ${historyRestoreCount} history items`);
-                $(".table-responsive").show();
-                thdYn = true;
-                saveLocalState();
-            }
-            
-        } else if (messageType === "[HISTORY_CLEARED]") {
-            $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
+            renderHistory();
+            thdYn = historyItems.length > 0;
             saveLocalState();
-            addMessage("All download history cleared", 'warning');
-            
+
+        } else if (messageType === "[HISTORY_CLEARED]") {
+            const hadHistory = historyItems.length > 0;
+            historyItems = [];
+            selectedHistoryUuid = null;
+            renderHistory();
+            saveLocalState();
+            if (hadHistory) {
+                addMessage("All download history cleared", 'warning');
+            }
+
         } else if (messageType === "[HISTORY_DELETED]") {
-            const deletedUuid = messageContent; 
-            $(`[data-uuid="${deletedUuid}"]`).closest('tr').fadeOut(300, function() {
-                $(this).remove();
-                saveLocalState();
-                
-                if ($("#completeInfo tr").length === 0) {
-                    $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-                }
-            });
-            addMessage("Download history item deleted", 'info');
-            
+            const hadItem = historyItems.some((item) => item.uuid === messageContent);
+            removeHistoryItem(messageContent);
+            if (selectedHistoryUuid === messageContent) {
+                selectedHistoryUuid = null;
+            }
+            renderHistory();
+            saveLocalState();
+            if (hadItem) {
+                addMessage("Download history item deleted", 'info');
+            }
+
         } else if (messageType === "[COMPLETE]") {
             console.log("Complete message received");
             try {
-                // JSON 파싱으로 변경
                 const completeData = JSON.parse(messageContent);
-                
-                const resolution = completeData.resolution || "";
-                const channel = completeData.channel || "";
-                const title = completeData.title || "";
-                const filepath = completeData.filepath || "";
-                const filename = completeData.filename || "";
-                const uuid = completeData.uuid || "";
-                
-                console.log("Parsed complete data:", completeData);
-                
-                addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename);
-                
-                $(".table-responsive").show();
+                upsertHistoryItem(completeData, false);
+                renderHistory();
                 thdYn = true;
                 saveLocalState();
-                
-                const displayTitle = title.length > 50 ? title.substring(0, 50) + '...' : title;
-                addMessage(`✅ Download completed: ${displayTitle}`, 'success');
-                
+                fetchStatus();
+
+                const displayTitle = completeData.title && completeData.title.length > 50 ? completeData.title.substring(0, 50) + '...' : completeData.title || 'download';
+                addMessage(`Download completed: ${displayTitle}`, 'success');
             } catch (e) {
                 console.error("Error parsing complete message:", e, "Raw content:", messageContent);
                 addMessage("Error processing download completion", 'error');
@@ -526,54 +946,54 @@ $(function () {
             try {
                 const activeData = JSON.parse(messageContent);
                 console.log("Restoring active download:", activeData);
-                
+                applyCurrentDownload(activeData);
+
                 if (activeData.progress !== undefined) {
                     updateProgress(activeData.progress);
                     if (activeData.progress > 0) {
                         $('#progress-container').show();
                     }
                 }
-                
+
                 if (activeData.title) {
                     currentVideoTitle = activeData.title;
                 }
                 if (activeData.channel) {
                     currentChannel = activeData.channel;
                 }
-                
+
                 if (activeData.thumbnail) {
                     $('#video-thumbnail').attr('src', activeData.thumbnail);
                     $('#video-title-display').text(activeData.title || '');
                     $('#video-channel-display').text(activeData.channel || '');
-                    $('#thumbnail-container').show();
+                    $('#thumbnail-container').css('display', 'grid');
                 }
-                
+
                 if (activeData.progress > 0 && activeData.progress < 100) {
-                    const displayTitle = activeData.title && activeData.title.length > 30 ? 
+                    const displayTitle = activeData.title && activeData.title.length > 30 ?
                                        activeData.title.substring(0, 30) + '...' : activeData.title;
-                    addMessage(`🔄 Resuming download: ${displayTitle} (${Math.round(activeData.progress)}%)`, 'info');
+                    addMessage(`Resuming download: ${displayTitle} (${Math.round(activeData.progress)}%)`, 'info');
                 }
-                
             } catch (e) {
                 console.error("Error parsing active download data:", e);
             }
-            
+
         } else if (messageType === "[PROGRESS]") {
             const progress = parseFloat(messageContent);
             updateProgress(progress);
             if (progress > 0) {
                 $('#progress-container').show();
             }
-            
+
         } else if (messageType === "[MSG]") {
             const message = messageContent;
-            
+
             const skipMessages = [
                 "WebSocket connection opened.",
                 "Connection lost. Reconnecting...",
                 "We received your download. Please wait."
             ];
-            
+
             const downloadPatterns = [
                 /^\[Started\] downloading/,
                 /^\[Finished\] downloading/,
@@ -581,10 +1001,10 @@ $(function () {
                 /Downloading\.\.\./,
                 /Getting video information/
             ];
-            
-            if (!skipMessages.includes(message.trim()) && 
+
+            if (!skipMessages.includes(message.trim()) &&
                 !downloadPatterns.some(pattern => pattern.test(message))) {
-                
+
                 let messageType = 'info';
                 if (message.includes('error') || message.includes('failed')) {
                     messageType = 'error';
@@ -593,94 +1013,52 @@ $(function () {
                 } else if (message.includes('completed') || message.includes('finished')) {
                     messageType = 'success';
                 }
-                
+
                 addMessage(message, messageType);
             }
-            
+
             console.log("Message:", message);
-            
+
         } else if (messageType === "[TITLE]") {
             const title = messageContent;
             currentVideoTitle = title;
+            if (activeDownload) {
+                activeDownload.title = title;
+            }
             $('#video-title-display').text(title);
-            
+            updateActivityPanel(activeDownload);
+
         } else if (messageType === "[CHANNEL]") {
             const channel = messageContent;
             currentChannel = channel;
+            if (activeDownload) {
+                activeDownload.channel = channel;
+            }
             $('#video-channel-display').text(channel);
-            
+            updateActivityPanel(activeDownload);
+
         } else if (messageType === "[THUMBNAIL]") {
             const thumbnail = messageContent;
+            if (activeDownload) {
+                activeDownload.thumbnail = thumbnail;
+            }
             $('#video-thumbnail').attr('src', thumbnail);
-            $('#thumbnail-container').show();
+            $('#thumbnail-container').css('display', 'grid');
+            updateActivityPanel(activeDownload);
         }
     }
 
-
-    function addHistoryItemWithUuid(resolution, channel, title, uuid, filepath, filename) {
-        console.log(`Adding history item: ${uuid} - ${title} (${filepath})`);
-        
-        const resolutionClass = getResolutionClass(resolution);
-        const safeTitle = title ? title.replace(/"/g, '&quot;') : '';
-        const safeChannel = channel ? channel.replace(/"/g, '&quot;') : '';
-        
-        let downloadUrl = '';
-
-        downloadUrl = `/static/downfolder/${uuid}`;
-        console.log(`Download URL set to: ${downloadUrl}`);
-
-        const titleElement = downloadUrl ?
-            `<a href="${downloadUrl}" download class="video-title" title="${safeTitle}">${safeTitle}</a>` :
-            `<span class="video-title" title="${safeTitle}">${safeTitle}</span>`;
-        
-        const newRow = `
-            <tr>
-                <td><span class="resolution-tag ${resolutionClass}">${resolution}</span></td>
-                <td><span class="channel-name" title="${safeChannel}">${safeChannel}</span></td>
-                <td>${titleElement}</td>
-                <td>
-                    <button class="action-delete" data-uuid="${uuid}" title="Delete this item">
-                        <span class="glyphicon glyphicon-trash"></span>
-                    </button>
-                </td>
-            </tr>
-        `;
-        
-        $('.empty-state').remove();
-        
-        if (isHistoryRestoring) {
-            $("#completeInfo").append(newRow);
-        } else {
-            $("#completeInfo").prepend(newRow);
-        }
-        
-        console.log(`History item added successfully: ${title}`);
-    }
-
-    function getResolutionClass(resolution) {
-        if (resolution.includes('best') || resolution.includes('1080') || resolution.includes('4K')) {
-            return 'resolution-high';
-        } else if (resolution.includes('720')) {
-            return 'resolution-medium';
-        } else if (resolution.includes('audio')) {
-            return 'resolution-audio';
-        } else {
-            return 'resolution-low';
-        }
-    }
-
-    // for delete content
-    function showConfirmModal(title, message, onConfirm) {
+    function showConfirmModal(title, message, onConfirm, confirmText) {
         $('.confirm-modal').remove();
-        
+
         const modal = $(`
-            <div class="confirm-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
-                <div class="confirm-content" style="background: white; padding: 30px; border-radius: 12px; text-align: center; max-width: 400px;">
-                    <h4>${title}</h4>
-                    <p>${message}</p>
-                    <div class="confirm-buttons" style="display: flex; gap: 15px; justify-content: center;">
+            <div class="confirm-modal">
+                <div class="confirm-content">
+                    <h4>${escapeHtml(title)}</h4>
+                    <p>${escapeHtml(message)}</p>
+                    <div class="confirm-buttons">
                         <button class="btn btn-default confirm-cancel">Cancel</button>
-                        <button class="btn btn-danger confirm-ok">Delete</button>
+                        <button class="btn btn-danger confirm-ok">${escapeHtml(confirmText || 'Delete')}</button>
                     </div>
                 </div>
             </div>
@@ -698,7 +1076,7 @@ $(function () {
         modal.find('.confirm-cancel').on('click', function() {
             modal.remove();
         });
-        
+
         modal.on('click', function(e) {
             if (e.target === modal[0]) {
                 modal.remove();
@@ -706,87 +1084,312 @@ $(function () {
         });
     }
 
-    // function clearAllHistory() {
-    //     $.ajax({
-    //         method: "POST",
-    //         url: "/youtube-dl/history/clear",
-    //         success: function(response) {
-    //             if (response.success) {
-    //                 $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-    //                 saveLocalState();
-    //                 console.log("All history cleared successfully");
-    //             } else {
-    //                 console.error("Failed to clear history:", response.msg);
-    //             }
-    //         },
-    //         error: function() {
-    //             console.error("Error occurred while clearing history");
-    //         }
-    //     });
-    // }
-
-    function deleteHistoryItem(uuid) {
-
+    function fetchHistory() {
         $.ajax({
-            method: "POST",
-            url: `/youtube-dl/history/delete/${uuid}`, 
+            method: "GET",
+            url: "/youtube-dl/history",
+            dataType: "json",
             success: function(response) {
                 if (response.success) {
-                    $(`[data-uuid="${uuid}"]`).closest('tr').fadeOut(300, function() {
-                        $(this).remove();
-                        saveLocalState();
-                        
-                        if ($("#completeInfo tr").length === 0) {
-                            $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-                        }
-                    });
-                    console.log("History item deleted successfully");
+                    historyItems = (response.history || []).map(normalizeHistoryItem);
+                    renderHistory();
+                    saveLocalState();
+                    addMessage("Download history refreshed", 'success');
                 } else {
-                    console.error("Failed to delete history item:", response.msg);
+                    addMessage(response.msg || "Failed to refresh history", 'error');
                 }
             },
-            error: function() {
-                console.error("Error occurred while deleting history item");
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, "Failed to refresh history"), 'error');
             }
         });
     }
 
-    // event handler
-    // $(document).on("click", "#clear-all-history", function() {
-    //     showConfirmModal(
-    //         "Clear All History", 
-    //         "Are you sure you want to delete all download history? This action cannot be undone.",
-    //         function() {
-    //             clearAllHistory();
-    //         }
-    //     );
-    // });
+    function clearAllHistory() {
+        $.ajax({
+            method: "POST",
+            url: "/youtube-dl/history/clear",
+            success: function(response) {
+                if (response.success) {
+                    const hadHistory = historyItems.length > 0;
+                    historyItems = [];
+                    selectedHistoryUuid = null;
+                    renderHistory();
+                    saveLocalState();
+                    if (hadHistory) {
+                        addMessage("History cleared. Downloaded files were not deleted.", 'warning');
+                    }
+                } else {
+                    addMessage(response.msg || "Failed to clear history", 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while clearing history"), 'error');
+            }
+        });
+    }
 
-    $(document).on("click", "#refresh-history", function() {
-        if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
-            console.log("Refreshing history...");
-            $("#completeInfo").empty();
-            historyRestoreCount = 0;
-            isHistoryRestoring = false;
-            wsEventBus.send('[REQUEST_HISTORY]');
+    function deleteHistoryItem(uuid) {
+        $.ajax({
+            method: "POST",
+            url: `/youtube-dl/history/delete/${encodeURIComponent(uuid)}`,
+            success: function(response) {
+                if (response.success) {
+                    const hadItem = historyItems.some((item) => item.uuid === uuid);
+                    removeHistoryItem(uuid);
+                    if (selectedHistoryUuid === uuid) {
+                        selectedHistoryUuid = null;
+                    }
+                    renderHistory();
+                    saveLocalState();
+                    if (hadItem) {
+                        addMessage("History item deleted. File was kept.", 'info');
+                    }
+                } else {
+                    addMessage(response.msg || "Failed to delete history item", 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while deleting history"), 'error');
+            }
+        });
+    }
+
+    function deleteHistoryFile(uuid) {
+        $.ajax({
+            method: "POST",
+            url: `/youtube-dl/history/delete-file/${encodeURIComponent(uuid)}`,
+            success: function(response) {
+                if (response.success) {
+                    const deletedUuids = response.deleted_uuids || [uuid];
+                    const deletedCount = deletedUuids.filter((deletedUuid) => historyItems.some((item) => item.uuid === deletedUuid)).length;
+                    deletedUuids.forEach(removeHistoryItem);
+                    if (deletedUuids.indexOf(selectedHistoryUuid) >= 0) {
+                        selectedHistoryUuid = null;
+                    }
+                    renderHistory();
+                    saveLocalState();
+                    if (deletedCount > 0) {
+                        addMessage("File and related history deleted", 'warning');
+                    }
+                } else {
+                    addMessage(response.msg || "Failed to delete file", 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while deleting file"), 'error');
+            }
+        });
+    }
+
+    function retryHistoryItem(uuid) {
+        $.ajax({
+            method: "POST",
+            url: `/youtube-dl/history/retry/${encodeURIComponent(uuid)}`,
+            success: function(response) {
+                if (response.success) {
+                    $('#progress-container').show();
+                    updateProgress(0);
+                    fetchStatus();
+                    addMessage("Retry request submitted successfully", 'success');
+                } else {
+                    addMessage(response.msg || "Failed to retry download", 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while retrying download"), 'error');
+            }
+        });
+    }
+
+    function syncModeFromResolution() {
+        const selectedValue = $('#selResolution').val();
+        let mode = 'video';
+        if (selectedValue === 'audio-m4a' || selectedValue === 'audio-mp3' || selectedValue === 'audio') {
+            mode = 'audio';
+        } else if (selectedValue === 'srt' || selectedValue === 'vtt') {
+            mode = 'subtitle';
         }
+        $('.mode-tab').removeClass('active');
+        $(`.mode-tab[data-download-mode="${mode}"]`).addClass('active');
+    }
+
+    function setDownloadMode(mode) {
+        if (mode === 'audio') {
+            $('#selResolution').val('audio-mp3');
+        } else if (mode === 'subtitle') {
+            $('#selResolution').val('vtt');
+        } else if ($('#selResolution').val() === 'audio-m4a' || $('#selResolution').val() === 'audio-mp3' || $('#selResolution').val() === 'srt' || $('#selResolution').val() === 'vtt') {
+            $('#selResolution').val('best');
+        }
+
+        $('#selResolution').trigger('change');
+        syncModeFromResolution();
+    }
+
+    $(document).on("submit", "#form1", function(event){
+        event.preventDefault();
+        console.log("Download form submitted");
+
+        clearMessages();
+
+        var data = {};
+        data.url = $("#url").val();
+
+        let subtitleLan = '';
+        if ($("#selResolution").val() == 'vtt' || $("#selResolution").val() == 'srt') {
+            subtitleLan = $("#selSubtitleLanguage").val();
+            data.resolution = `${$("#selResolution").val()}|${subtitleLan}`;
+        } else {
+            data.resolution = $("#selResolution").val();
+        }
+        console.log("Selected resolution:", data.resolution);
+
+        if (!data.url) {
+            addMessage("Please enter a URL", 'warning');
+            return false;
+        }
+
+        $('#thumbnail-container').hide();
+        $('#video-thumbnail').attr('src', '');
+        $('#video-title-display').text('');
+        $('#video-channel-display').text('');
+
+        $.ajax({
+            method: "POST",
+            url: "/youtube-dl/q",
+            data: JSON.stringify(data),
+            dataType: "json",
+            contentType: "application/json",
+            success: function(response, status) {
+                console.log("AJAX success:", response);
+                $('#progress-container').show();
+                updateProgress(0);
+                currentVideoTitle = '';
+                currentChannel = '';
+                fetchStatus();
+                addMessage("Download request submitted successfully", 'success');
+            },
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.log("AJAX error - textStatus:", textStatus);
+                console.log("AJAX error - errorThrown:", errorThrown);
+                addMessage(getAjaxErrorMessage(jqXHR, "Request failed: " + textStatus), 'error');
+            }
+        });
+
+        $('#url').val('').focus();
+        return false;
     });
 
-    $(document).on("click", ".action-delete", function() {
-        const uuid = $(this).data('uuid'); 
-        const title = $(this).closest('tr').find('.video-title').text().trim();
-        
+    $(document).on("input", "#history-search", function() {
+        historyPrefs.search = $(this).val();
+        saveHistoryPrefs();
+        renderHistory();
+    });
+
+    $(document).on("change", "#history-sort, #history-status-filter, #history-type-filter", function() {
+        historyPrefs.sort = $('#history-sort').val();
+        historyPrefs.status = $('#history-status-filter').val();
+        historyPrefs.type = $('#history-type-filter').val();
+        saveHistoryPrefs();
+        renderHistory();
+    });
+
+    $(document).on("click", "#reset-history-filters", function() {
+        historyPrefs = {
+            sort: 'date-desc',
+            status: 'all',
+            type: 'all',
+            search: ''
+        };
+        applyHistoryPrefsToControls();
+        saveHistoryPrefs();
+        renderHistory();
+    });
+
+    $(document).on("click", ".mode-tab", function() {
+        setDownloadMode($(this).data('download-mode'));
+    });
+
+    $(document).on("change", "#selResolution", function() {
+        syncModeFromResolution();
+    });
+
+    $(document).on("click keydown", ".history-row, .history-card", function(event) {
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+        if ($(event.target).closest('.action-btn, a, button').length) {
+            return;
+        }
+        event.preventDefault();
+        selectHistoryItem($(this).data('uuid'));
+    });
+
+    $(document).on("click", "#close-detail", function() {
+        selectedHistoryUuid = null;
+        renderHistory();
+        renderDetailDrawer(null);
+    });
+
+    $(document).on("click", "#refresh-history", function() {
+        fetchHistory();
+    });
+
+    $(document).on("click", "#clear-history", function() {
         showConfirmModal(
-            "Delete History Item", 
-            `Are you sure you want to delete "${title.substring(0, 50)}..."?`,
-            function() {
-                deleteHistoryItem(uuid); 
-            }
+            "Clear History",
+            "Clear all history rows? Downloaded files will be kept.",
+            clearAllHistory,
+            "Clear"
         );
     });
 
-    // message payload empty
-    if ($("#completeInfo").children().length === 0) {
-        $("#completeInfo").html('<tr><td colspan="4" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>');
-    }
+    $(document).on("click", ".action-history-delete", function(event) {
+        event.stopPropagation();
+        const uuid = $(this).data('uuid');
+        const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
+        const title = item ? item.title : 'this item';
+
+        showConfirmModal(
+            "Delete History Item",
+            `Delete the history row for "${title.substring(0, 50)}"? The file will be kept.`,
+            function() {
+                deleteHistoryItem(uuid);
+            },
+            "Delete History"
+        );
+    });
+
+    $(document).on("click", ".action-file-delete", function(event) {
+        event.stopPropagation();
+        const uuid = $(this).data('uuid');
+        const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
+        const title = item ? item.title : 'this file';
+
+        showConfirmModal(
+            "Delete File",
+            `Delete the physical file for "${title.substring(0, 50)}" and remove related history rows?`,
+            function() {
+                deleteHistoryFile(uuid);
+            },
+            "Delete File"
+        );
+    });
+
+    $(document).on("click", ".action-retry", function(event) {
+        event.stopPropagation();
+        retryHistoryItem($(this).data('uuid'));
+    });
+
+    $(document).on("click", ".action-download", function(event) {
+        event.stopPropagation();
+    });
+
+    applyHistoryPrefsToControls();
+    syncModeFromResolution();
+    restoreLocalState();
+    renderHistory();
+    startStatusPolling();
+    connectWebSocket();
 });

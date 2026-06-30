@@ -8,7 +8,9 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/**
 # IntelliJ IDEA
 **/.idea
 *.iml
@@ -116,4 +118,3 @@ local.properties
 
 # Code Recommenders
 .recommenders/
-

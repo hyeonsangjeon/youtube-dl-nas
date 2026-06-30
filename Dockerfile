@@ -15,8 +15,20 @@ RUN apt-get update && \
         v4l-utils \
         dos2unix \
         vim \
-        procps\
+        procps \
     && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /usr/src/app/
+
+# Install Python dependencies
+COPY requirements.txt /usr/src/app/requirements.txt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -U youtube-dl && \
+    apt-get purge -y --auto-remove build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy files
 COPY /subber /usr/bin/subber
@@ -26,14 +38,8 @@ COPY / /usr/src/app/
 # Fix permissions and formatting
 RUN chmod +x /usr/bin/subber /run.sh && \
     dos2unix /usr/bin/subber /run.sh && \
-    ln -s /usr/src/app/downfolder /
-
-# Set working directory
-WORKDIR /usr/src/app/
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -U youtube-dl
+    mkdir -p /usr/src/app/downfolder/.incomplete /usr/src/app/metadata && \
+    ln -sfn /usr/src/app/downfolder /
 
 # Expose port and define volume
 EXPOSE 8080

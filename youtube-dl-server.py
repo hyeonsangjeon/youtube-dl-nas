@@ -16,6 +16,117 @@ import os
 import secrets
 import string
 
+DOWNFOLDER_DIR = "./downfolder"
+VALID_RESOLUTIONS = {"best", "audio", "audio-m4a", "audio-mp3"}
+RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
+SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
+
+def json_error(msg, status=400):
+    response.status = status
+    return {"success": False, "msg": msg}
+
+def get_request_json():
+    return request.json if isinstance(request.json, dict) else {}
+
+def load_auth_data():
+    with open('Auth.json') as data_file:
+        return json.load(data_file)
+
+def require_cookie_auth():
+    data = load_auth_data()
+    secret_key = data.get("SECRET_KEY")
+    if not secret_key:
+        return None, json_error("Secret key not found in Auth.json", 500)
+
+    userNm = request.get_cookie("account", secret=secret_key)
+    if userNm != data["MY_ID"]:
+        return None, json_error("Unauthorized", 403)
+
+    return data, None
+
+def validate_download_request(url, resolution):
+    if not isinstance(url, str) or not url.strip():
+        return "URL is required"
+
+    if not isinstance(resolution, str) or not resolution.strip():
+        return "Resolution is required"
+
+    resolution = resolution.strip()
+    if resolution in VALID_RESOLUTIONS or RESOLUTION_PATTERN.match(resolution):
+        return None
+
+    if resolution in ("vtt", "srt") or re.match(r"^(vtt|srt)", resolution):
+        if not SUBTITLE_PATTERN.match(resolution):
+            return "Subtitle downloads require a language code, for example vtt|en or srt|ko"
+        return None
+
+    return "Unsupported resolution"
+
+def get_actual_filename(item):
+    filename = item.get('filename') if isinstance(item, dict) else None
+    filepath = item.get('filepath') if isinstance(item, dict) else None
+
+    if filename and filename != "unknown":
+        return os.path.basename(filename)
+    if filepath and filepath != "unknown":
+        return os.path.basename(filepath)
+    return ""
+
+def safe_downfolder_path(filename):
+    if not filename:
+        return None
+
+    root = os.path.abspath(DOWNFOLDER_DIR)
+    candidate = os.path.abspath(os.path.join(root, os.path.basename(filename)))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return None
+    except ValueError:
+        return None
+    return candidate
+
+def get_download_type(resolution):
+    resolution = resolution or ""
+    if resolution.startswith("audio"):
+        return "audio"
+    if re.match(r"^(vtt|srt)", resolution):
+        return "subtitle"
+    return "video"
+
+def normalize_history_item(item):
+    item = dict(item or {})
+    if not item.get('uuid'):
+        item['uuid'] = str(uuid.uuid4())
+    if not item.get('timestamp'):
+        item['timestamp'] = ""
+
+    filename = get_actual_filename(item)
+    file_path = safe_downfolder_path(filename)
+    file_exists = bool(file_path and os.path.isfile(file_path))
+    file_size_bytes = os.path.getsize(file_path) if file_exists else 0
+
+    item.setdefault('url', '')
+    item.setdefault('resolution', '')
+    item.setdefault('title', '')
+    item.setdefault('channel', '')
+    item.setdefault('status', 'unknown')
+    item.setdefault('filepath', '')
+    item['filename'] = filename
+    item['file_exists'] = file_exists
+    item['file_size_bytes'] = file_size_bytes
+    item['download_type'] = get_download_type(item.get('resolution', ''))
+    item.setdefault('progress', 0)
+    return item
+
+def start_download_thread_if_needed():
+    if not Thr.dl_thread.is_alive():
+        thr = Thr()
+        thr.restart()
+
+def enqueue_download(url, resolution, source, ws=None):
+    dl_q.put((url.strip(), ws, resolution.strip(), source))
+    start_download_thread_if_needed()
+
 # single use global download manager
 class GlobalDownloadManager:
     def __init__(self):
@@ -32,6 +143,8 @@ class GlobalDownloadManager:
             try:
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     self.download_history = json.load(f)
+                if not isinstance(self.download_history, list):
+                    self.download_history = []
                 print(f"Loaded {len(self.download_history)} history items")
             except Exception as e:
                 print(f"Failed to load history: {e}")
@@ -55,13 +168,25 @@ class GlobalDownloadManager:
     def delete_history_item(self, uuid):
         """Delete a history item with a specific UUID"""
         try:
+            original_len = len(self.download_history)
             self.download_history = [item for item in self.download_history if item.get('uuid') != uuid]
+            if len(self.download_history) == original_len:
+                return False
             self.save_history()
             self.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
             return True
         except Exception as e:
             print(f"Failed to delete history item: {e}")
             return False
+
+    def get_history_item(self, uuid):
+        for item in self.download_history:
+            if item.get('uuid') == uuid:
+                return item
+        return None
+
+    def normalized_history(self):
+        return [normalize_history_item(item) for item in self.download_history]
     
     def set_current_download(self, download_info):
         """Set the current download information"""
@@ -108,10 +233,10 @@ class GlobalDownloadManager:
             completion_info['uuid'] = str(uuid.uuid4())
             
         # 히스토리에 추가
-        history_item = {
-            'timestamp': datetime.now().isoformat(),
-            **completion_info
-        }
+        history_item = dict(completion_info)
+        if not history_item.get('timestamp'):
+            history_item['timestamp'] = datetime.now().isoformat()
+        history_item = normalize_history_item(history_item)
         self.download_history.append(history_item)
 
         # Limit history size (max 100 items)
@@ -122,14 +247,7 @@ class GlobalDownloadManager:
         self.save_history()
                 
         # Send completion message in JSON format
-        complete_data = {
-            'resolution': completion_info.get('resolution', ''),
-            'channel': completion_info.get('channel', ''),
-            'title': completion_info.get('title', ''),
-            'filepath': completion_info.get('filepath', ''),
-            'filename': completion_info.get('filename', ''),
-            'uuid': completion_info.get('uuid', '')
-        }
+        complete_data = normalize_history_item(history_item)
         
         # Serialize to JSON and send
         message = f"[COMPLETE], {json.dumps(complete_data, ensure_ascii=False)}"
@@ -156,10 +274,10 @@ class GlobalDownloadManager:
         for idx, history_item in enumerate(self.download_history):
             try:
                 # Add UUID to history item
-                history_with_uuid = {
+                history_with_uuid = normalize_history_item({
                     'uuid': history_item.get('uuid', str(uuid.uuid4())),
                     **history_item
-                }
+                })
                 safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_with_uuid)}")
                 print(f"Sent history item {idx}: {history_item.get('title', 'Unknown')}")
             except Exception as e:
@@ -329,162 +447,161 @@ def server_static(filename):
 def q_size():
     return {"success": True, "size": json.dumps(list(dl_q.queue))}
 
+@get('/youtube-dl/status', method='GET')
+def get_download_status():
+    """Return dashboard status without changing the download queue API."""
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    current_download = None
+    if isinstance(download_manager.current_download, dict):
+        current_download = dict(download_manager.current_download)
+        start_time = current_download.get('start_time')
+        if start_time:
+            current_download['elapsed_seconds'] = max(0, int(time.time() - start_time))
+
+    return {
+        "success": True,
+        "is_downloading": download_manager.is_downloading,
+        "current_download": current_download,
+        "queue_count": dl_q.qsize(),
+        "connected_clients": len(download_manager.connected_clients)
+    }
+
 @get('/youtube-dl/q', method='POST')
 def q_put():
-    url = request.json.get("url")
-    resolution = request.json.get("resolution")
+    payload = get_request_json()
+    url = payload.get("url")
+    resolution = payload.get("resolution")
 
-    if "" != url:
-        # Send global message
-        download_manager.send_message('We received your download. Please wait.')
-        
-        box = (url, ws_addr.wsClassVal, resolution, "web")
-        dl_q.put(box)
+    validation_error = validate_download_request(url, resolution)
+    if validation_error:
+        return json_error(validation_error, 400)
 
-        if (Thr.dl_thread.is_alive() == False):
-            thr = Thr()
-            thr.restart()
-
-        return {"success": True, "msg": 'We received your download. Please wait.'}
-    else:
-        return {"success": False, "msg": "download queue somethings wrong."}
+    download_manager.send_message('We received your download. Please wait.')
+    enqueue_download(url, resolution, "web", ws_addr.wsClassVal)
+    return {"success": True, "msg": 'We received your download. Please wait.'}
 
 @get('/youtube-dl/rest', method='POST')
 def q_put_rest():
-    url = request.json.get("url")
-    resolution = request.json.get("resolution")
+    payload = get_request_json()
+    url = payload.get("url")
+    resolution = payload.get("resolution")
 
     with open('Auth.json') as data_file:
         data = json.load(data_file)
-        req_id = request.json.get("id")
-        req_pw = request.json.get("pw")
+        req_id = payload.get("id")
+        req_pw = payload.get("pw")
 
         if (req_id != data["MY_ID"] or req_pw != data["MY_PW"]):
-            return {"success": False, "msg": "Invalid password or account."}
+            return json_error("Invalid password or account.", 403)
         else:
-            box = (url, "", resolution, "api")
-            dl_q.put(box)
+            validation_error = validate_download_request(url, resolution)
+            if validation_error:
+                return json_error(validation_error, 400)
+
+            enqueue_download(url, resolution, "api", "")
             return {"success": True, "msg": 'download has started', "Remaining downloading count": json.dumps(dl_q.qsize()) }
 
 # History deletion API
 @get('/youtube-dl/history/clear', method='POST')
 def clear_history():
     """Clear all history"""    
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-    secret_key = data.get("SECRET_KEY")
-    userNm = request.get_cookie("account", secret=secret_key)
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
 
-    if userNm != data["MY_ID"]:
-        return {"success": False, "msg": "Unauthorized"}
-    # Delete all files under .downfolder
-    if os.path.exists("./downfolder"):
-        try:
-            for filename in os.listdir("./downfolder"):
-                file_path = os.path.join("./downfolder", filename)
-                # metadata 디렉토리는 건드리지 않음
-                if filename == "metadata":
-                    continue
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            print("All files in ./downfolder have been deleted.")
-        except Exception as e:
-            print(f"Failed to delete files: {e}")
-
-    # Call download_manager.clear_all_history() to clear history
     success = download_manager.clear_all_history()
     if success:
         return {"success": True, "msg": "All history cleared"}
     else:
         return {"success": False, "msg": "Failed to clear history"}
 
-
-# Function to delete all history items in download_history.json with a specific filename
-def delete_history_item_by_filename(filename):
-    """Delete all history items with a specific file name"""
-    original_len = len(download_manager.download_history)
-    download_manager.download_history = [
-        item for item in download_manager.download_history
-        if item.get('filename') != filename
-    ]
-    download_manager.save_history()
-    return len(download_manager.download_history) < original_len
-
-
-def get_uuid_by_filename(filename):
-    """Return a list of UUIDs for history items with a specific file name"""
-    uuids = []
-    for item in download_manager.download_history:
-        if item.get('filename') == filename:
-            uuids.append(item.get('uuid'))
-    return uuids
-
-def get_filename_by_uuid(uuid):
-    """Return the file name for a history item with a specific UUID"""
-    for item in download_manager.download_history:
-        if item.get('uuid') == uuid:
-            return item.get('filename', '')
-    return None
-
-
 @get('/youtube-dl/history/delete/<uuid>', method='POST')
 def delete_history_item(uuid):
     """Delete a history item with a specific UUID"""
-    
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-    secret_key = data.get("SECRET_KEY")
-    if not secret_key:
-        return {"success": False, "msg": "Secret key not found in Auth.json"}
-    userNm = request.get_cookie("account", secret=secret_key)
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
 
-    if userNm != data["MY_ID"]:
-        return {"success": False, "msg": "Unauthorized"}
-
-    file_name = get_filename_by_uuid(uuid)
-    
-    if os.path.exists(f"./downfolder/{file_name}") and file_name != "":
-        try:
-            print("Allways?")
-            os.remove(f"./downfolder/{file_name}")
-        except Exception as e:
-            print(f"Failed to delete file: {e}")
-
-    uuids = get_uuid_by_filename(file_name)
-   
-    #success = False
-    success = False    
-    for uuid in uuids:
-        
-        success = download_manager.delete_history_item(uuid)
-
-    if not success:
-        return {"success": False, "msg": "Failed to delete history item"}
-
+    success = download_manager.delete_history_item(uuid)
     if success:
         print(f"Removed from download manager: {success}")
         return {"success": True, "msg": "History item deleted successfully"}
     else:
-        return {"success": False, "msg": "Failed to delete history item"}
+        return json_error("History item not found", 404)
+
+@get('/youtube-dl/history/delete-file/<uuid>', method='POST')
+def delete_history_file(uuid):
+    """Delete the physical file for a history item, then remove related history rows."""
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    item = download_manager.get_history_item(uuid)
+    if not item:
+        return json_error("History item not found", 404)
+
+    normalized = normalize_history_item(item)
+    file_path = safe_downfolder_path(normalized.get('filename'))
+    if not file_path:
+        return json_error("Valid file path not found", 404)
+    if not os.path.isfile(file_path):
+        return json_error("Physical file not found", 404)
+
+    try:
+        os.remove(file_path)
+    except Exception as e:
+        print(f"Failed to delete file: {e}")
+        return json_error("Failed to delete physical file", 500)
+
+    related_uuids = [
+        history_item.get('uuid')
+        for history_item in list(download_manager.download_history)
+        if get_actual_filename(history_item) == normalized.get('filename')
+    ]
+    for history_uuid in related_uuids:
+        if history_uuid:
+            download_manager.delete_history_item(history_uuid)
+
+    return {
+        "success": True,
+        "msg": "File and related history items deleted",
+        "deleted_uuids": related_uuids
+    }
+
+@get('/youtube-dl/history/retry/<uuid>', method='POST')
+def retry_history_item(uuid):
+    """Queue a previous history item again."""
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    item = download_manager.get_history_item(uuid)
+    if not item:
+        return json_error("History item not found", 404)
+
+    url = item.get("url")
+    resolution = item.get("resolution")
+    validation_error = validate_download_request(url, resolution)
+    if validation_error:
+        return json_error(validation_error, 400)
+
+    download_manager.send_message('We received your retry request. Please wait.')
+    enqueue_download(url, resolution, "web", ws_addr.wsClassVal)
+    return {"success": True, "msg": "Download queued again", "Remaining downloading count": json.dumps(dl_q.qsize())}
 
 @get('/youtube-dl/history', method='GET')
 def get_history():
     """Retrieve history"""
-    
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-    secret_key = data.get("SECRET_KEY")
-    if not secret_key:
-        return {"success": False, "msg": "Secret key not found in Auth.json"}
-    
-    userNm = request.get_cookie("account", secret=secret_key)
-
-    if userNm != data["MY_ID"]:
-        return {"success": False, "msg": "Unauthorized"}
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
     
     return {
         "success": True, 
-        "history": download_manager.download_history,
+        "history": download_manager.normalized_history(),
         "total": len(download_manager.download_history)
     }
     
@@ -504,13 +621,21 @@ def save_download_history(info):
 def dl_worker():
     while not done:
         item = dl_q.get()
-        if(item[3]=="web"):
-            download(item)
-        else:
-            download_rest(item)
-        dl_q.task_done()
+        try:
+            if(item[3]=="web"):
+                download(item)
+            else:
+                download_rest(item)
+        except Exception as e:
+            print(f"Download worker error: {e}")
+        finally:
+            dl_q.task_done()
 
 def build_youtube_dl_cmd(url):
+    validation_error = validate_download_request(url[0] if len(url) > 0 else None, url[2] if len(url) > 2 else None)
+    if validation_error:
+        raise ValueError(validation_error)
+
     with open('Auth.json') as data_file:
         data = json.load(data_file)  # Auth info, when docker run making file
         unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~\`=;,^#(){}\[\] ]"
@@ -523,8 +648,7 @@ def build_youtube_dl_cmd(url):
         elif (url[2] == "audio-mp3"):
             cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
         elif re.match(r"(vtt|srt)", url[2]):
-            sub_format = url[2].split('|')[0]
-            sub_lang = url[2].split('|')[1]            
+            sub_format, sub_lang = url[2].split('|', 1)
             cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/%(title)s.%(ext)s",  "--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download", url[0]]
         else:
             resolution = url[2][:-1]
@@ -723,7 +847,14 @@ def download(url):
         })
 
 def download_rest(url):
-    result = subprocess.run(build_youtube_dl_cmd(url))
+    try:
+        result = subprocess.run(build_youtube_dl_cmd(url))
+        if result.returncode != 0:
+            print(f"REST download failed with return code: {result.returncode}")
+        return result.returncode == 0
+    except Exception as e:
+        print(f"REST download error: {e}")
+        return False
 
 import mimetypes
 @get('/static/downfolder/<uuid>')
@@ -753,32 +884,20 @@ def serve_download(uuid):
         with open(history_path, "r", encoding="utf-8") as f:
             history = json.load(f)
         
-        # Retrieving file information by UUID
         file_info = None
         for item in history:
             if item.get('uuid') == uuid:
-                file_info = item
-                break        
+                file_info = normalize_history_item(item)
+                break
         if not file_info:
             abort(404, "File not found in history")
         
-        # Check file path
-        filename = file_info.get('filename')
-        filepath = file_info.get('filepath')
-        
-        if not filename and not filepath:
-            abort(404, "File path not found")
-        
-        # Determine the actual file path
-        if filename and filename != "unknown":
-            actual_filename = filename
-        elif filepath and filepath != "unknown":
-            actual_filename = os.path.basename(filepath)
-        else:
+        actual_filename = file_info.get('filename')
+        file_path = safe_downfolder_path(actual_filename)
+        if not actual_filename or not file_path:
             abort(404, "Valid filename not found")
         
-        file_path = os.path.join("./downfolder", actual_filename)
-        if not os.path.exists(file_path):
+        if not os.path.isfile(file_path):
             abort(404, "Physical file not found")
         
         # Organize file names to allow safe downloads from your browser
@@ -827,10 +946,10 @@ def websocket_handler(ws):
             elif message == '[REQUEST_HISTORY]':
                 download_manager.load_history()  # Load latest history
                 for history_item in download_manager.download_history:
-                    history_with_uuid = {
+                    history_with_uuid = normalize_history_item({
                         'uuid': history_item.get('uuid', str(uuid.uuid4())),
                         **history_item
-                    }
+                    })
                     safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_with_uuid)}")
                 safe_websocket_send(ws, "[HISTORY_RESTORE_COMPLETE], done")
                 

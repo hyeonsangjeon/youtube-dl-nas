@@ -13,38 +13,49 @@
     <title>youtube-dl</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v=dashboard-ui-v1" rel="stylesheet">
 </head>
 
-<body>
+<body class="dashboard-page">
 
 <div class="site-wrapper">
     <div class="site-wrapper-inner">
         <div class="cover-container">
 
-            <div class="inner cover">
-                <h1 class="cover-heading">Let's Download</h1>
-                
-                <!-- Place the thumbnail container at the same level as the cover heading -->
-                <div id="thumbnail-container" style="display: none;">
-                    <div class="thumbnail-wrapper">
-                        <img id="video-thumbnail" src="" alt="Video Thumbnail">
-                        <div id="video-info">
-                            <h4 id="video-title-display"></h4>
-                            <p id="video-channel-display"></p>
-                        </div>
-                    </div>
+            <header class="app-header">
+                <div>
+                    <h1 class="app-title">youtube-dl NAS</h1>
+                    <p class="app-subtitle">Download queue and history manager</p>
                 </div>
-                
-              
+                <div class="app-meta">
+                    <span class="user-chip">
+                        <span class="glyphicon glyphicon-user" aria-hidden="true"></span>
+                        {{userNm}}
+                    </span>
+                    <span id="connection-status" class="connection-chip status-pending">Connecting</span>
+                </div>
+            </header>
 
-                <p class="lead">Welcome {{userNm}}</p
-                
-                <div class="row">
-                    <form id="form1">
-                        <div class="input-group">
-                            <span class="input-group-btn">
-                                <select title="Pick a resolution" id="selResolution" class="form-control" style="width:100px;">
+            <div class="dashboard-layout">
+                <main class="dashboard-main">
+                    <section class="panel download-composer">
+                        <div class="panel-heading-row">
+                            <div>
+                                <h2>New Download</h2>
+                                <p>Paste a URL, choose an output, and send it to the NAS queue.</p>
+                            </div>
+                        </div>
+
+                        <form id="form1" class="download-form">
+                            <div class="mode-tabs" role="tablist" aria-label="Download mode">
+                                <button type="button" class="mode-tab active" data-download-mode="video">Video</button>
+                                <button type="button" class="mode-tab" data-download-mode="audio">Audio</button>
+                                <button type="button" class="mode-tab" data-download-mode="subtitle">Subtitle</button>
+                            </div>
+                            <div class="composer-grid">
+                                <label class="form-field quality-field">
+                                    <span>Quality</span>
+                                    <select title="Pick a resolution" id="selResolution" class="form-control admin-control">
                                     <option>best</option>
                                     <option>2160p</option>
                                     <option>1440p</option>
@@ -58,12 +69,15 @@
                                     <option>audio-mp3</option>
                                     <option>srt</option>
                                     <option>vtt</option>
-                                </select>
-                            </span>
-                            <input name="url" id="url" type="url" class="form-control" placeholder="URL">
-                            <!-- 자막 언어 선택 박스 (처음에는 숨김) -->
-                            <span class="input-group-btn" id="subtitleLanguageContainer" style="display: none;">
-                                <select title="Pick a subtitle language" id="selSubtitleLanguage" class="form-control" style="width:120px;">                                    
+                                    </select>
+                                </label>
+                                <label class="form-field url-field">
+                                    <span>URL</span>
+                                    <input name="url" id="url" type="url" class="form-control admin-control" placeholder="https://youtu.be/...">
+                                </label>
+                                <label class="form-field subtitle-field" id="subtitleLanguageContainer" style="display: none;">
+                                    <span>Subtitle language</span>
+                                    <select title="Pick a subtitle language" id="selSubtitleLanguage" class="form-control admin-control">
                                     <option value="en">English</option>
                                     <option value="ko">Korean</option>
                                     <option value="ja">Japanese</option>
@@ -221,58 +235,132 @@
                                     <option value="yi">Yiddish</option>
                                     <option value="yo">Yoruba</option>
                                     <option value="zu">Zulu</option>
-                                </select>
-                            </span>
-                            <span class="input-group-btn">
-                                <button id="send" class="btn btn-primary">
-                                    <span class="glyphicon glyphicon-share-alt" aria-hidden="true"></span> Submit
+                                    </select>
+                                </label>
+                                <button id="send" type="submit" class="btn btn-primary submit-btn">
+                                    <span class="glyphicon glyphicon-share-alt" aria-hidden="true"></span>
+                                    Submit
                                 </button>
-                            </span>
+                            </div>
+                        </form>
+
+                        <div id="thumbnail-container" class="download-preview" style="display: none;">
+                            <img id="video-thumbnail" src="" alt="Video thumbnail">
+                            <div>
+                                <h4 id="video-title-display"></h4>
+                                <p id="video-channel-display"></p>
+                            </div>
                         </div>
-                    </form>
-                </div>
-            </div>
+                    </section>
 
-            <p class="lead"><div id="messages"></div></p>
-            
-            <!-- Add progress bar -->
-            <div id="progress-container" style="display: none;">
-                <div class="progress">
-                    <div id="progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-                        <span id="progress-text">0%</span>
-                    </div>
-                </div>
-            </div>
-            
-            <p class="lead"><div id="queue"></div></p>
+                    <section class="panel activity-panel">
+                        <div class="panel-heading-row">
+                            <div>
+                                <h2>Current Activity</h2>
+                                <p id="activity-summary">No active download</p>
+                            </div>
+                            <span id="queue-count" class="metric-pill">Queue 0</span>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-thumbnail">
+                                <img id="activity-thumbnail-image" src="" alt="" style="display: none;">
+                                <span id="activity-thumbnail-placeholder" class="glyphicon glyphicon-facetime-video" aria-hidden="true"></span>
+                            </div>
+                            <div class="activity-main">
+                                <div class="activity-title-row">
+                                    <strong id="activity-title">Idle</strong>
+                                    <span id="activity-status" class="status-tag status-pending">idle</span>
+                                </div>
+                                <p id="activity-channel">Waiting for the next request.</p>
+                                <div id="progress-container" class="progress-shell" style="display: none;">
+                                    <div class="progress">
+                                        <div id="progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+                                            <span id="progress-text">0%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
-            <!-- Improved History Table Section -->
-            <div class="table-responsive" style="overflow: visible;">
-                <div class="download-history">
-                    <div class="history-header">
-                        <h3 class="history-title">Download History</h3>
+                    <div id="messages" class="message-stack"></div>
+                    <div id="queue" class="sr-only"></div>
+
+                    <section class="panel download-history">
+                        <div class="history-header">
+                            <div>
+                                <h2 class="history-title">Download History</h2>
+                                <p id="history-result-count" class="history-subtitle">0 downloads</p>
+                            </div>
+                            <div class="history-actions">
+                                <button id="refresh-history" class="btn btn-info btn-sm">
+                                    <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
+                                </button>
+                                <button id="clear-history" class="btn btn-default btn-sm">
+                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> Clear
+                                </button>
+                            </div>
+                        </div>
                         <div class="history-controls">
-                            <button id="refresh-history" class="btn btn-info btn-sm">
-                                <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
-                            </button>
+                            <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, or filename">
+                            <select id="history-sort" class="form-control input-sm history-select" title="Sort downloads">
+                                <option value="date-desc">Newest first</option>
+                                <option value="date-asc">Oldest first</option>
+                                <option value="title-asc">Title A-Z</option>
+                                <option value="title-desc">Title Z-A</option>
+                                <option value="channel-asc">Channel A-Z</option>
+                                <option value="channel-desc">Channel Z-A</option>
+                                <option value="quality-asc">Quality A-Z</option>
+                                <option value="quality-desc">Quality Z-A</option>
+                                <option value="status-asc">Status A-Z</option>
+                                <option value="status-desc">Status Z-A</option>
+                            </select>
+                            <select id="history-status-filter" class="form-control input-sm history-select" title="Filter by status">
+                                <option value="all">All statuses</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                                <option value="error">Error</option>
+                                <option value="unknown">Unknown</option>
+                            </select>
+                            <select id="history-type-filter" class="form-control input-sm history-select" title="Filter by type">
+                                <option value="all">All types</option>
+                                <option value="video">Video</option>
+                                <option value="audio">Audio</option>
+                                <option value="subtitle">Subtitle</option>
+                            </select>
+                            <button id="reset-history-filters" class="btn btn-default btn-sm">Reset</button>
                         </div>
+                        <div class="table-responsive">
+                            <div class="table-container">
+                                <table class="table table-modern">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-downloaded">Downloaded</th>
+                                            <th class="col-resolution">Type / Quality</th>
+                                            <th class="col-channel">Channel</th>
+                                            <th class="col-title">Video Title</th>
+                                            <th class="col-status">Status</th>
+                                            <th class="col-size">Size</th>
+                                            <th class="col-actions">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="completeInfo">
+                                        <!-- Download history items will be dynamically added here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="history-card-list" class="history-card-list"></div>
+                    </section>
+                </main>
+
+                <aside id="history-detail-drawer" class="detail-drawer" aria-live="polite">
+                    <div class="detail-empty">
+                        <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
+                        <h2>Select a download</h2>
+                        <p>Open a history item to view URL, file details, and actions.</p>
                     </div>
-                    <div class="table-container">
-                        <table class="table table-modern">
-                            <thead>
-                                <tr>
-                                    <th class="col-resolution">Quality</th>
-                                    <th class="col-channel">Channel</th>
-                                    <th class="col-title">Video Title</th>
-                                    <th class="col-actions">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="completeInfo">
-                                <!-- Download history items will be dynamically added here -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                </aside>
             </div>
 
             <div class="mastfoot">
@@ -294,7 +382,7 @@
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
-<script src="youtube-dl/static/logical_js/logic.js"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v=dashboard-ui-v1"></script>
 </body>
 
 </html>
