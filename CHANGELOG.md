@@ -4,8 +4,15 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+No unreleased changes.
+
+## 26.0704 - 2026-07-04
+
 ### Added
 
+- Added a logout route and dashboard logout button.
+- Added mounted `/downfolder` file discovery so files that predate metadata history appear in the dashboard.
+- Added explicit `No metadata` labels for mounted files discovered without saved history rows.
 - Added a dashboard-style web UI for download management.
 - Added a current activity panel with active download state, queue count, thumbnail, and progress.
 - Added mobile history cards so the history view is usable without horizontal table scrolling.
@@ -19,6 +26,8 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- Centralized the displayed app version as `26.0704` with an `APP_VERSION` environment override.
+- Reloaded the file list after clearing saved history rows so kept files remain visible.
 - Normalized history rows with stable metadata fields such as `timestamp`, `file_exists`, `file_size_bytes`, and `download_type`.
 - Updated the dashboard JavaScript to keep table rows, mobile cards, and the detail drawer in sync from one history state.
 - Improved responsive layout to prevent body-level horizontal overflow on mobile.

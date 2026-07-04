@@ -1479,6 +1479,7 @@ a:hover {
 
 .user-chip,
 .connection-chip,
+.logout-btn,
 .metric-pill {
   display: inline-flex;
   align-items: center;
@@ -1492,6 +1493,17 @@ a:hover {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.logout-btn {
+  text-decoration: none;
+}
+
+.logout-btn:hover,
+.logout-btn:focus {
+  border-color: #b42318;
+  color: #b42318;
+  text-decoration: none;
 }
 
 .dashboard-layout {
@@ -1869,6 +1881,45 @@ a.video-title {
   color: #0f6f8f;
 }
 
+.title-stack {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.history-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.history-card-meta-line {
+  margin: -4px 0 10px;
+}
+
+.metadata-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.metadata-missing {
+  background: #f4f3ff;
+  color: #5925dc;
+}
+
 .download-date,
 .file-size {
   color: #667085;
@@ -1896,6 +1947,11 @@ a.video-title {
   color: #946200;
 }
 
+.type-file {
+  background: #f4f3ff;
+  color: #5925dc;
+}
+
 .status-completed {
   background: #dcfae6;
   color: #067647;
@@ -1909,6 +1965,11 @@ a.video-title {
 .status-pending {
   background: #eef2f6;
   color: #475467;
+}
+
+.status-file {
+  background: #f4f3ff;
+  color: #5925dc;
 }
 
 .resolution-high {
@@ -1934,6 +1995,11 @@ a.video-title {
 .resolution-subtitle {
   background: #fff6d6;
   color: #8a5a00;
+}
+
+.resolution-file {
+  background: #f4f3ff;
+  color: #5925dc;
 }
 
 .action-group {
@@ -2093,6 +2159,42 @@ a.video-title {
   border-radius: 8px;
   background: #f8fafc;
   overflow-wrap: anywhere;
+}
+
+.metadata-notice {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  background: #f7f5ff;
+  color: #42307d;
+}
+
+.metadata-notice .glyphicon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5925dc;
+}
+
+.metadata-notice strong {
+  display: block;
+  color: #35206d;
+  font-size: 13px;
+}
+
+.metadata-notice p {
+  margin: 4px 0 0;
+  color: #5f4b8b;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .detail-actions {

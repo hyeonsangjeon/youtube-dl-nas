@@ -17,9 +17,14 @@ import secrets
 import string
 
 DOWNFOLDER_DIR = "./downfolder"
+APP_VERSION = os.environ.get("APP_VERSION", "26.0704")
 VALID_RESOLUTIONS = {"best", "audio", "audio-m4a", "audio-mp3"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
 SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi"}
+AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".ogg", ".wav"}
+SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa"}
+SKIPPED_DOWNFOLDER_NAMES = {".incomplete", ".DS_Store"}
 
 def json_error(msg, status=400):
     response.status = status
@@ -93,6 +98,70 @@ def get_download_type(resolution):
         return "subtitle"
     return "video"
 
+def infer_download_type(resolution, filename=""):
+    if resolution and resolution != "mounted":
+        return get_download_type(resolution)
+
+    extension = os.path.splitext(filename or "")[1].lower()
+    if extension in AUDIO_EXTENSIONS:
+        return "audio"
+    if extension in SUBTITLE_EXTENSIONS:
+        return "subtitle"
+    if extension in VIDEO_EXTENSIONS:
+        return "video"
+    return "file"
+
+def get_mounted_file_uuid(filename):
+    return "file-" + str(uuid.uuid5(uuid.NAMESPACE_URL, f"youtube-dl-nas:{filename}"))
+
+def build_mounted_file_item(filename):
+    file_path = safe_downfolder_path(filename)
+    if not file_path or not os.path.isfile(file_path):
+        return None
+
+    stat_result = os.stat(file_path)
+    return normalize_history_item({
+        "uuid": get_mounted_file_uuid(filename),
+        "timestamp": datetime.fromtimestamp(stat_result.st_mtime).isoformat(),
+        "url": "",
+        "resolution": "mounted",
+        "title": os.path.splitext(filename)[0] or filename,
+        "channel": "Mounted folder",
+        "status": "file_only",
+        "filepath": os.path.join(DOWNFOLDER_DIR, filename),
+        "filename": filename,
+        "progress": 100,
+        "source": "mounted_folder",
+        "metadata_status": "missing"
+    })
+
+def list_mounted_file_items():
+    if not os.path.isdir(DOWNFOLDER_DIR):
+        return []
+
+    items = []
+    try:
+        for filename in os.listdir(DOWNFOLDER_DIR):
+            if filename in SKIPPED_DOWNFOLDER_NAMES or filename.startswith("."):
+                continue
+            file_path = safe_downfolder_path(filename)
+            if not file_path or not os.path.isfile(file_path):
+                continue
+            item = build_mounted_file_item(filename)
+            if item:
+                items.append(item)
+    except Exception as e:
+        print(f"Failed to scan mounted folder files: {e}")
+        return []
+
+    return sorted(items, key=lambda item: item.get("timestamp", ""), reverse=True)
+
+def get_mounted_file_item(item_uuid):
+    for item in list_mounted_file_items():
+        if item.get("uuid") == item_uuid:
+            return item
+    return None
+
 def normalize_history_item(item):
     item = dict(item or {})
     if not item.get('uuid'):
@@ -111,10 +180,12 @@ def normalize_history_item(item):
     item.setdefault('channel', '')
     item.setdefault('status', 'unknown')
     item.setdefault('filepath', '')
+    item.setdefault('source', 'history')
+    item.setdefault('metadata_status', 'saved' if item.get('source') != 'mounted_folder' else 'missing')
     item['filename'] = filename
     item['file_exists'] = file_exists
     item['file_size_bytes'] = file_size_bytes
-    item['download_type'] = get_download_type(item.get('resolution', ''))
+    item['download_type'] = infer_download_type(item.get('resolution', ''), filename)
     item.setdefault('progress', 0)
     return item
 
@@ -187,6 +258,26 @@ class GlobalDownloadManager:
 
     def normalized_history(self):
         return [normalize_history_item(item) for item in self.download_history]
+
+    def combined_history(self):
+        normalized_history = self.normalized_history()
+        history_filenames = {
+            item.get('filename')
+            for item in normalized_history
+            if item.get('filename')
+        }
+        mounted_files = [
+            item
+            for item in list_mounted_file_items()
+            if item.get('filename') not in history_filenames
+        ]
+        return normalized_history + mounted_files
+
+    def get_combined_history_item(self, item_uuid):
+        for item in self.normalized_history():
+            if item.get('uuid') == item_uuid:
+                return item
+        return get_mounted_file_item(item_uuid)
     
     def set_current_download(self, download_info):
         """Set the current download information"""
@@ -268,17 +359,13 @@ class GlobalDownloadManager:
         
         # Send all history (reload from file to ensure the latest state)
         self.load_history()  # Reload latest history
-        print(f"Sending {len(self.download_history)} history items to new client")
+        combined_history = self.combined_history()
+        print(f"Sending {len(combined_history)} history items to new client")
 
         # Send all history items individually
-        for idx, history_item in enumerate(self.download_history):
+        for idx, history_item in enumerate(combined_history):
             try:
-                # Add UUID to history item
-                history_with_uuid = normalize_history_item({
-                    'uuid': history_item.get('uuid', str(uuid.uuid4())),
-                    **history_item
-                })
-                safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_with_uuid)}")
+                safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_item)}")
                 print(f"Sent history item {idx}: {history_item.get('title', 'Unknown')}")
             except Exception as e:
                 print(f"Error sending history item {idx}: {e}")
@@ -362,7 +449,7 @@ def dl_queue_list():
         # If an error occurs, redirect to the terms and conditions page for security reasons.
         redirect('/terms')
         
-    return template("./static/template/login.tpl", msg="")
+    return template("./static/template/login.tpl", msg="", app_version=APP_VERSION)
 
 @get('/login', method='POST')
 def dl_queue_login():
@@ -374,10 +461,15 @@ def dl_queue_login():
 
         if (req_id == data["MY_ID"] and req_pw == data["MY_PW"]):
             secret_key = data.get("SECRET_KEY")
-            response.set_cookie("account", req_id, secret=secret_key)
+            response.set_cookie("account", req_id, secret=secret_key, path="/")
             redirect("/youtube-dl")
         else:
-            return template("./static/template/login.tpl", msg="id or password is not correct")
+            return template("./static/template/login.tpl", msg="id or password is not correct", app_version=APP_VERSION)
+
+@get('/logout')
+def dl_queue_logout():
+    response.delete_cookie("account", path="/")
+    redirect("/")
 
 @route('/terms')
 def terms_page():
@@ -434,7 +526,7 @@ def dl_queue_main():
     print("CHK : ", userNm)
 
     if (userNm == data["MY_ID"]):
-        return template("./static/template/index.tpl", userNm=userNm)
+        return template("./static/template/index.tpl", userNm=userNm, app_version=APP_VERSION)
     else:
         print("no cookie or fail login")
         redirect("/")
@@ -514,7 +606,7 @@ def clear_history():
 
     success = download_manager.clear_all_history()
     if success:
-        return {"success": True, "msg": "All history cleared"}
+        return {"success": True, "msg": "History rows cleared. Downloaded files were kept."}
     else:
         return {"success": False, "msg": "Failed to clear history"}
 
@@ -540,6 +632,11 @@ def delete_history_file(uuid):
         return error_response
 
     item = download_manager.get_history_item(uuid)
+    is_mounted_file = False
+    if not item:
+        item = get_mounted_file_item(uuid)
+        is_mounted_file = bool(item)
+
     if not item:
         return json_error("History item not found", 404)
 
@@ -556,14 +653,18 @@ def delete_history_file(uuid):
         print(f"Failed to delete file: {e}")
         return json_error("Failed to delete physical file", 500)
 
-    related_uuids = [
-        history_item.get('uuid')
-        for history_item in list(download_manager.download_history)
-        if get_actual_filename(history_item) == normalized.get('filename')
-    ]
-    for history_uuid in related_uuids:
-        if history_uuid:
-            download_manager.delete_history_item(history_uuid)
+    if is_mounted_file:
+        related_uuids = [uuid]
+        download_manager.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
+    else:
+        related_uuids = [
+            history_item.get('uuid')
+            for history_item in list(download_manager.download_history)
+            if get_actual_filename(history_item) == normalized.get('filename')
+        ]
+        for history_uuid in related_uuids:
+            if history_uuid:
+                download_manager.delete_history_item(history_uuid)
 
     return {
         "success": True,
@@ -598,11 +699,14 @@ def get_history():
     _, error_response = require_cookie_auth()
     if error_response:
         return error_response
+
+    download_manager.load_history()
+    combined_history = download_manager.combined_history()
     
     return {
         "success": True, 
-        "history": download_manager.normalized_history(),
-        "total": len(download_manager.download_history)
+        "history": combined_history,
+        "total": len(combined_history)
     }
     
 def save_download_history(info):
@@ -874,23 +978,11 @@ def serve_download(uuid):
     if userNm != data["MY_ID"]:
         abort(403, "Unauthorized")
     
-    # Find file information by UUID
-    history_path = "./metadata/download_history.json"
-    if not os.path.exists(history_path):
-        abort(404, "History file not found")
-    
-    
     try:
-        with open(history_path, "r", encoding="utf-8") as f:
-            history = json.load(f)
-        
-        file_info = None
-        for item in history:
-            if item.get('uuid') == uuid:
-                file_info = normalize_history_item(item)
-                break
+        download_manager.load_history()
+        file_info = download_manager.get_combined_history_item(uuid)
         if not file_info:
-            abort(404, "File not found in history")
+            abort(404, "File not found")
         
         actual_filename = file_info.get('filename')
         file_path = safe_downfolder_path(actual_filename)
@@ -945,12 +1037,8 @@ def websocket_handler(ws):
             # History request handling
             elif message == '[REQUEST_HISTORY]':
                 download_manager.load_history()  # Load latest history
-                for history_item in download_manager.download_history:
-                    history_with_uuid = normalize_history_item({
-                        'uuid': history_item.get('uuid', str(uuid.uuid4())),
-                        **history_item
-                    })
-                    safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_with_uuid)}")
+                for history_item in download_manager.combined_history():
+                    safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_item)}")
                 safe_websocket_send(ws, "[HISTORY_RESTORE_COMPLETE], done")
                 
     except Exception as e:

@@ -15,7 +15,7 @@ Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
 - Queue video, audio, or subtitle downloads from a browser.
 - Track current activity with queue count, progress, title, channel, and thumbnail.
-- Review download history with search, filters, sorting, mobile cards, and a detail drawer.
+- Review download history and mounted folder files with search, filters, sorting, mobile cards, and a detail drawer.
 - Retry failed items, download saved files, delete history rows, or delete physical files.
 - Keep history under `./metadata/download_history.json` for persistence.
 - Automate downloads through a simple REST API.
@@ -121,7 +121,7 @@ These endpoints are used by the web UI and require a valid login cookie:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/youtube-dl/status` | `GET` | Read current active download, queue count, and connected clients. |
-| `/youtube-dl/history` | `GET` | Read normalized download history. |
+| `/youtube-dl/history` | `GET` | Read normalized download history plus mounted `/downfolder` files that are not in metadata yet. |
 | `/youtube-dl/history/retry/<uuid>` | `POST` | Queue a previous history item again. |
 | `/youtube-dl/history/delete/<uuid>` | `POST` | Delete the history row only. |
 | `/youtube-dl/history/delete-file/<uuid>` | `POST` | Delete the physical file and related history rows. |

@@ -13,7 +13,7 @@
     <title>youtube-dl</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v=dashboard-ui-v1" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -33,6 +33,10 @@
                         {{userNm}}
                     </span>
                     <span id="connection-status" class="connection-chip status-pending">Connecting</span>
+                    <a class="logout-btn" href="/logout" title="Log out">
+                        <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
+                        Logout
+                    </a>
                 </div>
             </header>
 
@@ -289,7 +293,7 @@
                     <section class="panel download-history">
                         <div class="history-header">
                             <div>
-                                <h2 class="history-title">Download History</h2>
+                                <h2 class="history-title">Files & History</h2>
                                 <p id="history-result-count" class="history-subtitle">0 downloads</p>
                             </div>
                             <div class="history-actions">
@@ -297,12 +301,12 @@
                                     <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
                                 </button>
                                 <button id="clear-history" class="btn btn-default btn-sm">
-                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> Clear
+                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> Clear Rows
                                 </button>
                             </div>
                         </div>
                         <div class="history-controls">
-                            <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, or filename">
+                            <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, filename, or metadata">
                             <select id="history-sort" class="form-control input-sm history-select" title="Sort downloads">
                                 <option value="date-desc">Newest first</option>
                                 <option value="date-asc">Oldest first</option>
@@ -318,6 +322,7 @@
                             <select id="history-status-filter" class="form-control input-sm history-select" title="Filter by status">
                                 <option value="all">All statuses</option>
                                 <option value="completed">Completed</option>
+                                <option value="file_only">Mounted files</option>
                                 <option value="failed">Failed</option>
                                 <option value="error">Error</option>
                                 <option value="unknown">Unknown</option>
@@ -327,6 +332,7 @@
                                 <option value="video">Video</option>
                                 <option value="audio">Audio</option>
                                 <option value="subtitle">Subtitle</option>
+                                <option value="file">File</option>
                             </select>
                             <button id="reset-history-filters" class="btn btn-default btn-sm">Reset</button>
                         </div>
@@ -371,7 +377,7 @@
                     <p>
                         Web frontend for <a href="https://github.com/hyeonsangjeon/youtube-dl-nas">youtube-dl-nas</a>, by @Hyeonsang Jeon.
                     </p>
-                    <p>latest Ver 25.0706</p>
+                    <p>latest Ver {{app_version}}</p>
                     <a href="https://www.youtube.com/watch?v=s9mO5q6GiAc">Watch Demo</a>
                 </div>
             </div>
@@ -382,7 +388,7 @@
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
-<script src="youtube-dl/static/logical_js/logic.js?v=dashboard-ui-v1"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 </body>
 
 </html>

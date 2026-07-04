@@ -315,7 +315,9 @@ $(function () {
             file_exists: false,
             file_size_bytes: 0,
             download_type: '',
-            progress: 0
+            progress: 0,
+            source: 'history',
+            metadata_status: ''
         }, item || {});
 
         if (!normalized.uuid) {
@@ -323,6 +325,12 @@ $(function () {
         }
         if (!normalized.download_type) {
             normalized.download_type = getHistoryType(normalized.resolution);
+        }
+        if (!normalized.source) {
+            normalized.source = 'history';
+        }
+        if (!normalized.metadata_status) {
+            normalized.metadata_status = normalized.source === 'mounted_folder' || normalized.status === 'file_only' ? 'missing' : 'saved';
         }
         if (!normalized.status) {
             normalized.status = 'unknown';
@@ -352,13 +360,13 @@ $(function () {
         const body = $("#completeInfo");
         const cards = $("#history-card-list");
         const resultLabel = filteredItems.length === historyItems.length ?
-            `${historyItems.length} downloads` :
-            `${filteredItems.length} of ${historyItems.length} downloads`;
+            `${historyItems.length} items` :
+            `${filteredItems.length} of ${historyItems.length} items`;
         $('#history-result-count').text(resultLabel);
 
         if (historyItems.length === 0) {
-            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No downloads yet<br><small>Start downloading to see history here</small></td></tr>`);
-            cards.html(renderEmptyCard("No downloads yet", "Start downloading to see history here"));
+            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No files yet<br><small>Start downloading or mount files into /downfolder</small></td></tr>`);
+            cards.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
             renderDetailDrawer(null);
             return;
         }
@@ -387,7 +395,7 @@ $(function () {
         const filtered = historyItems.filter((item) => {
             const statusMatches = historyPrefs.status === 'all' || item.status === historyPrefs.status;
             const typeMatches = historyPrefs.type === 'all' || item.download_type === historyPrefs.type;
-            const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''}`.toLowerCase();
+            const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''} ${getMetadataStatusText(item)}`.toLowerCase();
             const searchMatches = !searchText || searchTarget.indexOf(searchText) >= 0;
             return statusMatches && typeMatches && searchMatches;
         });
@@ -434,12 +442,13 @@ $(function () {
         const resolutionText = escapeHtml(item.resolution || 'unknown');
         const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
         const dateText = formatTimestamp(item.timestamp);
-        const statusText = escapeHtml(item.status || 'unknown');
+        const statusText = escapeHtml(getStatusText(item.status));
         const sizeText = formatFileSize(item);
         const canDownload = item.file_exists && item.uuid;
         const titleElement = canDownload ?
             `<a href="${getDownloadHref(item)}" download class="video-title" title="${safeTitle}">${titleText}</a>` :
             `<span class="video-title" title="${safeTitle}">${titleText}</span>`;
+        const metadataLine = renderMetadataLine(item);
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
 
         return `
@@ -450,7 +459,7 @@ $(function () {
                     <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
                 </td>
                 <td><span class="channel-name" title="${safeChannel}">${channelText}</span></td>
-                <td>${titleElement}</td>
+                <td><div class="title-stack">${titleElement}${metadataLine}</div></td>
                 <td><span class="status-tag ${getStatusClass(item.status)}">${statusText}</span></td>
                 <td><span class="file-size ${item.file_exists ? '' : 'file-missing'}">${sizeText}</span></td>
                 <td class="actions-cell">${renderActionButtons(item, 'row')}</td>
@@ -464,7 +473,8 @@ $(function () {
         const channelText = escapeHtml(item.channel || 'Unknown');
         const resolutionText = escapeHtml(item.resolution || 'unknown');
         const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
-        const statusText = escapeHtml(item.status || 'unknown');
+        const statusText = escapeHtml(getStatusText(item.status));
+        const metadataSourceLine = renderMetadataSourceLine(item);
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
 
         return `
@@ -476,9 +486,11 @@ $(function () {
                     </div>
                     <h3>${titleText}</h3>
                     <p>${channelText}</p>
+                    ${metadataSourceLine}
                     <div class="history-card-tags">
                         <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
                         <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
+                        ${renderMetadataBadge(item)}
                         <span class="file-size ${item.file_exists ? '' : 'file-missing'}">${formatFileSize(item)}</span>
                     </div>
                 </div>
@@ -501,31 +513,72 @@ $(function () {
         return `/static/downfolder/${encodeURIComponent(item.uuid)}`;
     }
 
+    function isMountedFile(item) {
+        return item.source === 'mounted_folder' || item.metadata_status === 'missing' || item.status === 'file_only';
+    }
+
+    function getMetadataStatusText(item) {
+        return isMountedFile(item) ? 'No metadata' : 'Saved metadata';
+    }
+
+    function renderMetadataBadge(item) {
+        if (!isMountedFile(item)) {
+            return '';
+        }
+
+        return '<span class="metadata-badge metadata-missing">No metadata</span>';
+    }
+
+    function renderMetadataLine(item) {
+        if (!isMountedFile(item)) {
+            return '';
+        }
+
+        return `
+            <div class="history-meta-line">
+                ${renderMetadataBadge(item)}
+                <span>Scanned from /downfolder</span>
+            </div>
+        `;
+    }
+
+    function renderMetadataSourceLine(item) {
+        if (!isMountedFile(item)) {
+            return '';
+        }
+
+        return '<div class="history-meta-line history-card-meta-line"><span>Scanned from /downfolder</span></div>';
+    }
+
     function renderActionButtons(item, context) {
         const safeUuid = escapeAttr(item.uuid);
         const isDetail = context === 'detail';
-        const canRetry = item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
+        const mountedFile = isMountedFile(item);
+        const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
         const downloadButton = item.file_exists ? `
             <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="Download file">
                 <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? '<span>Download File</span>' : ''}
             </a>` : '';
+        const fileDeleteTitle = mountedFile ? 'Delete mounted file' : 'Delete file and related history';
         const retryButton = canRetry ? `
             <button class="action-btn action-retry" data-uuid="${safeUuid}" title="Retry download">
                 <span class="glyphicon glyphicon-repeat"></span>${isDetail ? '<span>Retry Download</span>' : ''}
             </button>` : '';
         const fileDeleteButton = item.file_exists ? `
-            <button class="action-btn action-file-delete" data-uuid="${safeUuid}" title="Delete file and related history">
+            <button class="action-btn action-file-delete" data-uuid="${safeUuid}" title="${escapeAttr(fileDeleteTitle)}">
                 <span class="glyphicon glyphicon-remove"></span>${isDetail ? '<span>Delete File</span>' : ''}
             </button>` : '';
+        const historyDeleteButton = !mountedFile ? `
+                <button class="action-btn action-history-delete" data-uuid="${safeUuid}" title="Delete history only">
+                    <span class="glyphicon glyphicon-trash"></span>${isDetail ? '<span>Delete History</span>' : ''}
+                </button>` : '';
         const detailClass = context === 'detail' ? ' detail-action-group' : '';
 
         return `
             <div class="action-group${detailClass}">
                 ${downloadButton}
                 ${retryButton}
-                <button class="action-btn action-history-delete" data-uuid="${safeUuid}" title="Delete history only">
-                    <span class="glyphicon glyphicon-trash"></span>${isDetail ? '<span>Delete History</span>' : ''}
-                </button>
+                ${historyDeleteButton}
                 ${fileDeleteButton}
             </div>
         `;
@@ -552,11 +605,23 @@ $(function () {
         }
 
         const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
-        const statusText = escapeHtml(item.status || 'unknown');
+        const statusText = escapeHtml(getStatusText(item.status));
         const url = item.url || '';
         const urlHtml = url ?
             `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>` :
             '<span class="muted">No URL saved</span>';
+        const mountedFile = isMountedFile(item);
+        const sourceText = mountedFile ? 'Mounted folder' : 'Download history';
+        const metadataText = getMetadataStatusText(item);
+        const metadataNotice = mountedFile ? `
+            <div class="metadata-notice">
+                <span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span>
+                <div>
+                    <strong>No download metadata</strong>
+                    <p>This file was found in /downfolder without a saved history row, so source URL, channel, and quality details are unavailable.</p>
+                </div>
+            </div>
+        ` : '';
 
         drawer.html(`
             <article class="detail-panel" data-uuid="${escapeAttr(item.uuid)}">
@@ -571,11 +636,14 @@ $(function () {
                     <h2 title="${escapeAttr(item.title || 'Untitled')}">${escapeHtml(item.title || 'Untitled')}</h2>
                     <p>${escapeHtml(item.channel || 'Unknown channel')}</p>
                 </div>
+                ${metadataNotice}
                 <dl class="detail-list">
                     ${renderDetailField('Downloaded', formatTimestamp(item.timestamp))}
                     ${renderDetailField('Resolution', item.resolution || 'unknown')}
                     ${renderDetailField('Size', formatFileSize(item))}
                     ${renderDetailField('Filename', item.filename || 'No file saved')}
+                    ${renderDetailField('Source', sourceText)}
+                    ${renderDetailField('Metadata', metadataText)}
                     ${renderDetailField('UUID', item.uuid || '')}
                 </dl>
                 <div class="detail-url">
@@ -641,6 +709,9 @@ $(function () {
 
     function getHistoryType(resolution) {
         resolution = resolution || '';
+        if (resolution === 'mounted') {
+            return 'file';
+        }
         if (resolution.indexOf('audio') === 0) {
             return 'audio';
         }
@@ -660,12 +731,17 @@ $(function () {
             return 'resolution-audio';
         } else if (/^(vtt|srt)/.test(resolution)) {
             return 'resolution-subtitle';
+        } else if (resolution === 'mounted') {
+            return 'resolution-file';
         } else {
             return 'resolution-low';
         }
     }
 
     function getStatusClass(status) {
+        if (status === 'file_only') {
+            return 'status-file';
+        }
         if (status === 'completed') {
             return 'status-completed';
         }
@@ -673,6 +749,13 @@ $(function () {
             return 'status-failed';
         }
         return 'status-pending';
+    }
+
+    function getStatusText(status) {
+        if (status === 'file_only') {
+            return 'Mounted';
+        }
+        return status || 'unknown';
     }
 
     function escapeHtml(value) {
@@ -910,8 +993,9 @@ $(function () {
             selectedHistoryUuid = null;
             renderHistory();
             saveLocalState();
+            fetchHistory({ quiet: true });
             if (hadHistory) {
-                addMessage("All download history cleared", 'warning');
+                addMessage("History rows cleared. Mounted files were reloaded.", 'warning');
             }
 
         } else if (messageType === "[HISTORY_DELETED]") {
@@ -1084,7 +1168,8 @@ $(function () {
         });
     }
 
-    function fetchHistory() {
+    function fetchHistory(options) {
+        const settings = Object.assign({ quiet: false }, options || {});
         $.ajax({
             method: "GET",
             url: "/youtube-dl/history",
@@ -1094,7 +1179,9 @@ $(function () {
                     historyItems = (response.history || []).map(normalizeHistoryItem);
                     renderHistory();
                     saveLocalState();
-                    addMessage("Download history refreshed", 'success');
+                    if (!settings.quiet) {
+                        addMessage("File list refreshed", 'success');
+                    }
                 } else {
                     addMessage(response.msg || "Failed to refresh history", 'error');
                 }
@@ -1116,8 +1203,9 @@ $(function () {
                     selectedHistoryUuid = null;
                     renderHistory();
                     saveLocalState();
+                    fetchHistory({ quiet: true });
                     if (hadHistory) {
-                        addMessage("History cleared. Downloaded files were not deleted.", 'warning');
+                        addMessage("History rows cleared. Downloaded files were kept and reloaded.", 'warning');
                     }
                 } else {
                     addMessage(response.msg || "Failed to clear history", 'error');
@@ -1338,10 +1426,10 @@ $(function () {
 
     $(document).on("click", "#clear-history", function() {
         showConfirmModal(
-            "Clear History",
-            "Clear all history rows? Downloaded files will be kept.",
+            "Clear History Rows",
+            "Clear saved history rows? Files in /downfolder will be kept and shown again as mounted files.",
             clearAllHistory,
-            "Clear"
+            "Clear Rows"
         );
     });
 
@@ -1366,10 +1454,14 @@ $(function () {
         const uuid = $(this).data('uuid');
         const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
         const title = item ? item.title : 'this file';
+        const mountedFile = item && isMountedFile(item);
+        const message = mountedFile ?
+            `Delete the physical file for "${title.substring(0, 50)}"? This mounted file has no saved history row.` :
+            `Delete the physical file for "${title.substring(0, 50)}" and remove related history rows?`;
 
         showConfirmModal(
             "Delete File",
-            `Delete the physical file for "${title.substring(0, 50)}" and remove related history rows?`,
+            message,
             function() {
                 deleteHistoryFile(uuid);
             },
