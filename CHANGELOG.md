@@ -18,7 +18,7 @@ No unreleased changes.
 - Added mobile history cards so the history view is usable without horizontal table scrolling.
 - Added a history detail drawer with source URL, filename, UUID, downloaded time, size, and actions.
 - Added history search, status/type filters, expanded sort options, and reset filters.
-- Added client-side Show more paging for large file/history lists.
+- Added numbered 20-item client-side history pages and an explicit history search button.
 - Added `GET /youtube-dl/status` as a cookie-authenticated read-only dashboard status API.
 - Added retry support for failed/error history rows.
 - Added separate history-only delete and physical-file delete flows.

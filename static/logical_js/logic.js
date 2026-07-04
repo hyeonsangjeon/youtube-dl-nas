@@ -145,7 +145,7 @@ $(function () {
     let queueCount = 0;
     let statusPollTimer = null;
     const historyPageSize = 20;
-    let visibleHistoryCount = historyPageSize;
+    let currentHistoryPage = 1;
     const emptyColspan = 7;
 
     console.log("Document ready - initializing...");
@@ -247,7 +247,14 @@ $(function () {
     }
 
     function resetHistoryPaging() {
-        visibleHistoryCount = historyPageSize;
+        currentHistoryPage = 1;
+    }
+
+    function applyHistorySearch() {
+        historyPrefs.search = $('#history-search').val();
+        resetHistoryPaging();
+        saveHistoryPrefs();
+        renderHistory();
     }
 
     function applyHistoryPrefsToControls() {
@@ -363,13 +370,19 @@ $(function () {
 
     function renderHistory() {
         const filteredItems = getFilteredHistoryItems();
-        const visibleItems = filteredItems.slice(0, visibleHistoryCount);
+        const totalPages = getHistoryTotalPages(filteredItems.length);
+        currentHistoryPage = clampHistoryPage(currentHistoryPage, totalPages);
+        const startIndex = (currentHistoryPage - 1) * historyPageSize;
+        const endIndex = startIndex + historyPageSize;
+        const visibleItems = filteredItems.slice(startIndex, endIndex);
         const body = $("#completeInfo");
         const cards = $("#history-card-list");
         const pager = $("#history-pager");
+        const rangeStart = filteredItems.length > 0 ? startIndex + 1 : 0;
+        const rangeEnd = Math.min(endIndex, filteredItems.length);
         const resultLabel = filteredItems.length === historyItems.length ?
-            `${Math.min(visibleItems.length, filteredItems.length)} of ${historyItems.length} items` :
-            `${Math.min(visibleItems.length, filteredItems.length)} of ${filteredItems.length} matching items`;
+            `${rangeStart}-${rangeEnd} of ${historyItems.length} items` :
+            `${rangeStart}-${rangeEnd} of ${filteredItems.length} matching items`;
         $('#history-result-count').text(resultLabel);
 
         if (historyItems.length === 0) {
@@ -393,31 +406,83 @@ $(function () {
 
         body.html(visibleItems.map(renderHistoryRow).join(''));
         cards.html(visibleItems.map(renderHistoryCard).join(''));
-        renderHistoryPager(filteredItems.length, visibleItems.length);
+        renderHistoryPager(filteredItems.length, totalPages);
         $(".table-responsive").show();
         if (selectedHistoryUuid) {
-            const selected = historyItems.find((item) => item.uuid === selectedHistoryUuid);
+            const selected = visibleItems.find((item) => item.uuid === selectedHistoryUuid);
+            if (!selected) {
+                selectedHistoryUuid = null;
+            }
             renderDetailDrawer(selected || null);
+        } else {
+            renderDetailDrawer(null);
         }
     }
 
-    function renderHistoryPager(totalCount, visibleCount) {
+    function getHistoryTotalPages(totalCount) {
+        return Math.max(1, Math.ceil(totalCount / historyPageSize));
+    }
+
+    function clampHistoryPage(page, totalPages) {
+        const pageNumber = Number(page) || 1;
+        return Math.min(Math.max(pageNumber, 1), totalPages);
+    }
+
+    function getHistoryPageItems(totalPages) {
+        if (totalPages <= 7) {
+            return Array.from({ length: totalPages }, function(_, index) {
+                return index + 1;
+            });
+        }
+
+        const pages = [1];
+        const startPage = Math.max(2, currentHistoryPage - 1);
+        const endPage = Math.min(totalPages - 1, currentHistoryPage + 1);
+
+        if (startPage > 2) {
+            pages.push('ellipsis-start');
+        }
+
+        for (let page = startPage; page <= endPage; page++) {
+            pages.push(page);
+        }
+
+        if (endPage < totalPages - 1) {
+            pages.push('ellipsis-end');
+        }
+
+        pages.push(totalPages);
+        return pages;
+    }
+
+    function renderHistoryPager(totalCount, totalPages) {
         const pager = $("#history-pager");
         if (totalCount <= historyPageSize) {
             pager.empty();
             return;
         }
 
-        const remaining = Math.max(0, totalCount - visibleCount);
-        const button = remaining > 0 ? `
-            <button id="show-more-history" class="btn btn-default btn-sm">
-                Show ${Math.min(historyPageSize, remaining)} more
-            </button>
-        ` : '';
+        const pageItems = getHistoryPageItems(totalPages).map(function(page) {
+            if (typeof page === 'string') {
+                return '<span class="history-page-ellipsis" aria-hidden="true">...</span>';
+            }
+
+            const activeClass = page === currentHistoryPage ? 'is-active' : '';
+            const currentAttr = page === currentHistoryPage ? ' aria-current="page"' : '';
+            return `
+                <button type="button" class="history-page-btn ${activeClass}" data-page="${page}"${currentAttr}>
+                    ${page}
+                </button>
+            `;
+        }).join('');
 
         pager.html(`
-            <span>${visibleCount} of ${totalCount} shown</span>
-            ${button}
+            <button type="button" class="history-page-nav" data-page="${currentHistoryPage - 1}" ${currentHistoryPage === 1 ? 'disabled' : ''}>Prev</button>
+            <div class="history-page-list" aria-label="History pages">
+                ${pageItems}
+            </div>
+            <button type="button" class="history-page-nav" data-page="${currentHistoryPage + 1}" ${currentHistoryPage === totalPages ? 'disabled' : ''}>Next</button>
+            <span class="history-page-summary">Page ${currentHistoryPage} of ${totalPages}</span>
         `);
     }
 
@@ -1415,11 +1480,19 @@ $(function () {
         return false;
     });
 
-    $(document).on("input", "#history-search", function() {
-        historyPrefs.search = $(this).val();
-        resetHistoryPaging();
-        saveHistoryPrefs();
-        renderHistory();
+    $(document).on("click", "#history-search-button", function() {
+        applyHistorySearch();
+    });
+
+    $(document).on("keydown", "#history-search", function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            applyHistorySearch();
+        }
+    });
+
+    $(document).on("search", "#history-search", function() {
+        applyHistorySearch();
     });
 
     $(document).on("change", "#history-sort, #history-status-filter, #history-type-filter", function() {
@@ -1444,8 +1517,13 @@ $(function () {
         renderHistory();
     });
 
-    $(document).on("click", "#show-more-history", function() {
-        visibleHistoryCount += historyPageSize;
+    $(document).on("click", ".history-page-btn, .history-page-nav", function() {
+        if ($(this).prop('disabled')) {
+            return;
+        }
+
+        currentHistoryPage = clampHistoryPage($(this).data('page'), getHistoryTotalPages(getFilteredHistoryItems().length));
+        selectedHistoryUuid = null;
         renderHistory();
     });
 

@@ -306,7 +306,12 @@
                             </div>
                         </div>
                         <div class="history-controls">
-                            <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, filename, or metadata">
+                            <div class="history-search-group">
+                                <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, filename, or metadata">
+                                <button id="history-search-button" class="btn btn-info btn-sm history-search-button" type="button">
+                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span> Search
+                                </button>
+                            </div>
                             <select id="history-sort" class="form-control input-sm history-select" title="Sort downloads">
                                 <option value="date-desc">Newest first</option>
                                 <option value="date-asc">Oldest first</option>

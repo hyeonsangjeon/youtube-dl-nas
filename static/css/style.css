@@ -1628,6 +1628,13 @@ a:hover {
   box-shadow: 0 0 0 3px rgba(15, 122, 138, 0.12);
 }
 
+.history-search-button {
+  min-width: 92px;
+  height: 38px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
 .submit-btn {
   min-height: 38px;
   border-radius: 6px;
@@ -1784,11 +1791,19 @@ a:hover {
 
 .history-controls {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 170px 150px 140px auto;
-  gap: 10px;
+  grid-template-columns: minmax(320px, 1fr) minmax(130px, 160px) minmax(120px, 150px) minmax(110px, 140px) auto;
+  gap: 8px;
   align-items: center;
+  justify-content: stretch;
   padding: 0 20px 16px;
   border-bottom: 1px solid #e1e7ef;
+}
+
+.history-search-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
 }
 
 .history-search,
@@ -2041,7 +2056,8 @@ a.video-title {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 14px 20px 18px;
   border-top: 1px solid #e1e7ef;
   color: #667085;
@@ -2052,10 +2068,60 @@ a.video-title {
   display: none;
 }
 
-.history-pager .btn {
-  min-width: 116px;
+.history-page-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-page-btn,
+.history-page-nav {
+  min-width: 34px;
+  height: 34px;
+  border: 1px solid #d8e0ea;
   border-radius: 6px;
+  background: #fff;
+  color: #344054;
   font-weight: 700;
+}
+
+.history-page-nav {
+  min-width: 58px;
+  padding: 0 10px;
+}
+
+.history-page-btn.is-active {
+  border-color: #0f7a8a;
+  background: #0f7a8a;
+  color: #fff;
+}
+
+.history-page-btn:hover,
+.history-page-nav:hover {
+  border-color: #0f7a8a;
+  color: #0f7a8a;
+}
+
+.history-page-btn.is-active:hover {
+  color: #fff;
+}
+
+.history-page-nav:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.history-page-ellipsis {
+  min-width: 20px;
+  color: #98a2b3;
+  text-align: center;
+  font-weight: 700;
+}
+
+.history-page-summary {
+  width: 100%;
+  text-align: center;
+  color: #667085;
 }
 
 .history-empty-card {
@@ -2351,6 +2417,21 @@ a.video-title {
     flex: 1;
   }
 
+  .history-search-group {
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .history-search,
+  .history-select {
+    max-width: none;
+  }
+
+  .history-controls .history-search-button {
+    width: auto;
+    min-width: 88px;
+  }
+
   .dashboard-page .table-responsive {
     display: none !important;
   }
@@ -2463,7 +2544,24 @@ a.video-title {
   }
 
   .history-pager {
+    gap: 6px;
     padding: 12px 14px 16px;
+  }
+
+  .history-page-list {
+    justify-content: center;
+    flex-wrap: wrap;
+    order: 0;
+    width: 100%;
+  }
+
+  .history-page-nav {
+    order: 1;
+    min-width: 72px;
+  }
+
+  .history-page-summary {
+    order: 2;
   }
 
   .detail-drawer.detail-is-empty {
