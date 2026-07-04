@@ -144,6 +144,8 @@ $(function () {
     let activeDownload = null;
     let queueCount = 0;
     let statusPollTimer = null;
+    const historyPageSize = 20;
+    let visibleHistoryCount = historyPageSize;
     const emptyColspan = 7;
 
     console.log("Document ready - initializing...");
@@ -242,6 +244,10 @@ $(function () {
 
     function saveHistoryPrefs() {
         localStorage.setItem('historyPrefs', JSON.stringify(historyPrefs));
+    }
+
+    function resetHistoryPaging() {
+        visibleHistoryCount = historyPageSize;
     }
 
     function applyHistoryPrefsToControls() {
@@ -357,16 +363,19 @@ $(function () {
 
     function renderHistory() {
         const filteredItems = getFilteredHistoryItems();
+        const visibleItems = filteredItems.slice(0, visibleHistoryCount);
         const body = $("#completeInfo");
         const cards = $("#history-card-list");
+        const pager = $("#history-pager");
         const resultLabel = filteredItems.length === historyItems.length ?
-            `${historyItems.length} items` :
-            `${filteredItems.length} of ${historyItems.length} items`;
+            `${Math.min(visibleItems.length, filteredItems.length)} of ${historyItems.length} items` :
+            `${Math.min(visibleItems.length, filteredItems.length)} of ${filteredItems.length} matching items`;
         $('#history-result-count').text(resultLabel);
 
         if (historyItems.length === 0) {
             body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No files yet<br><small>Start downloading or mount files into /downfolder</small></td></tr>`);
             cards.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
+            pager.empty();
             renderDetailDrawer(null);
             return;
         }
@@ -374,6 +383,7 @@ $(function () {
         if (filteredItems.length === 0) {
             body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No matching downloads<br><small>Try a different search or filter</small></td></tr>`);
             cards.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
+            pager.empty();
             if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
                 renderDetailDrawer(null);
             }
@@ -381,13 +391,34 @@ $(function () {
             return;
         }
 
-        body.html(filteredItems.map(renderHistoryRow).join(''));
-        cards.html(filteredItems.map(renderHistoryCard).join(''));
+        body.html(visibleItems.map(renderHistoryRow).join(''));
+        cards.html(visibleItems.map(renderHistoryCard).join(''));
+        renderHistoryPager(filteredItems.length, visibleItems.length);
         $(".table-responsive").show();
         if (selectedHistoryUuid) {
             const selected = historyItems.find((item) => item.uuid === selectedHistoryUuid);
             renderDetailDrawer(selected || null);
         }
+    }
+
+    function renderHistoryPager(totalCount, visibleCount) {
+        const pager = $("#history-pager");
+        if (totalCount <= historyPageSize) {
+            pager.empty();
+            return;
+        }
+
+        const remaining = Math.max(0, totalCount - visibleCount);
+        const button = remaining > 0 ? `
+            <button id="show-more-history" class="btn btn-default btn-sm">
+                Show ${Math.min(historyPageSize, remaining)} more
+            </button>
+        ` : '';
+
+        pager.html(`
+            <span>${visibleCount} of ${totalCount} shown</span>
+            ${button}
+        `);
     }
 
     function getFilteredHistoryItems() {
@@ -475,6 +506,8 @@ $(function () {
         const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
         const statusText = escapeHtml(getStatusText(item.status));
         const metadataSourceLine = renderMetadataSourceLine(item);
+        const resolutionBadge = item.resolution === 'mounted' ? '' :
+            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>`;
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
 
         return `
@@ -487,14 +520,16 @@ $(function () {
                     <h3>${titleText}</h3>
                     <p>${channelText}</p>
                     ${metadataSourceLine}
+                </div>
+                <div class="history-card-footer">
                     <div class="history-card-tags">
                         <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
-                        <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
+                        ${resolutionBadge}
                         ${renderMetadataBadge(item)}
                         <span class="file-size ${item.file_exists ? '' : 'file-missing'}">${formatFileSize(item)}</span>
                     </div>
+                    <div class="history-card-actions">${renderActionButtons(item, 'card')}</div>
                 </div>
-                <div class="history-card-actions">${renderActionButtons(item, 'card')}</div>
             </article>
         `;
     }
@@ -589,10 +624,20 @@ $(function () {
         const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
         renderDetailDrawer(item || null);
         renderHistory();
+        if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+            window.requestAnimationFrame(function() {
+                const detailDrawer = document.getElementById('history-detail-drawer');
+                if (detailDrawer) {
+                    detailDrawer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        }
     }
 
     function renderDetailDrawer(item) {
         const drawer = $('#history-detail-drawer');
+        drawer.toggleClass('detail-is-empty', !item);
+        drawer.toggleClass('detail-has-item', !!item);
         if (!item) {
             drawer.html(`
                 <div class="detail-empty">
@@ -624,7 +669,7 @@ $(function () {
         ` : '';
 
         drawer.html(`
-            <article class="detail-panel" data-uuid="${escapeAttr(item.uuid)}">
+            <article class="detail-panel ${mountedFile ? 'detail-panel-mounted' : ''}" data-uuid="${escapeAttr(item.uuid)}">
                 <button type="button" id="close-detail" class="detail-close" title="Close details">
                     <span class="glyphicon glyphicon-remove"></span>
                 </button>
@@ -638,15 +683,15 @@ $(function () {
                 </div>
                 ${metadataNotice}
                 <dl class="detail-list">
-                    ${renderDetailField('Downloaded', formatTimestamp(item.timestamp))}
-                    ${renderDetailField('Resolution', item.resolution || 'unknown')}
-                    ${renderDetailField('Size', formatFileSize(item))}
-                    ${renderDetailField('Filename', item.filename || 'No file saved')}
-                    ${renderDetailField('Source', sourceText)}
-                    ${renderDetailField('Metadata', metadataText)}
-                    ${renderDetailField('UUID', item.uuid || '')}
+                    ${renderDetailField('Downloaded', formatTimestamp(item.timestamp), 'downloaded')}
+                    ${renderDetailField('Resolution', item.resolution || 'unknown', 'resolution')}
+                    ${renderDetailField('Size', formatFileSize(item), 'size')}
+                    ${renderDetailField('Filename', item.filename || 'No file saved', 'filename')}
+                    ${renderDetailField('Source', sourceText, 'source')}
+                    ${renderDetailField('Metadata', metadataText, 'metadata')}
+                    ${renderDetailField('UUID', item.uuid || '', 'uuid')}
                 </dl>
-                <div class="detail-url">
+                <div class="detail-url ${url ? '' : 'detail-url-empty'}">
                     <span>Source URL</span>
                     ${urlHtml}
                 </div>
@@ -655,9 +700,10 @@ $(function () {
         `);
     }
 
-    function renderDetailField(label, value) {
+    function renderDetailField(label, value, key) {
+        const fieldClass = key ? ` detail-field-${escapeAttr(key)}` : '';
         return `
-            <div>
+            <div class="detail-field${fieldClass}">
                 <dt>${escapeHtml(label)}</dt>
                 <dd>${escapeHtml(value)}</dd>
             </div>
@@ -1371,6 +1417,7 @@ $(function () {
 
     $(document).on("input", "#history-search", function() {
         historyPrefs.search = $(this).val();
+        resetHistoryPaging();
         saveHistoryPrefs();
         renderHistory();
     });
@@ -1379,6 +1426,7 @@ $(function () {
         historyPrefs.sort = $('#history-sort').val();
         historyPrefs.status = $('#history-status-filter').val();
         historyPrefs.type = $('#history-type-filter').val();
+        resetHistoryPaging();
         saveHistoryPrefs();
         renderHistory();
     });
@@ -1391,7 +1439,13 @@ $(function () {
             search: ''
         };
         applyHistoryPrefsToControls();
+        resetHistoryPaging();
         saveHistoryPrefs();
+        renderHistory();
+    });
+
+    $(document).on("click", "#show-more-history", function() {
+        visibleHistoryCount += historyPageSize;
         renderHistory();
     });
 

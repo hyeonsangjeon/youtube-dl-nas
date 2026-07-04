@@ -357,6 +357,7 @@
                             </div>
                         </div>
                         <div id="history-card-list" class="history-card-list"></div>
+                        <div id="history-pager" class="history-pager"></div>
                     </section>
                 </main>
 

@@ -18,6 +18,7 @@ No unreleased changes.
 - Added mobile history cards so the history view is usable without horizontal table scrolling.
 - Added a history detail drawer with source URL, filename, UUID, downloaded time, size, and actions.
 - Added history search, status/type filters, expanded sort options, and reset filters.
+- Added client-side Show more paging for large file/history lists.
 - Added `GET /youtube-dl/status` as a cookie-authenticated read-only dashboard status API.
 - Added retry support for failed/error history rows.
 - Added separate history-only delete and physical-file delete flows.
@@ -32,6 +33,8 @@ No unreleased changes.
 - Updated the dashboard JavaScript to keep table rows, mobile cards, and the detail drawer in sync from one history state.
 - Improved responsive layout to prevent body-level horizontal overflow on mobile.
 - Improved mobile history layout so card rows are shown without the desktop table.
+- Compacted mobile history cards so long mounted filenames wrap cleanly and action buttons stay visible.
+- Compacted the mobile history detail panel and scroll it into view after selecting a card.
 - Updated cache-busting query strings for the dashboard CSS and JavaScript assets.
 - Improved server-side download worker cleanup so failures do not leave the worker in a broken state.
 - Fixed `run.sh` scheduler PID handling.
