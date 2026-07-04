@@ -4,7 +4,9 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
-No unreleased changes.
+### Changed
+
+- Polished README documentation for the `26.0704` dashboard release, numbered history pages, explicit search, mounted file metadata states, and Docker publishing behavior.
 
 ## 26.0704 - 2026-07-04
 

@@ -11,11 +11,14 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
+Current dashboard release: `26.0704` (`2026-07-04`)
+
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
 - Track current activity with queue count, progress, title, channel, and thumbnail.
-- Review download history and mounted folder files with search, filters, sorting, mobile cards, and a detail drawer.
+- Review download history and mounted folder files with explicit search, filters, newest-first sorting, 20-item numbered pages, mobile cards, and a detail drawer.
+- Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Retry failed items, download saved files, delete history rows, or delete physical files.
 - Keep history under `./metadata/download_history.json` for persistence.
 - Automate downloads through a simple REST API.
@@ -27,6 +30,20 @@ Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
   <img src="pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
   <img src="pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history cards" width="23%">
 </p>
+
+## Dashboard Workflow
+
+1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue.
+2. Watch the Current Activity panel for active progress, queue count, title, channel, thumbnail, and status.
+3. Use Files & History to find completed downloads and mounted files. The default sort is newest downloaded first.
+4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
+5. Select a table row or mobile card to open file details, source URL, metadata state, and actions.
+
+### Mounted Files And Metadata
+
+Files already present in `/downfolder` are scanned into Files & History even if they were not downloaded by this app version. Those rows show `Mounted folder` and `No metadata` because source URL, channel, and quality details are not available.
+
+Clearing history rows does not delete files. Kept files are reloaded from `/downfolder` and shown again as mounted files. Use the file delete action only when you want to remove the physical file.
 
 ## Quick Start
 
@@ -171,7 +188,9 @@ docker run --rm \
   youtube-dl-nas:local
 ```
 
-The GitHub Actions workflow builds the Docker image for pull requests and pushes only from the default branch or version tags. Configure these repository secrets before publishing to Docker Hub:
+The GitHub Actions workflow builds the Docker image for pull requests without publishing. Pushes to the default branch or version tags publish multi-architecture `linux/amd64` and `linux/arm64` images to Docker Hub, including `latest` on the default branch plus branch/tag and `sha-` tags.
+
+Configure these repository secrets before publishing to Docker Hub:
 
 - `DOCKERHUB_USERNAME`
 - `DOCKERHUB_TOKEN`
