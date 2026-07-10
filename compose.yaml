@@ -1,0 +1,26 @@
+services:
+  youtube-dl-nas:
+    image: modenaf360/youtube-dl-nas:latest
+    container_name: youtube-dl-nas
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      MY_ID: "${MY_ID:?Set MY_ID in .env}"
+      MY_PW: "${MY_PW:?Set MY_PW in .env}"
+      TZ: "${TZ:-UTC}"
+      DOWNLOAD_DIR: "/downfolder"
+      STATE_DIR: "/usr/src/app/metadata"
+      PUID: "${PUID:-0}"
+      PGID: "${PGID:-0}"
+      UMASK: "${UMASK:-022}"
+      YTDLP_AUTO_UPDATE: "${YTDLP_AUTO_UPDATE:-true}"
+      YTDLP_UPDATE_INTERVAL: "${YTDLP_UPDATE_INTERVAL:-3600}"
+      YTDLP_COOKIES_FILE: "${YTDLP_COOKIES_FILE:-}"
+      YTDLP_EXTRA_ARGS: "${YTDLP_EXTRA_ARGS:-}"
+      YDLNAS_API_TOKEN: "${YDLNAS_API_TOKEN:-}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      PROXY: "${PROXY:-}"
+    volumes:
+      - "${DOWNLOAD_DIR:-./downloads}:/downfolder"
+      - "${CONFIG_DIR:-./config}:/usr/src/app/metadata"

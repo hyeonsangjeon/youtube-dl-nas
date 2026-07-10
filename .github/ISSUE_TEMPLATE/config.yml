@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Mobile sharing guide
+    url: https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/
+    about: Set up Android or iOS sharing before filing an integration issue.

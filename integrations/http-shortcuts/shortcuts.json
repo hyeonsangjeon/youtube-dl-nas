@@ -1,0 +1,77 @@
+{
+  "version": 91,
+  "compatibilityVersion": 90,
+  "title": "youtube-dl NAS Android Share",
+  "categories": [
+    {
+      "id": "74699d53-244e-4f90-8e39-b373f47694e6",
+      "name": "youtube-dl NAS",
+      "layoutType": "linear_list",
+      "shortcuts": [
+        {
+          "id": "8c2e24ab-b41d-4ea6-b2b2-df5de48a6368",
+          "name": "Download to NAS",
+          "description": "Send a URL from the Android share sheet to youtube-dl-nas",
+          "iconName": "flat_color_download",
+          "method": "POST",
+          "url": "{{8c376eeb-603d-4e19-8791-a254c33d83ab}}/youtube-dl/rest",
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"url\":\"{{b39a87fa-14d1-47d9-a1fb-95ce7a855ff8}}\",\"resolution\":\"best\",\"id\":\"{{a13f8804-c62d-455e-b01f-183616e7fb1e}}\",\"pw\":\"{{42c5747b-6e13-4a29-b9ee-eb046257908d}}\"}",
+          "launcherShortcut": true,
+          "timeout": 15000,
+          "followRedirects": true,
+          "acceptCookies": true,
+          "responseHandling": {
+            "uiType": "toast",
+            "successOutput": "message",
+            "successMessage": "Added to youtube-dl NAS",
+            "failureOutput": "detailed"
+          }
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "id": "8c376eeb-603d-4e19-8791-a254c33d83ab",
+      "key": "nas_url",
+      "type": "constant",
+      "value": "",
+      "title": "NAS address",
+      "message": "Example: http://192.168.0.20:8080",
+      "isExcludeValueFromExport": true
+    },
+    {
+      "id": "a13f8804-c62d-455e-b01f-183616e7fb1e",
+      "key": "nas_id",
+      "type": "constant",
+      "value": "",
+      "jsonEncode": true,
+      "title": "youtube-dl-nas ID",
+      "isExcludeValueFromExport": true
+    },
+    {
+      "id": "42c5747b-6e13-4a29-b9ee-eb046257908d",
+      "key": "nas_password",
+      "type": "password",
+      "value": "",
+      "rememberValue": true,
+      "jsonEncode": true,
+      "title": "youtube-dl-nas password",
+      "isExcludeValueFromExport": true,
+      "isSecret": true
+    },
+    {
+      "id": "b39a87fa-14d1-47d9-a1fb-95ce7a855ff8",
+      "key": "shared_url",
+      "type": "constant",
+      "value": "",
+      "jsonEncode": true,
+      "isShareText": true,
+      "isExcludeValueFromExport": true
+    }
+  ],
+  "certificatePins": [],
+  "workingDirectories": []
+}

@@ -11,7 +11,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current dashboard release: `26.0704` (`2026-07-04`)
+Current release: `26.0710` (`2026-07-10`)
 
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
@@ -26,12 +26,15 @@ Current dashboard release: `26.0704` (`2026-07-04`)
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
+- Share a URL from an installed Android PWA, an Android HTTP Shortcut, or an iOS Shortcut workflow.
 - Track current activity with queue count, progress, title, channel, and thumbnail.
 - Review download history and mounted folder files with explicit search, filters, newest-first sorting, 20-item numbered pages, mobile cards, and a detail drawer.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Retry failed items, download saved files, delete history rows, or delete physical files.
-- Keep history under `./metadata/download_history.json` for persistence.
+- Persist history, terms acceptance, and the signed-session secret under `./metadata`.
 - Automate downloads through a simple REST API.
+- Keep `yt-dlp` current at startup and every hour by default without stopping the app when an update check fails.
+- Include Deno and the matching `yt-dlp-ejs` components required for current YouTube JavaScript challenges.
 - Run cleanly on NAS or home-server Docker setups.
 
 ## Screenshots
@@ -57,14 +60,25 @@ Clearing history rows does not delete files. Kept files are reloaded from `/down
 
 ## Quick Start
 
-Run the container with a persistent download volume and login credentials:
+Docker Compose is the recommended installation because it preserves both downloads and application state:
+
+```shell
+cp .env.example .env
+docker compose up -d
+```
+
+Edit `.env` before starting and set at least `MY_ID` and `MY_PW`. Downloads are stored in `./downloads`; history, terms acceptance, and the session secret are stored in `./config`.
+
+The equivalent `docker run` command is:
 
 ```shell
 docker run -d \
-  --name youtube-dl \
-  -e MY_ID=modenaf360 \
-  -e MY_PW=1234 \
+  --name youtube-dl-nas \
+  --restart unless-stopped \
+  -e MY_ID=nas-user \
+  -e MY_PW=change-this-password \
   -v /volume2/youtube-dl:/downfolder \
+  -v /volume2/docker/youtube-dl-nas:/usr/src/app/metadata \
   -p 8080:8080 \
   modenaf360/youtube-dl-nas
 ```
@@ -75,11 +89,13 @@ Open `http://localhost:8080`, sign in with `MY_ID` / `MY_PW`, accept the Terms o
 
 ```shell
 docker run -d \
-  --name youtube-dl \
+  --name youtube-dl-nas \
+  --restart unless-stopped \
   -e TZ=Asia/Seoul \
-  -e MY_ID=modenaf360 \
-  -e MY_PW=1234 \
+  -e MY_ID=nas-user \
+  -e MY_PW=change-this-password \
   -v /volume2/youtube-dl:/downfolder \
+  -v /volume2/docker/youtube-dl-nas:/usr/src/app/metadata \
   -p 8080:8080 \
   modenaf360/youtube-dl-nas
 ```
@@ -88,12 +104,14 @@ docker run -d \
 
 ```shell
 docker run -d \
-  --name youtube-dl \
+  --name youtube-dl-nas \
+  --restart unless-stopped \
   --net=host \
   -e APP_PORT=9999 \
-  -e MY_ID=modenaf360 \
-  -e MY_PW=1234 \
+  -e MY_ID=nas-user \
+  -e MY_PW=change-this-password \
   -v /volume2/youtube-dl:/downfolder \
+  -v /volume2/docker/youtube-dl-nas:/usr/src/app/metadata \
   modenaf360/youtube-dl-nas
 ```
 
@@ -102,12 +120,29 @@ docker run -d \
 | Option | Description |
 | --- | --- |
 | `-v host:/downfolder` | Required persistent download volume. Keep the guest path as `/downfolder`. |
+| `-v host:/usr/src/app/metadata` | Recommended persistent configuration volume for history, terms acceptance, and session state. |
 | `-p host:guest` | Port forwarding. The app defaults to `8080`. |
 | `-e MY_ID` | Required login ID. Avoid values starting with `!`, `$`, or `&`. |
 | `-e MY_PW` | Required login password. Avoid values starting with `!`, `$`, or `&`. |
 | `-e TZ` | Optional container time zone, for example `Asia/Seoul`. |
 | `-e APP_PORT` | Optional app port. Defaults to `8080`. |
 | `-e PROXY` | Optional proxy value passed to `yt-dlp`. Defaults to empty. |
+| `-e PUID`, `-e PGID` | Optional numeric owner for new download and state files. Defaults to `0`. |
+| `-e UMASK` | Optional file creation mask. Defaults to `022`. |
+| `-e YTDLP_AUTO_UPDATE` | Keep the startup and scheduled `yt-dlp` updater enabled. Defaults to `true`. |
+| `-e YTDLP_UPDATE_INTERVAL` | Updater interval in seconds. Defaults to `3600`, with a minimum of `300`. |
+| `-e YTDLP_COOKIES_FILE` | Optional path to a mounted Netscape-format cookies file. |
+| `-e YTDLP_EXTRA_ARGS` | Optional administrator-controlled extra arguments parsed with shell-style quoting. |
+| `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
+| `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
+
+## Mobile Sharing
+
+- Android over HTTPS: install the dashboard as a PWA, then select **youtube-dl NAS** from the Android share sheet.
+- Android over local HTTP: import the provided HTTP Shortcuts template and enter the normal dashboard URL, ID, and password.
+- iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut), replace its endpoint and credential placeholders, then share URLs directly to the NAS.
+
+See the [mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) or the source in [`docs/mobile`](docs/mobile/). No relay server is used; the phone sends URLs directly to the NAS. GitHub Pages only hosts the manual and import files.
 
 ## REST API
 
@@ -132,6 +167,15 @@ Successful response:
   "msg": "download has started",
   "Remaining downloading count": "7"
 }
+```
+
+The ID/password fields remain the default integration method. When `YDLNAS_API_TOKEN` is configured, advanced clients may omit them and send:
+
+```shell
+curl -X POST http://localhost:8080/youtube-dl/rest \
+  -H 'Authorization: Bearer your-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://youtu.be/s9mO5q6GiAc","resolution":"best"}'
 ```
 
 Supported `resolution` examples:
@@ -160,6 +204,7 @@ Install dependencies:
 
 ```shell
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 Prepare `Auth.json` with local credentials, then run:
@@ -175,6 +220,8 @@ Useful checks before committing:
 ```shell
 python3 -m py_compile youtube-dl-server.py
 node --check static/logical_js/logic.js
+pytest -q
+docker compose --env-file .env.example config
 git diff --check
 docker build -t youtube-dl-nas:local .
 ```
@@ -194,22 +241,25 @@ docker run --rm \
   -e MY_ID=tester \
   -e MY_PW=secret \
   -v "$PWD/downfolder:/downfolder" \
+  -v "$PWD/metadata:/usr/src/app/metadata" \
   -p 8080:8080 \
   youtube-dl-nas:local
 ```
 
-The GitHub Actions workflow builds the Docker image for pull requests without publishing. Pushes to the default branch or version tags publish multi-architecture `linux/amd64` and `linux/arm64` images to Docker Hub, including `latest` on the default branch plus branch/tag and `sha-` tags.
+The GitHub Actions workflow builds the Docker image for pull requests without publishing. Pushes to the default branch or version tags publish multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`), including `latest` on the default branch plus branch/tag and `sha-` tags.
 
 Configure these repository secrets before publishing to Docker Hub:
 
 - `DOCKERHUB_USERNAME`
 - `DOCKERHUB_TOKEN`
 
+GHCR publishing uses the workflow's built-in `GITHUB_TOKEN`; no additional registry secret is required.
+
 That keeps every Git change build-verified without publishing unreviewed images.
 
 ## Architecture
 
-The application is a Python Bottle server running inside a Debian-based Python container. Downloads are queued in-process, processed by a worker thread, and written to `/downfolder`.
+The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same in-process worker queue, and completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
 
 - Web server: [`bottle`](https://github.com/bottlepy/bottle)
 - WebSocket: [`bottle-websocket`](https://github.com/zeekay/bottle-websocket)
@@ -220,7 +270,7 @@ The application is a Python Bottle server running inside a Debian-based Python c
 
 ## Synology Notes
 
-When using Synology Container Manager or Docker UI, mount a host folder to `/downfolder` and set `MY_ID`, `MY_PW`, and optional environment variables in the container settings.
+When using Synology Container Manager or Docker UI, mount a download folder to `/downfolder`, mount a configuration folder to `/usr/src/app/metadata`, and set `MY_ID`, `MY_PW`, and optional environment variables in the container settings. Use `compose.yaml` as a Container Manager project when available.
 
 Volume setup:
 

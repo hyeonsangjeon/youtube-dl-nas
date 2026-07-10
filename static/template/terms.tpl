@@ -4,9 +4,12 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#168a92">
     <title>Terms of Use - youtube-dl-nas</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/youtube-dl/static/pwa/icon-192.png">
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
     
     
 </head>
@@ -46,7 +49,7 @@
                     <p>By using this application, you acknowledge and agree to the following:</p>
                     
                     <ol>
-                        <li>You will use this application only for personal and non-commercial purposes in compliance with all applicable laws.</li>
+                        <li>You will use this application only for lawful purposes in compliance with all applicable laws.</li>
                         <li>You will only download content that you have legal permission to access and download.</li>
                         <li>You understand that downloading copyrighted material without proper authorization is prohibited.</li>
                         <li>You will not use this application to infringe upon any copyright laws or third-party rights.</li>
@@ -55,7 +58,7 @@
                         <li>You acknowledge that this tool is intended for downloading content legally available for personal use, such as content you own, have permission to download, or falls under legitimate exceptions to copyright.</li>
                     </ol>
                     
-                    <p><strong>Last updated: 2025-07-06 </strong></p>
+                    <p><strong>Last updated: 2026-07-10</strong></p>
                     
                     <div class="terms-agreement">
                         <div class="checkbox-container">
@@ -91,7 +94,7 @@
                         success: function(response) {
                             if (response.success) {
                                 // 로그인 페이지로 리다이렉트
-                                window.location.href = '/';
+                                window.location.href = '/?next=' + encodeURIComponent({{!next_path_json}});
                             } else {
                                 alert('Error: ' + (response.msg || 'Failed to accept terms'));
                             }

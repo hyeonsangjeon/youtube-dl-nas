@@ -1,21 +1,23 @@
-# Base image with Python 3.10
-FROM python:3.10-slim
+FROM denoland/deno:bin-2.9.1 AS deno
 
-LABEL maintainer="wingnut0310 <wingnut0310@gmail.com>"
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.title="youtube-dl-nas" \
+      org.opencontainers.image.description="Authenticated yt-dlp download queue for private NAS servers" \
+      org.opencontainers.image.source="https://github.com/hyeonsangjeon/youtube-dl-nas" \
+      org.opencontainers.image.licenses="MIT"
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    DOWNLOAD_DIR=/downfolder \
+    STATE_DIR=/usr/src/app/metadata
 
-# Install required system packages
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
-        v4l-utils \
-        dos2unix \
-        vim \
-        procps \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -26,24 +28,22 @@ COPY requirements.txt /usr/src/app/requirements.txt
 RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -U youtube-dl && \
     apt-get purge -y --auto-remove build-essential && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy files
+COPY --from=deno /deno /usr/local/bin/deno
 COPY /subber /usr/bin/subber
 COPY /run.sh /
 COPY / /usr/src/app/
 
-# Fix permissions and formatting
 RUN chmod +x /usr/bin/subber /run.sh && \
-    dos2unix /usr/bin/subber /run.sh && \
-    mkdir -p /usr/src/app/downfolder/.incomplete /usr/src/app/metadata && \
-    ln -sfn /usr/src/app/downfolder /
+    mkdir -p /downfolder/.incomplete /usr/src/app/metadata
 
-# Expose port and define volume
 EXPOSE 8080
-VOLUME ["/downfolder"]
+VOLUME ["/downfolder", "/usr/src/app/metadata"]
 
-# Default command
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import os, urllib.request; port=os.environ.get('APP_PORT') or '8080'; urllib.request.urlopen('http://127.0.0.1:' + port + '/health', timeout=3)" || exit 1
+
 CMD ["/bin/bash", "/run.sh"]

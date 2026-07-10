@@ -6,11 +6,14 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <meta name="description" content="">
+    <meta name="description" content="Send video, audio, and subtitle URLs to a private NAS download queue.">
+    <meta name="theme-color" content="#168a92">
     <meta name="author" content="">
-    <link rel="icon" href="../../favicon.ico">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/youtube-dl/static/pwa/icon-192.png">
+    <link rel="apple-touch-icon" href="/youtube-dl/static/pwa/icon-192.png">
 
-    <title>youtube-dl</title>
+    <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
     <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
@@ -395,6 +398,15 @@
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
 <script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(error) {
+                console.warn('PWA service worker registration failed:', error);
+            });
+        });
+    }
+</script>
 </body>
 
 </html>

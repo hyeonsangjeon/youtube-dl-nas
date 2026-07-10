@@ -4,9 +4,11 @@ from queue import Queue
 import re
 import time
 import uuid
+import hmac
+import shlex
 from datetime import datetime, timedelta
 from collections import defaultdict
-from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort
+from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort, HTTPError
 from threading import Thread
 from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
@@ -14,10 +16,17 @@ from socket import error
 from geventwebsocket.exceptions import WebSocketError
 import os
 import secrets
-import string
+from urllib.parse import quote
 
-DOWNFOLDER_DIR = "./downfolder"
-APP_VERSION = os.environ.get("APP_VERSION", "26.0704")
+DOWNFOLDER_DIR = os.environ.get("DOWNLOAD_DIR", "./downfolder")
+STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
+AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
+APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
+HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0710")
+API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
+YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
 VALID_RESOLUTIONS = {"best", "audio", "audio-m4a", "audio-mp3"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
 SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
@@ -25,6 +34,9 @@ VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi"}
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".ogg", ".wav"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa"}
 SKIPPED_DOWNFOLDER_NAMES = {".incomplete", ".DS_Store"}
+SHARED_URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+
+os.makedirs(STATE_DIR, exist_ok=True)
 
 def json_error(msg, status=400):
     response.status = status
@@ -33,18 +45,113 @@ def json_error(msg, status=400):
 def get_request_json():
     return request.json if isinstance(request.json, dict) else {}
 
+def load_json_file(path, default=None):
+    try:
+        with open(path, encoding="utf-8") as data_file:
+            return json.load(data_file)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {} if default is None else default
+
+def save_app_state(updates):
+    state = load_json_file(APP_STATE_FILE, {})
+    state.update(updates)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    temp_path = APP_STATE_FILE + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as state_file:
+        json.dump(state, state_file, indent=2, ensure_ascii=True)
+    os.replace(temp_path, APP_STATE_FILE)
+    return state
+
 def load_auth_data():
-    with open('Auth.json') as data_file:
-        return json.load(data_file)
+    data = load_json_file(AUTH_FILE, {})
+    for key, value in list(data.items()):
+        if isinstance(value, str) and re.fullmatch(r"\{\{[^{}]+\}\}", value.strip()):
+            data[key] = ""
+
+    for key in ("MY_ID", "MY_PW", "APP_PORT", "PROXY", "TERMS_ACCEPTED", "SECRET_KEY"):
+        env_value = os.environ.get(key)
+        if env_value is not None and env_value != "":
+            data[key] = env_value
+
+    state = load_json_file(APP_STATE_FILE, {})
+    for key in ("TERMS_ACCEPTED", "SECRET_KEY"):
+        if state.get(key):
+            data[key] = state[key]
+
+    if not data.get("SECRET_KEY"):
+        data["SECRET_KEY"] = secrets.token_urlsafe(32)
+        save_app_state({"SECRET_KEY": data["SECRET_KEY"]})
+
+    data.setdefault("MY_ID", "")
+    data.setdefault("MY_PW", "")
+    data.setdefault("APP_PORT", "")
+    data.setdefault("PROXY", "")
+    data.setdefault("TERMS_ACCEPTED", "N")
+    return data
+
+def is_cookie_authenticated(data=None):
+    data = data or load_auth_data()
+    user_name = request.get_cookie("account", secret=data.get("SECRET_KEY"))
+    return bool(data.get("MY_ID") and user_name == data.get("MY_ID"))
+
+def is_api_authenticated(payload, data=None):
+    data = data or load_auth_data()
+    authorization = request.headers.get("Authorization", "")
+    if API_TOKEN and authorization.startswith("Bearer "):
+        supplied_token = authorization[7:].strip()
+        if hmac.compare_digest(supplied_token, API_TOKEN):
+            return True
+
+    request_id = payload.get("id")
+    request_password = payload.get("pw")
+    if not data.get("MY_ID") or not data.get("MY_PW") or request_id is None or request_password is None:
+        return False
+    return hmac.compare_digest(str(request_id or ""), str(data.get("MY_ID") or "")) and hmac.compare_digest(
+        str(request_password or ""), str(data.get("MY_PW") or "")
+    )
+
+def safe_next_path(value, fallback="/youtube-dl"):
+    value = (value or "").strip()
+    if not value.startswith("/") or value.startswith("//") or any(ord(char) < 32 for char in value):
+        return fallback
+    return value
+
+def extract_shared_url(*values):
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        match = SHARED_URL_PATTERN.search(value)
+        if match:
+            return match.group(0).rstrip(".,);]")
+    return ""
+
+def cookie_secure_enabled():
+    return os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+
+def set_pending_share_cookie(shared_url, data):
+    response.set_cookie(
+        "pending_share",
+        shared_url,
+        secret=data.get("SECRET_KEY"),
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure_enabled(),
+        max_age=600,
+    )
+
+def queue_shared_url(shared_url):
+    validation_error = validate_download_request(shared_url, "best")
+    if validation_error:
+        redirect("/youtube-dl?shared=invalid")
+
+    download_manager.send_message("Shared URL received. Added to the NAS queue.")
+    enqueue_download(shared_url, "best", "web", ws_addr.wsClassVal)
+    redirect("/youtube-dl?shared=queued")
 
 def require_cookie_auth():
     data = load_auth_data()
-    secret_key = data.get("SECRET_KEY")
-    if not secret_key:
-        return None, json_error("Secret key not found in Auth.json", 500)
-
-    userNm = request.get_cookie("account", secret=secret_key)
-    if userNm != data["MY_ID"]:
+    if not is_cookie_authenticated(data):
         return None, json_error("Unauthorized", 403)
 
     return data, None
@@ -190,9 +297,10 @@ def normalize_history_item(item):
     return item
 
 def start_download_thread_if_needed():
-    if not Thr.dl_thread.is_alive():
-        thr = Thr()
-        thr.restart()
+    global download_thread
+    if download_thread is None or not download_thread.is_alive():
+        download_thread = Thread(target=dl_worker, name="download-worker", daemon=True)
+        download_thread.start()
 
 def enqueue_download(url, resolution, source, ws=None):
     dl_q.put((url.strip(), ws, resolution.strip(), source))
@@ -205,7 +313,7 @@ class GlobalDownloadManager:
         self.download_history = []  # history of download info
         self.connected_clients = set() #every websocket clients
         self.is_downloading = False
-        self.history_file = './metadata/download_history.json'
+        self.history_file = HISTORY_FILE
         self.load_history()
     
     def load_history(self):
@@ -224,8 +332,10 @@ class GlobalDownloadManager:
     def save_history(self):        
         """Save history to file"""
         try:
-            with open(self.history_file, 'w', encoding='utf-8') as f:
+            temp_path = self.history_file + ".tmp"
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(self.download_history, f, indent=2, ensure_ascii=False)
+            os.replace(temp_path, self.history_file)
         except Exception as e:
             print(f"Failed to save history: {e}")
     
@@ -434,37 +544,45 @@ proxy = ""
 @get('/')
 def dl_queue_list():        
     """Displays the login page or redirects to terms page if not accepted."""
-    #Check the terms agreement flag in the Auth.json file
+    next_path = safe_next_path(request.query.get("next"), "/youtube-dl")
     try:
-        with open('Auth.json') as data_file:
-            data = json.load(data_file)
-            # Check the TERMS_ACCEPTED flag
-            terms_accepted = data.get('TERMS_ACCEPTED', 'N')
-            
-            # If the flag is not 'Y', redirect to the terms agreement page.
-            if terms_accepted != 'Y':
-                redirect('/terms')
+        data = load_auth_data()
+        if data.get("TERMS_ACCEPTED") != "Y":
+            redirect("/terms?next=" + quote(next_path, safe=""))
     except Exception as e:
         print(f"Error checking terms acceptance: {e}")
-        # If an error occurs, redirect to the terms and conditions page for security reasons.
-        redirect('/terms')
+        redirect("/terms?next=" + quote(next_path, safe=""))
         
-    return template("./static/template/login.tpl", msg="", app_version=APP_VERSION)
+    return template("./static/template/login.tpl", msg="", app_version=APP_VERSION, next_path=next_path)
 
 @get('/login', method='POST')
 def dl_queue_login():
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-        
-        req_id = request.forms.get("id")
-        req_pw = request.forms.get("myPw")
+    data = load_auth_data()
+    req_id = request.forms.get("id")
+    req_pw = request.forms.get("myPw")
+    next_path = safe_next_path(request.forms.get("next"), "/youtube-dl")
 
-        if (req_id == data["MY_ID"] and req_pw == data["MY_PW"]):
-            secret_key = data.get("SECRET_KEY")
-            response.set_cookie("account", req_id, secret=secret_key, path="/")
-            redirect("/youtube-dl")
-        else:
-            return template("./static/template/login.tpl", msg="id or password is not correct", app_version=APP_VERSION)
+    credentials_configured = bool(data.get("MY_ID") and data.get("MY_PW"))
+    if credentials_configured and req_id and req_pw and hmac.compare_digest(str(req_id), str(data["MY_ID"])) and hmac.compare_digest(
+        str(req_pw), str(data["MY_PW"])
+    ):
+        response.set_cookie(
+            "account",
+            req_id,
+            secret=data.get("SECRET_KEY"),
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=cookie_secure_enabled(),
+        )
+        redirect(next_path)
+
+    return template(
+        "./static/template/login.tpl",
+        msg="id or password is not correct",
+        app_version=APP_VERSION,
+        next_path=next_path,
+    )
 
 @get('/logout')
 def dl_queue_logout():
@@ -474,29 +592,19 @@ def dl_queue_logout():
 @route('/terms')
 def terms_page():
     """Displays the terms of use page."""
-    return template('static/template/terms.tpl')
+    next_path = safe_next_path(request.query.get("next"), "/youtube-dl")
+    return template(
+        'static/template/terms.tpl',
+        next_path_json=json.dumps(next_path),
+        app_version=APP_VERSION,
+    )
 
 @post('/accept-terms')
 def accept_terms():
-    """Updates Auth.json with terms acceptance."""
+    """Persist terms acceptance and the signed-cookie secret."""
     try:
-        # Reading the Auth.json file
-        with open('Auth.json', 'r') as data_file:
-            data = json.load(data_file)
-        
-        # Set the TERMS_ACCEPTED flag to 'Y'
-        data['TERMS_ACCEPTED'] = 'Y'
-        
-        # Generate a cryptographically secure random secret key (32 characters)
-        alphabet = string.ascii_letters + string.digits + string.punctuation
-        random_secret = ''.join(secrets.choice(alphabet) for _ in range(32))
-        # Save the generated secret key
-        data['SECRET_KEY'] = random_secret
-        
-        # Save updated content to a file
-        with open('Auth.json', 'w') as data_file:
-            json.dump(data, data_file, indent=2)
-        
+        data = load_auth_data()
+        save_app_state({"TERMS_ACCEPTED": "Y", "SECRET_KEY": data["SECRET_KEY"]})
         return {'success': True}
     except Exception as e:
         print(f"Error accepting terms: {e}")
@@ -505,39 +613,85 @@ def accept_terms():
 
 @get('/youtube-dl')
 def dl_queue_main():
-    
-    # Check the terms agreement flag in the Auth.json file
     try:
-        with open('Auth.json') as data_file:
-            data = json.load(data_file)
-            # Check the TERMS_ACCEPTED flag
-            terms_accepted = data.get('TERMS_ACCEPTED', 'N')
-            
-            # If the flag is not 'Y', redirect to the terms agreement page.
-            if terms_accepted != 'Y':
-                redirect('/terms')
+        data = load_auth_data()
+        if data.get("TERMS_ACCEPTED") != "Y":
+            redirect('/terms')
     except Exception as e:
         print(f"Error checking terms acceptance: {e}")
-        # If an error occurs, redirect to the terms and conditions page for security reasons.
         redirect('/terms')
-        
-    secret_key = data.get("SECRET_KEY")
-    userNm = request.get_cookie("account", secret=secret_key)
-    print("CHK : ", userNm)
 
-    if (userNm == data["MY_ID"]):
-        return template("./static/template/index.tpl", userNm=userNm, app_version=APP_VERSION)
-    else:
-        print("no cookie or fail login")
-        redirect("/")
+    if is_cookie_authenticated(data):
+        return template("./static/template/index.tpl", userNm=data["MY_ID"], app_version=APP_VERSION)
 
-@get('/youtube-dl/static/:filename#.*#')
+    redirect("/")
+
+@get('/health')
+def health_check():
+    response.content_type = "application/json"
+    return {
+        "status": "ok",
+        "app": "youtube-dl-nas",
+        "version": APP_VERSION,
+        "queue_count": dl_q.qsize(),
+    }
+
+@get('/manifest.webmanifest')
+def pwa_manifest():
+    response.content_type = "application/manifest+json"
+    return static_file("manifest.webmanifest", root="./static/pwa")
+
+@get('/sw.js')
+def pwa_service_worker():
+    response.content_type = "application/javascript"
+    response.set_header("Service-Worker-Allowed", "/")
+    return static_file("sw.js", root="./static/pwa")
+
+@post('/youtube-dl/share-target')
+def share_target():
+    shared_url = extract_shared_url(
+        request.forms.get("url"),
+        request.forms.get("text"),
+        request.forms.get("title"),
+    )
+    if not shared_url:
+        redirect("/youtube-dl?shared=missing")
+
+    data = load_auth_data()
+    if data.get("TERMS_ACCEPTED") != "Y" or not is_cookie_authenticated(data):
+        set_pending_share_cookie(shared_url, data)
+        redirect("/?next=" + quote("/youtube-dl/share-target/complete", safe=""))
+
+    queue_shared_url(shared_url)
+
+@get('/youtube-dl/share-target/complete')
+def complete_pending_share():
+    data = load_auth_data()
+    if data.get("TERMS_ACCEPTED") != "Y" or not is_cookie_authenticated(data):
+        redirect("/?next=" + quote(request.path, safe=""))
+
+    shared_url = request.get_cookie("pending_share", secret=data.get("SECRET_KEY"))
+    response.delete_cookie("pending_share", path="/")
+    if not shared_url:
+        redirect("/youtube-dl?shared=missing")
+
+    queue_shared_url(shared_url)
+
+@get('/youtube-dl/static/<filename:path>')
 def server_static(filename):
     return static_file(filename, root='./static')
 
 @get('/youtube-dl/q', method='GET')
 def q_size():
-    return {"success": True, "size": json.dumps(list(dl_q.queue))}
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    queued_items = [
+        {"url": item[0], "resolution": item[2], "source": item[3]}
+        for item in list(dl_q.queue)
+        if item is not None
+    ]
+    return {"success": True, "size": json.dumps(queued_items), "count": len(queued_items)}
 
 @get('/youtube-dl/status', method='GET')
 def get_download_status():
@@ -563,6 +717,10 @@ def get_download_status():
 
 @get('/youtube-dl/q', method='POST')
 def q_put():
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
     payload = get_request_json()
     url = payload.get("url")
     resolution = payload.get("resolution")
@@ -581,20 +739,16 @@ def q_put_rest():
     url = payload.get("url")
     resolution = payload.get("resolution")
 
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-        req_id = payload.get("id")
-        req_pw = payload.get("pw")
+    data = load_auth_data()
+    if not is_api_authenticated(payload, data):
+        return json_error("Invalid password, account, or API token.", 403)
 
-        if (req_id != data["MY_ID"] or req_pw != data["MY_PW"]):
-            return json_error("Invalid password or account.", 403)
-        else:
-            validation_error = validate_download_request(url, resolution)
-            if validation_error:
-                return json_error(validation_error, 400)
+    validation_error = validate_download_request(url, resolution)
+    if validation_error:
+        return json_error(validation_error, 400)
 
-            enqueue_download(url, resolution, "api", "")
-            return {"success": True, "msg": 'download has started', "Remaining downloading count": json.dumps(dl_q.qsize()) }
+    enqueue_download(url, resolution, "api", "")
+    return {"success": True, "msg": 'download has started', "Remaining downloading count": json.dumps(dl_q.qsize()) }
 
 # History deletion API
 @get('/youtube-dl/history/clear', method='POST')
@@ -709,57 +863,81 @@ def get_history():
         "total": len(combined_history)
     }
     
-def save_download_history(info):
-    history_path = "./metadata/download_history.json"
-    history = []
-    if os.path.exists(history_path):
-        try:
-            with open(history_path, "r", encoding="utf-8") as f:
-                history = json.load(f)
-        except (json.JSONDecodeError, ValueError):
-            history = []
-    history.append(info)
-    with open(history_path, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
-
 def dl_worker():
-    while not done:
+    while True:
         item = dl_q.get()
         try:
-            if(item[3]=="web"):
-                download(item)
-            else:
-                download_rest(item)
+            if item is None:
+                return
+            download(item)
         except Exception as e:
             print(f"Download worker error: {e}")
         finally:
             dl_q.task_done()
+
+def build_ytdlp_common_args(data=None):
+    data = data or load_auth_data()
+    args = ["yt-dlp", "--retry-sleep", "1", "--newline"]
+    if data.get("PROXY"):
+        args.extend(["--proxy", data["PROXY"]])
+    if YTDLP_COOKIES_FILE:
+        if not os.path.isfile(YTDLP_COOKIES_FILE):
+            raise ValueError(f"YTDLP_COOKIES_FILE does not exist: {YTDLP_COOKIES_FILE}")
+        args.extend(["--cookies", YTDLP_COOKIES_FILE])
+    if YTDLP_EXTRA_ARGS:
+        args.extend(shlex.split(YTDLP_EXTRA_ARGS))
+    return args
+
+
+def fetch_media_metadata(media_url):
+    command = build_ytdlp_common_args() + [
+        "--dump-single-json",
+        "--playlist-items", "1",
+        "--no-warnings",
+        media_url,
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        return {}
+    metadata = json.loads(result.stdout)
+    entries = metadata.get("entries") if isinstance(metadata, dict) else None
+    if isinstance(entries, list):
+        first_entry = next((entry for entry in entries if isinstance(entry, dict)), None)
+        if first_entry:
+            metadata = {**metadata, **first_entry}
+    return metadata if isinstance(metadata, dict) else {}
+
 
 def build_youtube_dl_cmd(url):
     validation_error = validate_download_request(url[0] if len(url) > 0 else None, url[2] if len(url) > 2 else None)
     if validation_error:
         raise ValueError(validation_error)
 
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)  # Auth info, when docker run making file
-        unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~\`=;,^#(){}\[\] ]"
-        safe_replacement = "_"
-        if (url[2] == "best"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--exec", "touch {} && mv {} ./downfolder/", "--merge-output-format", "mp4", url[0]]
-        # url[2] == "audio" for download_rest()
-        elif (url[2] == "audio-m4a" or url[2] == "audio"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
-        elif (url[2] == "audio-mp3"):
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3", "--exec", "touch {} && mv {} ./downfolder/", url[0]]
-        elif re.match(r"(vtt|srt)", url[2]):
-            sub_format, sub_lang = url[2].split('|', 1)
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/%(title)s.%(ext)s",  "--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download", url[0]]
-        else:
-            resolution = url[2][:-1]
-            cmd = ["yt-dlp", "--retry-sleep", "1", "--proxy", data['PROXY'], "--replace-in-metadata", "title", unsafe_chars_pattern, safe_replacement, "-o", "./downfolder/.incomplete/%(title)s.%(ext)s", "-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]", "--exec", "touch {} && mv {} ./downfolder/",  url[0]]
-        print (" ".join(cmd))
-        return cmd
-    
+    unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~=;,^#(){}\\[\\] ]"
+    cmd = build_ytdlp_common_args() + [
+        "--replace-in-metadata", "title", unsafe_chars_pattern, "_",
+        "--paths", f"home:{DOWNFOLDER_DIR}",
+        "--paths", f"temp:{os.path.join(DOWNFOLDER_DIR, '.incomplete')}",
+        "-o", "%(title)s.%(ext)s",
+    ]
+    if url[2] == "best":
+        cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
+    elif url[2] in ("audio-m4a", "audio"):
+        cmd.extend(["-f", "bestaudio[ext=m4a]"])
+    elif url[2] == "audio-mp3":
+        cmd.extend(["-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3"])
+    elif re.match(r"(vtt|srt)", url[2]):
+        sub_format, sub_lang = url[2].split('|', 1)
+        cmd.extend(["--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download"])
+    else:
+        resolution = url[2][:-1]
+        cmd.extend(["-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]"])
+
+    if not re.match(r"(vtt|srt)", url[2]):
+        cmd.extend(["--print", "after_move:__YDLNAS_FILE__:%(filepath)s"])
+    cmd.append(url[0])
+    print(" ".join(cmd))
+    return cmd
 
 
 def download(url):
@@ -792,30 +970,15 @@ def download(url):
         download_manager.update_progress(0)
 
         try:
-            # title extraction
-            title_result = subprocess.run(["yt-dlp", "--get-title", "--no-warnings", url[0]],
-                                        capture_output=True, text=True, timeout=10)
-            if title_result.returncode == 0 and title_result.stdout.strip():
-                video_title = title_result.stdout.strip()
-                print(f"Title extracted: {video_title}")
-                download_manager.send_title(video_title)
-
-            # channel name extraction
-            channel_result = subprocess.run(["yt-dlp", "--get-filename", "-o", "%(uploader)s", "--no-warnings", url[0]],
-                                          capture_output=True, text=True, timeout=10)
-            
-            if channel_result.returncode == 0 and channel_result.stdout.strip():
-                channel_name = channel_result.stdout.strip()                
+            metadata = fetch_media_metadata(url[0])
+            video_title = metadata.get("title") or metadata.get("playlist_title") or video_title
+            channel_name = metadata.get("uploader") or metadata.get("channel") or ""
+            thumbnail_url = metadata.get("thumbnail") or ""
+            download_manager.send_title(video_title)
+            if channel_name:
                 download_manager.send_channel(channel_name)
-
-            # thumbnail URL extraction
-            thumbnail_result = subprocess.run(["yt-dlp", "--get-thumbnail", "--no-warnings", url[0]],
-                                            capture_output=True, text=True, timeout=10)
-            if thumbnail_result.returncode == 0 and thumbnail_result.stdout.strip():
-                thumbnail_url = thumbnail_result.stdout.strip()
-                print(f"Thumbnail extracted: {thumbnail_url}")
+            if thumbnail_url:
                 download_manager.send_thumbnail(thumbnail_url)
-                    
         except Exception as e:
             print(f"Info extraction error: {e}")
 
@@ -847,29 +1010,24 @@ def download(url):
             if line:
                 print(f"yt-dlp output: {line.strip()}")
 
-                 # Extract filename from exec command (alternative method)
+                # Capture the final path emitted after post-processing.
                 if re.match(r"(vtt|srt)",dn_type):
                     
                     exec_match = re.search(
-                    #r"\[download\] Destination: (\.\/downfolder\/.+?\.(srt|vtt))\$", 
-                    r"\[(?:info|download)\] (?:Writing video subtitles to|Destination): (\.\/downfolder\/.*?\.(srt|vtt))", 
-                    line
+                        r"\[(?:info|download)\] (?:Writing video subtitles to|Destination):\s+(.+?\.(?:srt|vtt))(?:\s|$)",
+                        line,
                     )
                     if exec_match and not final_filepath:                        
                         subtitle_path = exec_match.group(1)
                         filename = os.path.basename(subtitle_path)
                         final_filepath = subtitle_path
                         print(f"Extracted subtitle filename: {filename}")
-                else:                    
-                    exec_match = re.search(
-                    r"touch\s+(?:'|\")?(.+?)(?:'|\")?\s+&&\s+mv\s+(?:'|\")?(.+?)(?:'|\")?\s+\./downfolder/", 
-                    line
-                    )
-                    if exec_match and not final_filepath:                        
-                        source_path = exec_match.group(2)                                        
-                        filename = os.path.basename(source_path)
-                        final_filepath = os.path.join("./downfolder", filename)                        
-                        print(f"Extracted filename from exec: {filename}")     
+                else:
+                    final_path_match = re.search(r"__YDLNAS_FILE__:(.+)$", line.strip())
+                    if final_path_match:
+                        final_filepath = final_path_match.group(1).strip()
+                        filename = os.path.basename(final_filepath)
+                        print(f"Final file: {filename}")
                 
 
                 # Download start detection
@@ -950,32 +1108,12 @@ def download(url):
             'progress': 0
         })
 
-def download_rest(url):
-    try:
-        result = subprocess.run(build_youtube_dl_cmd(url))
-        if result.returncode != 0:
-            print(f"REST download failed with return code: {result.returncode}")
-        return result.returncode == 0
-    except Exception as e:
-        print(f"REST download error: {e}")
-        return False
-
 import mimetypes
 @get('/static/downfolder/<uuid>')
 def serve_download(uuid):
     """File download using UUID"""
-
-    
-    with open('Auth.json') as data_file:
-        data = json.load(data_file)
-    secret_key = data.get("SECRET_KEY")
-    
-    if not secret_key:
-        abort(500, "Secret key not found in Auth.json")
-        
-    userNm = request.get_cookie("account", secret=secret_key)        
-    
-    if userNm != data["MY_ID"]:
+    data = load_auth_data()
+    if not is_cookie_authenticated(data):
         abort(403, "Unauthorized")
     
     try:
@@ -1004,9 +1142,11 @@ def serve_download(uuid):
         print(f"Serving file: {actual_filename} as {safe_download_name}")
         
         # Find the original file with actual_filename and use safe_download_name for the download name.
-        return static_file(actual_filename, root='./downfolder', download=safe_download_name)
+        return static_file(actual_filename, root=DOWNFOLDER_DIR, download=safe_download_name)
     
         
+    except HTTPError:
+        raise
     except Exception as e:
         print(f"Error in serve_download: {e}")
         abort(500, "Internal server error")
@@ -1016,6 +1156,12 @@ def serve_download(uuid):
 @get('/websocket')
 @websocket
 def websocket_handler(ws):
+    if ws is None:
+        abort(400, "WebSocket upgrade required")
+    if not is_cookie_authenticated():
+        ws.close()
+        return
+
     try:
         # Add new client (including history auto-restoration)
         download_manager.add_client(ws)
@@ -1050,31 +1196,25 @@ def websocket_handler(ws):
             ws_addr.wsClassVal = None
         print(f"WebSocket disconnected")
 
-class Thr:
-    def __init__(self):
-        self.dl_thread = ''
-
-    def restart(self):
-        self.dl_thread = Thread(target=dl_worker)
-        self.dl_thread.start()
-
 # Global variable initialization
 dl_q = Queue()
-done = False
-Thr.dl_thread = Thread(target=dl_worker)
-Thr.dl_thread.start()
+download_thread = None
 
-# Read configuration file
-with open('Auth.json') as env_file:
-    data = json.load(env_file)
+def run_server():
+    global port, proxy
+    data = load_auth_data()
+    if data.get("APP_PORT"):
+        port = data["APP_PORT"]
+    if data.get("PROXY"):
+        proxy = data["PROXY"]
 
-if (data['APP_PORT'] !=''):
-    port = data['APP_PORT']
-if (data['PROXY'] !=''):
-    proxy = data['PROXY']
+    start_download_thread_if_needed()
+    try:
+        run(host="0.0.0.0", port=port, server=GeventWebSocketServer)
+    finally:
+        dl_q.put(None)
+        if download_thread and download_thread.is_alive():
+            download_thread.join(timeout=5)
 
-# Start server
-run(host='0.0.0.0', port=port, server=GeventWebSocketServer)
-
-done = True
-Thr.dl_thread.join()
+if __name__ == "__main__":
+    run_server()

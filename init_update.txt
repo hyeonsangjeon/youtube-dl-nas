@@ -1,3 +1,0 @@
-youtube-dl
-yt-dlp
-nlptutti
