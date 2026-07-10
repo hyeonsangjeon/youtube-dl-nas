@@ -139,7 +139,7 @@ docker run -d \
 ## Mobile Sharing
 
 - Android over HTTPS: install the dashboard as a PWA, then select **youtube-dl NAS** from the Android share sheet.
-- Android over local HTTP: import the provided HTTP Shortcuts template and enter the normal dashboard URL, ID, and password.
+- Android over local HTTP: import the provided HTTP Shortcuts template, run **1. Configure NAS** once, and enter the normal dashboard URL, ID, and password.
 - iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut), replace its endpoint and credential placeholders, then share URLs directly to the NAS.
 
 See the [mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) or the source in [`docs/mobile`](docs/mobile/). No relay server is used; the phone sends URLs directly to the NAS. GitHub Pages only hosts the manual and import files.

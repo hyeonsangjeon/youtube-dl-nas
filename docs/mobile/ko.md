@@ -24,13 +24,13 @@ title: 모바일 공유 설정
 
 1. HTTP Shortcuts를 설치합니다.
 2. [youtube-dl NAS 템플릿 가져오기](https://http-shortcuts.rmy.ch/import?url=https%3A%2F%2Fhyeonsangjeon.github.io%2Fyoutube-dl-nas%2Fmobile%2Fassets%2Fyoutube-dl-nas-http-shortcut.zip)를 누릅니다. 문제가 있으면 [ZIP 파일](assets/youtube-dl-nas-http-shortcut.zip)을 내려받아 수동으로 가져옵니다.
-3. 가져온 전역 변수를 수정합니다.
-   - `nas_url`: 끝에 `/`를 붙이지 않은 NAS 주소, 예: `http://192.168.0.20:8080`
-   - `nas_id`: 대시보드 로그인 ID
-   - `nas_password`: 대시보드 로그인 비밀번호
-4. YouTube 또는 브라우저에서 URL을 공유하고 **Download to NAS**를 선택합니다.
+3. 가져온 **youtube-dl NAS** 카테고리에서 **1. Configure NAS**를 한 번 실행합니다.
+4. NAS 전체 주소, 대시보드 로그인 ID와 비밀번호를 차례로 입력합니다. 주소 예시는 `http://192.168.0.20:8080`입니다.
+5. YouTube 또는 브라우저에서 URL을 공유하고 **Download to NAS**를 선택합니다. 다음부터는 저장된 설정을 묻지 않고 사용합니다.
 
 API Bearer token은 선택 사항입니다. 기본 템플릿은 기존 ID와 비밀번호를 사용합니다.
+
+설정이 비어 있거나 공유된 텍스트에 URL이 없으면 네트워크 요청을 보내기 전에 중단하고 필요한 조치를 화면에 표시합니다.
 
 ## iPhone과 iPad
 

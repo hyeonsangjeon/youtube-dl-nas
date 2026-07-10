@@ -9,6 +9,21 @@
       "layoutType": "linear_list",
       "shortcuts": [
         {
+          "id": "06bf77c2-ce18-4c6f-93e1-3f1f8432189e",
+          "name": "1. Configure NAS",
+          "description": "Save the NAS URL, login ID, and password once",
+          "iconName": "flat_color_settings",
+          "method": "GET",
+          "url": "https://example.invalid",
+          "codeOnPrepare": "const currentUrl = getVariable('nas_url');\nconst nasUrlInput = prompt('Enter the full NAS address, including http:// or https:// and the port if needed.', currentUrl || 'http://192.168.0.20:8080');\nif (nasUrlInput === null) abort();\nconst nasUrl = nasUrlInput.trim().replace(/\\/+$/, '');\nif (!/^https?:\\/\\/[^\\s/]+(?::\\d+)?(?:\\/.*)?$/i.test(nasUrl)) {\n  showDialog('Enter a complete address such as http://192.168.0.20:8080', 'Invalid NAS address');\n  abort();\n}\nconst nasIdInput = prompt('Enter the youtube-dl NAS login ID.', getVariable('nas_id'));\nif (nasIdInput === null) abort();\nconst nasId = nasIdInput.trim();\nif (!nasId) {\n  showDialog('The login ID cannot be empty.', 'Missing login ID');\n  abort();\n}\nconst nasPassword = promptPassword('Enter the youtube-dl NAS login password.');\nif (nasPassword === null) abort();\nif (!nasPassword) {\n  showDialog('The password cannot be empty.', 'Missing password');\n  abort();\n}\nsetVariable('nas_url', nasUrl);\nsetVariable('nas_id', nasId);\nsetVariable('nas_password', nasPassword);\nshowDialog('Saved. Now share a YouTube or video URL and choose Download to NAS.', 'youtube-dl NAS is ready');\nabort();",
+          "timeout": 15000,
+          "followRedirects": false,
+          "responseHandling": {
+            "uiType": "toast",
+            "failureOutput": "detailed"
+          }
+        },
+        {
           "id": "8c2e24ab-b41d-4ea6-b2b2-df5de48a6368",
           "name": "Download to NAS",
           "description": "Send a URL from the Android share sheet to youtube-dl-nas",
@@ -18,6 +33,7 @@
           "requestBodyType": "custom_text",
           "contentType": "application/json",
           "bodyContent": "{\"url\":\"{{b39a87fa-14d1-47d9-a1fb-95ce7a855ff8}}\",\"resolution\":\"best\",\"id\":\"{{a13f8804-c62d-455e-b01f-183616e7fb1e}}\",\"pw\":\"{{42c5747b-6e13-4a29-b9ee-eb046257908d}}\"}",
+          "codeOnPrepare": "const nasUrl = getVariable('nas_url').trim();\nconst nasId = getVariable('nas_id').trim();\nconst nasPassword = getVariable('nas_password');\nif (!nasUrl || !nasId || !nasPassword) {\n  showDialog('Open HTTP Shortcuts and run 1. Configure NAS first.', 'Setup required');\n  abort();\n}\nconst sharedText = getVariable('shared_url').trim();\nconst urlMatch = sharedText.match(/https?:\\/\\/[^\\s]+/i);\nif (!urlMatch) {\n  showDialog('Share a YouTube or video link to Download to NAS. No URL was found in the shared text.', 'URL missing');\n  abort();\n}\nsetVariable('shared_url', urlMatch[0]);",
           "launcherShortcut": true,
           "timeout": 15000,
           "followRedirects": true,
@@ -54,9 +70,8 @@
     {
       "id": "42c5747b-6e13-4a29-b9ee-eb046257908d",
       "key": "nas_password",
-      "type": "password",
+      "type": "constant",
       "value": "",
-      "rememberValue": true,
       "jsonEncode": true,
       "title": "youtube-dl-nas password",
       "isExcludeValueFromExport": true,
