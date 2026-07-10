@@ -13,6 +13,16 @@ Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
 Current dashboard release: `26.0704` (`2026-07-04`)
 
+> **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
+> small URL download queue. For scheduled channel backups, existing
+> `archive.txt` and NAS-folder import, missing-only downloads, and disk-first
+> recovery, see [Channel Vault NAS](https://github.com/hyeonsangjeon/channel-vault-nas).
+
+| Choose | Best fit |
+| --- | --- |
+| **youtube-dl-nas** | Paste individual video/playlist URLs into a compact authenticated queue |
+| **[Channel Vault NAS](https://github.com/hyeonsangjeon/channel-vault-nas)** | Register channels once and keep only missing/new videos backed up automatically |
+
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
