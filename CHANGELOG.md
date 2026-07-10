@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Documentation
+
+- Added a dedicated Docker Hub overview with current screenshots, persistent-volume guidance, mobile sharing, multi-architecture tags, health checks, and release history.
+- Added a reproducible, manually dispatched Docker Hub description workflow sourced from `DOCKERHUB.md`.
+
 ### Fixed
 
 - Fixed the Android HTTP Shortcuts template prompting only for a password while leaving the NAS URL and login ID empty.
