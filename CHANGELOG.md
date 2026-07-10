@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed the Android HTTP Shortcuts template prompting only for a password while leaving the NAS URL and login ID empty.
+- Added a one-time **1. Configure NAS** shortcut that validates and stores the NAS URL, ID, and password before any download request is sent.
+- Added clear setup and missing-URL errors, and normalized shared text to its first HTTP or HTTPS URL.
+
 ## 26.0710 - 2026-07-10
 
 ### Added

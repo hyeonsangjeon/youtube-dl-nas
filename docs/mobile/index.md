@@ -24,13 +24,13 @@ Use the open-source [HTTP Shortcuts](https://http-shortcuts.rmy.ch/) app because
 
 1. Install HTTP Shortcuts.
 2. [Import the youtube-dl-nas template](https://http-shortcuts.rmy.ch/import?url=https%3A%2F%2Fhyeonsangjeon.github.io%2Fyoutube-dl-nas%2Fmobile%2Fassets%2Fyoutube-dl-nas-http-shortcut.zip), or download the [ZIP file](assets/youtube-dl-nas-http-shortcut.zip) and import it manually.
-3. Edit the imported global variables:
-   - `nas_url`: your address without a trailing slash, such as `http://192.168.0.20:8080`
-   - `nas_id`: your normal dashboard ID
-   - `nas_password`: your normal dashboard password
-4. Share a URL and select **Download to NAS**.
+3. Open the imported **youtube-dl NAS** category and run **1. Configure NAS** once.
+4. Enter the full NAS address, normal dashboard ID, and password. For example, use `http://192.168.0.20:8080` for the address.
+5. Share a URL and select **Download to NAS**. The saved settings are reused without asking again.
 
 The REST API token is optional. The default template uses the same ID and password as the dashboard.
+
+If no URL is present in the shared text or configuration is incomplete, the shortcut stops before making a network request and displays what needs to be fixed.
 
 ## iPhone And iPad
 
