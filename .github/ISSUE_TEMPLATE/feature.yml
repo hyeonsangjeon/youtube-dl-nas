@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a focused improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the user problem and why existing options do not solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Area
+      options:
+        - Download queue
+        - Dashboard
+        - Mobile sharing
+        - Docker or NAS installation
+        - API or automation
+        - Documentation
+        - Other
+    validations:
+      required: true

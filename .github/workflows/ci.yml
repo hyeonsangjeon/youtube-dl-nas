@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Python compile check
+        run: python -m py_compile youtube-dl-server.py upd_schedule.py
+      - name: JavaScript syntax check
+        run: node --check static/logical_js/logic.js
+      - name: Shell and integration asset checks
+        run: |
+          bash -n run.sh
+          python -m json.tool static/pwa/manifest.webmanifest >/dev/null
+          python -m json.tool integrations/http-shortcuts/shortcuts.json >/dev/null
+          unzip -t integrations/http-shortcuts/youtube-dl-nas-http-shortcut.zip
+      - name: HTTP regression tests
+        run: pytest -q
+      - name: Docker Compose validation
+        run: docker compose --env-file .env.example config --quiet

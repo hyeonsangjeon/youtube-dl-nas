@@ -1,0 +1,35 @@
+{
+  "id": "/youtube-dl",
+  "name": "youtube-dl NAS",
+  "short_name": "youtube-dl NAS",
+  "description": "Send shared video URLs to a private NAS download queue.",
+  "start_url": "/youtube-dl",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f9",
+  "theme_color": "#168a92",
+  "icons": [
+    {
+      "src": "/youtube-dl/static/pwa/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/youtube-dl/static/pwa/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/youtube-dl/share-target",
+    "method": "POST",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

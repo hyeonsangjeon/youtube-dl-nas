@@ -1,4 +1,8 @@
 target/
+.env
+config/
+downloads/
+metadata/app_state.json
 .DS_STORE
 .settings/*
 javadocs/*
@@ -8,9 +12,6 @@ logs/
 .idea
 __pycache__/
 .devcontainer/
-.github/*
-!.github/workflows/
-!.github/workflows/**
 # IntelliJ IDEA
 **/.idea
 *.iml

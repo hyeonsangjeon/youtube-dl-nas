@@ -1,7 +1,5 @@
 gevent
 gevent-websocket
 bottle
-yt-dlp
-youtube-dl
+yt-dlp[default]
 apscheduler
-nlptutti==0.0.0.9

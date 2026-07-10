@@ -105,6 +105,21 @@ $(document).ready(function() {
         return;
     }
 
+    const pageParams = new URLSearchParams(window.location.search);
+    const sharedStatus = pageParams.get('shared');
+    if (sharedStatus === 'queued') {
+        addMessage('Shared URL added to the NAS queue', 'success');
+    } else if (sharedStatus === 'missing') {
+        addMessage('No URL was found in the shared content', 'warning');
+    } else if (sharedStatus === 'invalid') {
+        addMessage('The shared URL could not be queued', 'error');
+    }
+    if (sharedStatus && window.history.replaceState) {
+        pageParams.delete('shared');
+        const cleanQuery = pageParams.toString();
+        window.history.replaceState({}, document.title, window.location.pathname + (cleanQuery ? '?' + cleanQuery : ''));
+    }
+
     // resolution/subtitle format selection event
     $('#selResolution').on('change', function() {
         const selectedValue = $(this).val();

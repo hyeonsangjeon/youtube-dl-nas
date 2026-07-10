@@ -4,11 +4,51 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0710 - 2026-07-10
+
+### Added
+
+- Added an Android-installable PWA manifest with a Web Share Target for HTTPS deployments.
+- Added an importable Android HTTP Shortcuts template for local HTTP NAS deployments.
+- Added a signed, installable iOS Share Sheet shortcut with safe endpoint and credential placeholders.
+- Added English and Korean mobile sharing guides prepared for GitHub Pages.
+- Added optional Bearer authentication through `YDLNAS_API_TOKEN` while keeping ID/password REST authentication as the default.
+- Added `compose.yaml` and `.env.example` with persistent download and application-state mounts.
+- Added `/health` for container health checks.
+- Added `PUID`, `PGID`, and `UMASK` container options.
+- Added cookie-file and administrator-controlled extra argument support for `yt-dlp`.
+- Added HTTP regression tests for login, REST authentication, queue protection, PWA assets, and share-target handling.
+
 ### Changed
 
-- Polished README documentation for the `26.0704` dashboard release, numbered history pages, explicit search, mounted file metadata states, and Docker publishing behavior.
+- Preserved startup and hourly `yt-dlp` updates while isolating timeout and package-index failures from the application process.
+- Persisted terms acceptance and the signed-cookie secret beside download history under the metadata volume.
+- Unified dashboard and REST jobs through the same tracked worker so mobile/API downloads appear in activity and history.
+- Reduced metadata extraction from three `yt-dlp` subprocesses to one JSON request.
+- Replaced shell-based final-file moves with `yt-dlp` home/temp paths and an explicit post-processing filepath marker.
+- Restricted queue and WebSocket endpoints to authenticated dashboard sessions.
+- Added secure cookie attributes with optional HTTPS-only cookies.
+- Simplified the container package set and removed unused legacy `youtube-dl` and `nlptutti` dependencies.
+- Updated the runtime and CI baseline to Python 3.12 for current `yt-dlp` compatibility.
+- Added Deno and matching `yt-dlp-ejs` components for current YouTube JavaScript challenge support, including hourly component updates.
+- Added Docker image OCI labels, a persistent metadata volume, and a health check.
+- Limited default-branch image builds to runtime-affecting paths.
+- Polished README documentation for the `26.0710` mobile sharing and NAS installation release.
+
+### Fixed
+
+- Prevented empty REST credentials from matching an unconfigured account.
+- Preserved a pending Android share target through terms acceptance and login.
+- Changed the PWA share target to POST and kept pending URLs in a short-lived signed cookie instead of a side-effecting query string.
+- Prevented a normal HTTP request to `/websocket` from dereferencing a missing WebSocket connection.
+- Ignored unresolved `Auth.json` template placeholders during direct local execution.
+- Standardized the MIT license text so repository metadata can identify it correctly.
 
 ## 26.0704 - 2026-07-04
+
+### Changed
+
+- Polished README documentation for the dashboard release, numbered history pages, explicit search, mounted file metadata states, and Docker publishing behavior.
 
 ### Added
 

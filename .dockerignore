@@ -13,6 +13,9 @@ npm-debug.log*
 
 downfolder/
 metadata/download_history.json
+metadata/app_state.json
+config/
+downloads/
 
 *.log
 tmp/

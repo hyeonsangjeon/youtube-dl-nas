@@ -4,7 +4,7 @@
 
 This software utilizes yt-dlp to provide media downloading capabilities. It is important to understand the following terms of use:
 
-1. **Legitimate Use Only**: This tool is intended exclusively for personal use in compliance with all applicable laws, including copyright laws.
+1. **Legitimate Use Only**: This tool is intended for lawful use in compliance with all applicable laws, including copyright laws.
 
 2. **Copyright Compliance**: Users are solely responsible for ensuring that their use of this software complies with all applicable copyright laws and regulations in their jurisdiction.
 

@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible youtube-dl-nas problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include passwords, cookies, tokens, or private media URLs.
+  - type: input
+    id: version
+    attributes:
+      label: App version or image tag
+      placeholder: 26.0710 or sha-...
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Synology Container Manager
+        - Docker Compose
+        - Docker CLI
+        - Unraid or another NAS
+        - Local Python
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include concise reproduction steps and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed credentials, cookies, tokens, and private URLs.
+          required: true
+        - label: I checked for an existing issue.
+          required: true
