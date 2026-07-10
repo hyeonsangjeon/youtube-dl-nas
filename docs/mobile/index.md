@@ -30,7 +30,7 @@ Use the open-source [HTTP Shortcuts](https://http-shortcuts.rmy.ch/) app because
 
 The REST API token is optional. The default template uses the same ID and password as the dashboard.
 
-If no URL is present in the shared text or configuration is incomplete, the shortcut stops before making a network request and displays what needs to be fixed.
+The shortcut checks both the Android share title and text. If the device omits the URL from that data, it opens a URL input as a fallback. Incomplete configuration stops before any network request is made.
 
 ## iPhone And iPad
 

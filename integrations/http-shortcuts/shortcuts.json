@@ -33,7 +33,7 @@
           "requestBodyType": "custom_text",
           "contentType": "application/json",
           "bodyContent": "{\"url\":\"{{b39a87fa-14d1-47d9-a1fb-95ce7a855ff8}}\",\"resolution\":\"best\",\"id\":\"{{a13f8804-c62d-455e-b01f-183616e7fb1e}}\",\"pw\":\"{{42c5747b-6e13-4a29-b9ee-eb046257908d}}\"}",
-          "codeOnPrepare": "const nasUrl = getVariable('nas_url').trim();\nconst nasId = getVariable('nas_id').trim();\nconst nasPassword = getVariable('nas_password');\nif (!nasUrl || !nasId || !nasPassword) {\n  showDialog('Open HTTP Shortcuts and run 1. Configure NAS first.', 'Setup required');\n  abort();\n}\nconst sharedText = getVariable('shared_url').trim();\nconst urlMatch = sharedText.match(/https?:\\/\\/[^\\s]+/i);\nif (!urlMatch) {\n  showDialog('Share a YouTube or video link to Download to NAS. No URL was found in the shared text.', 'URL missing');\n  abort();\n}\nsetVariable('shared_url', urlMatch[0]);",
+          "codeOnPrepare": "const nasUrl = getVariable('nas_url').trim();\nconst nasId = getVariable('nas_id').trim();\nconst nasPassword = getVariable('nas_password');\nif (!nasUrl || !nasId || !nasPassword) {\n  showDialog('Open HTTP Shortcuts and run 1. Configure NAS first.', 'Setup required');\n  abort();\n}\nconst sharedText = getVariable('shared_text').trim();\nlet urlMatch = sharedText.match(/https?:\\/\\/[^\\s]+/i);\nif (!urlMatch) {\n  const manualUrl = prompt('No link was detected in the Android share data. Paste the video URL here.', sharedText);\n  if (manualUrl === null) abort();\n  urlMatch = manualUrl.trim().match(/https?:\\/\\/[^\\s]+/i);\n}\nif (!urlMatch) {\n  showDialog('Enter a complete link beginning with http:// or https://.', 'URL missing');\n  abort();\n}\nsetVariable('request_url', urlMatch[0]);",
           "launcherShortcut": true,
           "timeout": 15000,
           "followRedirects": true,
@@ -79,11 +79,19 @@
     },
     {
       "id": "b39a87fa-14d1-47d9-a1fb-95ce7a855ff8",
-      "key": "shared_url",
+      "key": "request_url",
       "type": "constant",
       "value": "",
       "jsonEncode": true,
+      "isExcludeValueFromExport": true
+    },
+    {
+      "id": "df67ae21-f70e-4df8-a628-8fe0d0b1264a",
+      "key": "shared_text",
+      "type": "constant",
+      "value": "",
       "isShareText": true,
+      "isShareTitle": true,
       "isExcludeValueFromExport": true
     }
   ],

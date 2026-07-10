@@ -9,6 +9,8 @@ All notable changes to this project are documented here.
 - Fixed the Android HTTP Shortcuts template prompting only for a password while leaving the NAS URL and login ID empty.
 - Added a one-time **1. Configure NAS** shortcut that validates and stores the NAS URL, ID, and password before any download request is sent.
 - Added clear setup and missing-URL errors, and normalized shared text to its first HTTP or HTTPS URL.
+- Split raw Android share input from the JSON-encoded request URL so YouTube share data can be inspected before request-body encoding.
+- Read both Android share title and text, with a manual URL prompt as a fallback for devices that omit the link from the share payload.
 
 ## 26.0710 - 2026-07-10
 
