@@ -158,6 +158,7 @@ $(function () {
     let selectedHistoryUuid = null;
     let activeDownload = null;
     let queueCount = 0;
+    let queueItems = [];
     let statusPollTimer = null;
     const historyPageSize = 20;
     let currentHistoryPage = 1;
@@ -245,12 +246,15 @@ $(function () {
             sort: 'date-desc',
             status: 'all',
             type: 'all',
-            search: ''
+            search: '',
+            view: 'list'
         };
 
         try {
             const savedPrefs = localStorage.getItem('historyPrefs');
-            return savedPrefs ? Object.assign(defaults, JSON.parse(savedPrefs)) : defaults;
+            const prefs = savedPrefs ? Object.assign(defaults, JSON.parse(savedPrefs)) : defaults;
+            prefs.view = prefs.view === 'grid' ? 'grid' : 'list';
+            return prefs;
         } catch (error) {
             console.error("Failed to load history prefs:", error);
             return defaults;
@@ -276,7 +280,11 @@ $(function () {
         $('#history-search').val(historyPrefs.search);
         $('#history-sort').val(historyPrefs.sort);
         $('#history-status-filter').val(historyPrefs.status);
-        $('#history-type-filter').val(historyPrefs.type);
+        $('.history-type-option').removeClass('is-active').attr('aria-pressed', 'false');
+        $(`.history-type-option[data-history-type="${historyPrefs.type}"]`).addClass('is-active').attr('aria-pressed', 'true');
+        $('.history-view-btn').removeClass('is-active').attr('aria-pressed', 'false');
+        $(`.history-view-btn[data-history-view="${historyPrefs.view}"]`).addClass('is-active').attr('aria-pressed', 'true');
+        $('.download-history').toggleClass('history-view-grid', historyPrefs.view === 'grid');
     }
 
     function updateConnectionStatus(label, state) {
@@ -337,6 +345,8 @@ $(function () {
             resolution: '',
             channel: '',
             title: '',
+            thumbnail: '',
+            duration_seconds: 0,
             status: 'unknown',
             filepath: '',
             filename: '',
@@ -392,6 +402,7 @@ $(function () {
         const visibleItems = filteredItems.slice(startIndex, endIndex);
         const body = $("#completeInfo");
         const cards = $("#history-card-list");
+        const grid = $("#history-grid");
         const pager = $("#history-pager");
         const rangeStart = filteredItems.length > 0 ? startIndex + 1 : 0;
         const rangeEnd = Math.min(endIndex, filteredItems.length);
@@ -403,6 +414,7 @@ $(function () {
         if (historyItems.length === 0) {
             body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No files yet<br><small>Start downloading or mount files into /downfolder</small></td></tr>`);
             cards.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
+            grid.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
             pager.empty();
             renderDetailDrawer(null);
             return;
@@ -411,6 +423,7 @@ $(function () {
         if (filteredItems.length === 0) {
             body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No matching downloads<br><small>Try a different search or filter</small></td></tr>`);
             cards.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
+            grid.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
             pager.empty();
             if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
                 renderDetailDrawer(null);
@@ -421,6 +434,8 @@ $(function () {
 
         body.html(visibleItems.map(renderHistoryRow).join(''));
         cards.html(visibleItems.map(renderHistoryCard).join(''));
+        grid.html(visibleItems.map(renderHistoryGridCard).join(''));
+        bindHistoryGridImages();
         renderHistoryPager(filteredItems.length, totalPages);
         $(".table-responsive").show();
         if (selectedHistoryUuid) {
@@ -614,6 +629,97 @@ $(function () {
         `;
     }
 
+    function renderHistoryGridCard(item) {
+        const safeUuid = escapeAttr(item.uuid);
+        const titleText = escapeHtml(item.title || item.filename || 'Untitled');
+        const channelText = escapeHtml(item.channel || (isMountedFile(item) ? 'Mounted folder' : 'Unknown'));
+        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const thumbnailUrl = getSafeThumbnailUrl(item.thumbnail);
+        const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
+        const durationText = formatDuration(item.duration_seconds);
+        const visual = `
+            <span class="history-grid-fallback" aria-hidden="true">
+                <span class="glyphicon ${getMediaPlaceholderIcon(item.download_type)}"></span>
+            </span>
+            ${thumbnailUrl ? `<img src="${escapeAttr(thumbnailUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
+        `;
+        const durationBadge = durationText ? `<span class="history-grid-duration">${durationText}</span>` : '';
+        const resolutionBadge = item.resolution === 'mounted' ? '' :
+            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${escapeHtml(item.resolution || 'unknown')}</span>`;
+
+        return `
+            <article class="history-grid-card ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
+                <div class="history-grid-media ${thumbnailUrl ? '' : 'history-grid-placeholder'}">
+                    ${visual}
+                    ${durationBadge}
+                    <span class="history-grid-type type-${escapeAttr(item.download_type)}">${typeText}</span>
+                </div>
+                <div class="history-grid-body">
+                    <h3 title="${escapeAttr(item.title || item.filename || 'Untitled')}">${titleText}</h3>
+                    <p title="${escapeAttr(item.channel || '')}">${channelText}</p>
+                    <div class="history-grid-meta">
+                        <span>${formatTimestamp(item.timestamp)}</span>
+                        <span>${formatFileSize(item)}</span>
+                    </div>
+                    <div class="history-grid-footer">
+                        <div class="history-grid-badges">
+                            ${resolutionBadge}
+                            ${renderMetadataBadge(item)}
+                        </div>
+                        <div class="history-grid-actions">${renderActionButtons(item, 'grid')}</div>
+                    </div>
+                </div>
+            </article>
+        `;
+    }
+
+    function getSafeThumbnailUrl(value) {
+        const thumbnail = String(value || '').trim();
+        return /^https?:\/\//i.test(thumbnail) ? thumbnail : '';
+    }
+
+    function bindHistoryGridImages() {
+        $('#history-grid .history-grid-media img')
+            .off('.historyGrid')
+            .on('load.historyGrid', function() {
+                $(this).show().closest('.history-grid-media').removeClass('history-grid-placeholder');
+            })
+            .on('error.historyGrid', function() {
+                $(this).hide().closest('.history-grid-media').addClass('history-grid-placeholder');
+            })
+            .each(function() {
+                if (this.complete) {
+                    $(this).trigger(this.naturalWidth > 0 ? 'load.historyGrid' : 'error.historyGrid');
+                }
+            });
+    }
+
+    function getMediaPlaceholderIcon(type) {
+        if (type === 'audio') {
+            return 'glyphicon-music';
+        }
+        if (type === 'subtitle') {
+            return 'glyphicon-subtitles';
+        }
+        if (type === 'video') {
+            return 'glyphicon-film';
+        }
+        return 'glyphicon-file';
+    }
+
+    function formatDuration(value) {
+        const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
+        if (!totalSeconds) {
+            return '';
+        }
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return hours > 0 ?
+            `${hours}:${pad2(minutes)}:${pad2(seconds)}` :
+            `${minutes}:${pad2(seconds)}`;
+    }
+
     function renderEmptyCard(title, message) {
         return `
             <div class="history-empty-card">
@@ -626,6 +732,10 @@ $(function () {
 
     function getDownloadHref(item) {
         return `/static/downfolder/${encodeURIComponent(item.uuid)}`;
+    }
+
+    function getPreviewHref(item) {
+        return `/static/preview/${encodeURIComponent(item.uuid)}`;
     }
 
     function isMountedFile(item) {
@@ -670,6 +780,11 @@ $(function () {
         const isDetail = context === 'detail';
         const mountedFile = isMountedFile(item);
         const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
+        const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
+        const previewButton = canPreview ? `
+            <button class="action-btn action-preview" data-uuid="${safeUuid}" title="Preview media">
+                <span class="glyphicon glyphicon-play"></span>${isDetail ? '<span>Preview</span>' : ''}
+            </button>` : '';
         const downloadButton = item.file_exists ? `
             <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="Download file">
                 <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? '<span>Download File</span>' : ''}
@@ -691,6 +806,7 @@ $(function () {
 
         return `
             <div class="action-group${detailClass}">
+                ${previewButton}
                 ${downloadButton}
                 ${retryButton}
                 ${historyDeleteButton}
@@ -764,6 +880,7 @@ $(function () {
                 ${metadataNotice}
                 <dl class="detail-list">
                     ${renderDetailField('Downloaded', formatTimestamp(item.timestamp), 'downloaded')}
+                    ${renderDetailField('Duration', formatDuration(item.duration_seconds) || 'Unknown', 'duration')}
                     ${renderDetailField('Resolution', item.resolution || 'unknown', 'resolution')}
                     ${renderDetailField('Size', formatFileSize(item), 'size')}
                     ${renderDetailField('Filename', item.filename || 'No file saved', 'filename')}
@@ -947,7 +1064,7 @@ $(function () {
             return;
         }
 
-        updateQueueCount(Number(response.queue_count || 0));
+        updateQueueCount(Number(response.queue_count || 0), response.queue || []);
         if (response.current_download) {
             applyCurrentDownload(response.current_download);
             if (response.current_download.progress !== undefined) {
@@ -976,12 +1093,52 @@ $(function () {
             clearInterval(statusPollTimer);
         }
         fetchStatus();
-        statusPollTimer = setInterval(fetchStatus, 10000);
+        statusPollTimer = setInterval(fetchStatus, 5000);
     }
 
-    function updateQueueCount(count) {
+    function updateQueueCount(count, items) {
         queueCount = Math.max(0, count || 0);
+        queueItems = Array.isArray(items) ? items : [];
         $('#queue-count').text(`Queue ${queueCount}`);
+        renderQueueItems();
+    }
+
+    function renderQueueItems() {
+        const container = $('#queue-items');
+        const summary = $('#queue-summary');
+        if (queueItems.length === 0) {
+            summary.text('Queue is empty');
+            container.html('<div class="queue-empty">New requests will appear here in order.</div>');
+            return;
+        }
+
+        summary.text(`${queueItems.length} waiting`);
+        container.html(queueItems.map(function(item, index) {
+            const position = Number(item.position || index + 1);
+            const url = String(item.url || 'Queued request');
+            const resolution = String(item.resolution || 'best');
+            const source = String(item.source || 'web');
+            return `
+                <div class="queue-item">
+                    <span class="queue-position">${position}</span>
+                    <div class="queue-item-copy">
+                        <strong title="${escapeAttr(url)}">${escapeHtml(formatQueueUrl(url))}</strong>
+                        <span>${escapeHtml(source === 'api' ? 'API request' : 'Dashboard request')}</span>
+                    </div>
+                    <span class="resolution-tag ${getResolutionClass(resolution)}">${escapeHtml(resolution)}</span>
+                </div>
+            `;
+        }).join(''));
+    }
+
+    function formatQueueUrl(value) {
+        try {
+            const parsed = new URL(value);
+            const compactPath = `${parsed.hostname}${parsed.pathname}`;
+            return compactPath.length > 54 ? compactPath.substring(0, 51) + '...' : compactPath;
+        } catch (error) {
+            return value.length > 54 ? value.substring(0, 51) + '...' : value;
+        }
     }
 
     function updateActivityPanel(downloadData) {
@@ -995,6 +1152,7 @@ $(function () {
                 .addClass('status-pending');
             $('#activity-thumbnail-image').hide().attr('src', '');
             $('#activity-thumbnail-placeholder').show();
+            $('#activity-transfer').prop('hidden', true);
             return;
         }
 
@@ -1015,6 +1173,11 @@ $(function () {
             $('#activity-thumbnail-image').hide().attr('src', '');
             $('#activity-thumbnail-placeholder').show();
         }
+
+        const hasTransferStats = Boolean(data.speed || data.eta);
+        $('#activity-transfer').prop('hidden', !hasTransferStats);
+        $('#activity-speed').text(data.speed || '--');
+        $('#activity-eta').text(data.eta ? `ETA ${data.eta}` : 'ETA --');
     }
 
     function addMessage(message, type = 'info', autoHide = true) {
@@ -1195,6 +1358,18 @@ $(function () {
                 $('#progress-container').show();
             }
 
+        } else if (messageType === "[TRANSFER]") {
+            try {
+                const stats = JSON.parse(messageContent);
+                if (activeDownload) {
+                    activeDownload.speed = stats.speed || '';
+                    activeDownload.eta = stats.eta || '';
+                    updateActivityPanel(activeDownload);
+                }
+            } catch (error) {
+                console.error('Error parsing transfer statistics:', error);
+            }
+
         } else if (messageType === "[MSG]") {
             const message = messageContent;
 
@@ -1292,6 +1467,48 @@ $(function () {
                 modal.remove();
             }
         });
+    }
+
+    function closeMediaPreview() {
+        const modal = $('.media-preview-modal');
+        modal.find('video, audio').each(function() {
+            this.pause();
+            this.removeAttribute('src');
+            this.load();
+        });
+        modal.remove();
+    }
+
+    function showMediaPreview(item) {
+        if (!item || !item.file_exists || (item.download_type !== 'video' && item.download_type !== 'audio')) {
+            addMessage('This file cannot be previewed in the browser', 'warning');
+            return;
+        }
+
+        closeMediaPreview();
+        const title = item.title || item.filename || 'Media preview';
+        const source = escapeAttr(getPreviewHref(item));
+        const player = item.download_type === 'audio' ?
+            `<div class="media-preview-audio-art"><span class="glyphicon glyphicon-music" aria-hidden="true"></span></div><audio controls autoplay preload="metadata" src="${source}"></audio>` :
+            `<video controls autoplay playsinline preload="metadata" src="${source}"></video>`;
+        const modal = $(`
+            <div class="media-preview-modal" role="dialog" aria-modal="true" aria-labelledby="media-preview-title">
+                <div class="media-preview-content">
+                    <header class="media-preview-header">
+                        <div>
+                            <span>Preview</span>
+                            <h2 id="media-preview-title">${escapeHtml(title)}</h2>
+                        </div>
+                        <button type="button" class="media-preview-close" title="Close preview" aria-label="Close preview">
+                            <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                        </button>
+                    </header>
+                    <div class="media-preview-player">${player}</div>
+                </div>
+            </div>
+        `);
+        $('body').append(modal);
+        modal.find('.media-preview-close').focus();
     }
 
     function fetchHistory(options) {
@@ -1510,21 +1727,38 @@ $(function () {
         applyHistorySearch();
     });
 
-    $(document).on("change", "#history-sort, #history-status-filter, #history-type-filter", function() {
+    $(document).on("change", "#history-sort, #history-status-filter", function() {
         historyPrefs.sort = $('#history-sort').val();
         historyPrefs.status = $('#history-status-filter').val();
-        historyPrefs.type = $('#history-type-filter').val();
         resetHistoryPaging();
         saveHistoryPrefs();
         renderHistory();
     });
 
+    $(document).on("click", ".history-type-option", function() {
+        historyPrefs.type = $(this).data('history-type') || 'all';
+        resetHistoryPaging();
+        applyHistoryPrefsToControls();
+        saveHistoryPrefs();
+        renderHistory();
+    });
+
+    $(document).on("click", ".history-view-btn", function() {
+        historyPrefs.view = $(this).data('history-view') === 'grid' ? 'grid' : 'list';
+        selectedHistoryUuid = null;
+        applyHistoryPrefsToControls();
+        saveHistoryPrefs();
+        renderHistory();
+    });
+
     $(document).on("click", "#reset-history-filters", function() {
+        const currentView = historyPrefs.view || 'list';
         historyPrefs = {
             sort: 'date-desc',
             status: 'all',
             type: 'all',
-            search: ''
+            search: '',
+            view: currentView
         };
         applyHistoryPrefsToControls();
         resetHistoryPaging();
@@ -1550,7 +1784,7 @@ $(function () {
         syncModeFromResolution();
     });
 
-    $(document).on("click keydown", ".history-row, .history-card", function(event) {
+    $(document).on("click keydown", ".history-row, .history-card, .history-grid-card", function(event) {
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
             return;
         }
@@ -1623,6 +1857,28 @@ $(function () {
 
     $(document).on("click", ".action-download", function(event) {
         event.stopPropagation();
+    });
+
+    $(document).on("click", ".action-preview", function(event) {
+        event.stopPropagation();
+        const uuid = $(this).data('uuid');
+        showMediaPreview(historyItems.find((item) => item.uuid === uuid));
+    });
+
+    $(document).on("click", ".media-preview-close", function() {
+        closeMediaPreview();
+    });
+
+    $(document).on("click", ".media-preview-modal", function(event) {
+        if (event.target === this) {
+            closeMediaPreview();
+        }
+    });
+
+    $(document).on("keydown", function(event) {
+        if (event.key === 'Escape' && $('.media-preview-modal').length) {
+            closeMediaPreview();
+        }
     });
 
     applyHistoryPrefsToControls();

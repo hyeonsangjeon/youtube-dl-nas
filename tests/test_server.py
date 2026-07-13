@@ -34,7 +34,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0710"
+    assert health.json["version"] == "26.0713"
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -161,7 +161,65 @@ def test_queue_listing_is_json_serializable(app):
         response = app.get("/youtube-dl/q")
         assert response.json["count"] == 1
         assert "https://youtu.be/example" in response.json["size"]
+        assert response.json["items"] == [{
+            "position": 1,
+            "url": "https://youtu.be/example",
+            "resolution": "best",
+            "source": "web",
+        }]
     finally:
         with server.dl_q.mutex:
             server.dl_q.queue.clear()
             server.dl_q.queue.extend(original_queue)
+
+
+def test_status_includes_visible_queue_items(app):
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        server.dl_q.queue.clear()
+        server.dl_q.queue.append(("https://youtu.be/queued", object(), "audio-mp3", "api"))
+    try:
+        response = app.get("/youtube-dl/status")
+        assert response.json["queue_count"] == 1
+        assert response.json["queue"][0]["url"] == "https://youtu.be/queued"
+        assert response.json["queue"][0]["resolution"] == "audio-mp3"
+        assert response.json["queue"][0]["source"] == "api"
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+
+
+def test_history_normalization_preserves_media_preview_metadata():
+    item = server.normalize_history_item({
+        "uuid": "media-item",
+        "title": "Example",
+        "thumbnail": "https://i.ytimg.com/vi/example/hqdefault.jpg",
+        "duration_seconds": 125,
+    })
+    assert item["thumbnail"].endswith("hqdefault.jpg")
+    assert item["duration_seconds"] == 125
+
+
+def test_preview_requires_login_and_serves_media_inline(app, tmp_path):
+    media_file = tmp_path / "preview.mp4"
+    media_file.write_bytes(b"preview-data")
+    history_item = {
+        "uuid": "preview-item",
+        "filename": media_file.name,
+        "filepath": str(media_file),
+        "status": "completed",
+        "resolution": "best",
+    }
+
+    app.get("/static/preview/preview-item", status=403)
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), \
+         patch.object(server.download_manager, "load_history"), \
+         patch.object(server.download_manager, "get_combined_history_item", return_value=history_item):
+        response = app.get("/static/preview/preview-item")
+
+    assert response.body == b"preview-data"
+    assert response.content_type == "video/mp4"
+    assert "attachment" not in response.headers.get("Content-Disposition", "").lower()

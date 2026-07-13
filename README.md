@@ -11,7 +11,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0710` (`2026-07-10`)
+Current release: `26.0713` (`2026-07-13`)
 
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
@@ -27,10 +27,10 @@ Current release: `26.0710` (`2026-07-10`)
 
 - Queue video, audio, or subtitle downloads from a browser.
 - Share a URL from an installed Android PWA, an Android HTTP Shortcut, or an iOS Shortcut workflow.
-- Track current activity with queue count, progress, title, channel, and thumbnail.
-- Review download history and mounted folder files with explicit search, filters, newest-first sorting, 20-item numbered pages, mobile cards, and a detail drawer.
+- Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
+- Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
-- Retry failed items, download saved files, delete history rows, or delete physical files.
+- Preview saved video and audio in the dashboard, retry failed items, download files, delete history rows, or delete physical files.
 - Persist history, terms acceptance, and the signed-session secret under `./metadata`.
 - Automate downloads through a simple REST API.
 - Keep `yt-dlp` current at startup and every hour by default without stopping the app when an update check fails.
@@ -47,10 +47,10 @@ Current release: `26.0710` (`2026-07-10`)
 ## Dashboard Workflow
 
 1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue.
-2. Watch the Current Activity panel for active progress, queue count, title, channel, thumbnail, and status.
-3. Use Files & History to find completed downloads and mounted files. The default sort is newest downloaded first.
+2. Watch the Current Activity panel for progress, speed, ETA, and the ordered list of jobs waiting next.
+3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
-5. Select a table row or mobile card to open file details, source URL, metadata state, and actions.
+5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
 
 ### Mounted Files And Metadata
 
@@ -191,12 +191,13 @@ These endpoints are used by the web UI and require a valid login cookie:
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/youtube-dl/status` | `GET` | Read current active download, queue count, and connected clients. |
+| `/youtube-dl/status` | `GET` | Read the active download, live transfer details, ordered queue, and connected clients. |
 | `/youtube-dl/history` | `GET` | Read normalized download history plus mounted `/downfolder` files that are not in metadata yet. |
 | `/youtube-dl/history/retry/<uuid>` | `POST` | Queue a previous history item again. |
 | `/youtube-dl/history/delete/<uuid>` | `POST` | Delete the history row only. |
 | `/youtube-dl/history/delete-file/<uuid>` | `POST` | Delete the physical file and related history rows. |
 | `/youtube-dl/history/clear` | `POST` | Clear history rows while keeping downloaded files. |
+| `/static/preview/<uuid>` | `GET` | Stream an existing video or audio file inline for the authenticated preview player. |
 
 ## Local Development
 

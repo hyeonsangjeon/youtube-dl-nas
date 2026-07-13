@@ -279,6 +279,10 @@
                                     <span id="activity-status" class="status-tag status-pending">idle</span>
                                 </div>
                                 <p id="activity-channel">Waiting for the next request.</p>
+                                <div id="activity-transfer" class="activity-transfer" hidden>
+                                    <span id="activity-speed">--</span>
+                                    <span id="activity-eta">ETA --</span>
+                                </div>
                                 <div id="progress-container" class="progress-shell" style="display: none;">
                                     <div class="progress">
                                         <div id="progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
@@ -286,6 +290,15 @@
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="queue-section">
+                            <div class="queue-section-heading">
+                                <strong>Up next</strong>
+                                <span id="queue-summary">Queue is empty</span>
+                            </div>
+                            <div id="queue-items" class="queue-items">
+                                <div class="queue-empty">New requests will appear here in order.</div>
                             </div>
                         </div>
                     </section>
@@ -300,6 +313,16 @@
                                 <p id="history-result-count" class="history-subtitle">0 downloads</p>
                             </div>
                             <div class="history-actions">
+                                <div class="history-view-switch" role="group" aria-label="History view">
+                                    <button id="history-view-list" type="button" class="history-view-btn is-active" data-history-view="list" title="List view" aria-pressed="true">
+                                        <span class="glyphicon glyphicon-list" aria-hidden="true"></span>
+                                        <span>List</span>
+                                    </button>
+                                    <button id="history-view-grid" type="button" class="history-view-btn" data-history-view="grid" title="Grid view" aria-pressed="false">
+                                        <span class="glyphicon glyphicon-th-large" aria-hidden="true"></span>
+                                        <span>Grid</span>
+                                    </button>
+                                </div>
                                 <button id="refresh-history" class="btn btn-info btn-sm">
                                     <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
                                 </button>
@@ -335,13 +358,21 @@
                                 <option value="error">Error</option>
                                 <option value="unknown">Unknown</option>
                             </select>
-                            <select id="history-type-filter" class="form-control input-sm history-select" title="Filter by type">
-                                <option value="all">All types</option>
-                                <option value="video">Video</option>
-                                <option value="audio">Audio</option>
-                                <option value="subtitle">Subtitle</option>
-                                <option value="file">File</option>
-                            </select>
+                            <div class="history-type-switch" role="group" aria-label="Filter by type">
+                                <button type="button" class="history-type-option is-active" data-history-type="all">All</button>
+                                <button type="button" class="history-type-option" data-history-type="video">
+                                    <span class="glyphicon glyphicon-facetime-video" aria-hidden="true"></span><span>Video</span>
+                                </button>
+                                <button type="button" class="history-type-option" data-history-type="audio">
+                                    <span class="glyphicon glyphicon-music" aria-hidden="true"></span><span>Audio</span>
+                                </button>
+                                <button type="button" class="history-type-option" data-history-type="subtitle">
+                                    <span class="glyphicon glyphicon-subtitles" aria-hidden="true"></span><span>Subs</span>
+                                </button>
+                                <button type="button" class="history-type-option" data-history-type="file">
+                                    <span class="glyphicon glyphicon-file" aria-hidden="true"></span><span>Files</span>
+                                </button>
+                            </div>
                             <button id="reset-history-filters" class="btn btn-default btn-sm">Reset</button>
                         </div>
                         <div class="table-responsive">
@@ -364,6 +395,7 @@
                                 </table>
                             </div>
                         </div>
+                        <div id="history-grid" class="history-grid"></div>
                         <div id="history-card-list" class="history-card-list"></div>
                         <div id="history-pager" class="history-pager"></div>
                     </section>

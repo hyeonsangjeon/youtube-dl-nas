@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0710` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0713` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -33,10 +33,10 @@ The second volume is strongly recommended. It preserves download history, terms 
 ## What You Get
 
 - Video up to 2160p, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
-- Authenticated queue with live progress, title, channel, thumbnail, and remaining job count.
-- Searchable download history with filters, newest-first sorting, and 20-item pages.
+- Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
+- Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, and 20-item pages.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
-- Retry, browser download, history-only delete, and physical-file delete actions.
+- Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
 - Android PWA sharing, Android local-HTTP Shortcuts, and an installable iOS Shortcut.
 - REST API with normal ID/password authentication and an optional Bearer token.
 - `yt-dlp`, `yt-dlp-ejs`, and Deno updates at startup and every hour by default.
@@ -95,14 +95,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0710` | Current pinned release |
+| `26.0713` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0710` when reproducibility matters; use `latest` to follow the current stable branch.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0713` when reproducibility matters; use `latest` to follow the current stable branch.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0710
+docker pull modenaf360/youtube-dl-nas:26.0713
 ```
 
 ## Health Check

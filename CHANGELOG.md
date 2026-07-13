@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0713 - 2026-07-13
+
+### Added
+
+- Added compact list and thumbnail grid history views with persisted view preference, duration overlays, and graceful media-type placeholders when thumbnails are unavailable.
+- Added authenticated inline video and audio previews for files already stored in `/downfolder`.
+- Added an ordered **Up next** queue with request source and quality details, plus live transfer speed and ETA in Current Activity.
+- Persisted thumbnail and duration metadata for newly completed, failed, and errored downloads.
+
+### Changed
+
+- Replaced the history type dropdown with a compact segmented filter that remains usable on mobile.
+- Increased dashboard status polling frequency from ten to five seconds for faster queue and activity updates.
+- Ignored local Python virtual environments used for development and tests.
+
 ### Documentation
 
 - Added a dedicated Docker Hub overview with current screenshots, persistent-volume guidance, mobile sharing, multi-architecture tags, health checks, and release history.

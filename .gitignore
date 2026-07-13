@@ -11,6 +11,7 @@ javadocs/*
 logs/
 .idea
 __pycache__/
+.venv/
 .devcontainer/
 # IntelliJ IDEA
 **/.idea

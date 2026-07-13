@@ -23,7 +23,7 @@ STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
 AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0710")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0713")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -285,6 +285,8 @@ def normalize_history_item(item):
     item.setdefault('resolution', '')
     item.setdefault('title', '')
     item.setdefault('channel', '')
+    item.setdefault('thumbnail', '')
+    item.setdefault('duration_seconds', 0)
     item.setdefault('status', 'unknown')
     item.setdefault('filepath', '')
     item.setdefault('source', 'history')
@@ -305,6 +307,19 @@ def start_download_thread_if_needed():
 def enqueue_download(url, resolution, source, ws=None):
     dl_q.put((url.strip(), ws, resolution.strip(), source))
     start_download_thread_if_needed()
+
+def get_queued_downloads():
+    queued_items = []
+    for position, item in enumerate(list(dl_q.queue), start=1):
+        if not item:
+            continue
+        queued_items.append({
+            "position": position,
+            "url": item[0] if len(item) > 0 else "",
+            "resolution": item[2] if len(item) > 2 else "",
+            "source": item[3] if len(item) > 3 else "web",
+        })
+    return queued_items
 
 # single use global download manager
 class GlobalDownloadManager:
@@ -405,6 +420,15 @@ class GlobalDownloadManager:
         """Update status"""
         if self.current_download:
             self.current_download['status'] = status
+
+    def update_transfer_stats(self, speed, eta):
+        """Update live transfer statistics and broadcast them to dashboard clients."""
+        if not self.current_download:
+            return
+        self.current_download['speed'] = speed or ''
+        self.current_download['eta'] = eta or ''
+        stats = {"speed": speed or "", "eta": eta or ""}
+        self.broadcast_to_all_clients(f"[TRANSFER], {json.dumps(stats)}")
     
     def send_message(self, message):
         """Send a message to all clients"""
@@ -686,12 +710,13 @@ def q_size():
     _, error_response = require_cookie_auth()
     if error_response:
         return error_response
-    queued_items = [
-        {"url": item[0], "resolution": item[2], "source": item[3]}
-        for item in list(dl_q.queue)
-        if item is not None
-    ]
-    return {"success": True, "size": json.dumps(queued_items), "count": len(queued_items)}
+    queued_items = get_queued_downloads()
+    return {
+        "success": True,
+        "size": json.dumps(queued_items),
+        "items": queued_items,
+        "count": len(queued_items),
+    }
 
 @get('/youtube-dl/status', method='GET')
 def get_download_status():
@@ -707,11 +732,13 @@ def get_download_status():
         if start_time:
             current_download['elapsed_seconds'] = max(0, int(time.time() - start_time))
 
+    queued_items = get_queued_downloads()
     return {
         "success": True,
         "is_downloading": download_manager.is_downloading,
         "current_download": current_download,
-        "queue_count": dl_q.qsize(),
+        "queue_count": len(queued_items),
+        "queue": queued_items,
         "connected_clients": len(download_manager.connected_clients)
     }
 
@@ -949,6 +976,7 @@ def download(url):
         video_title = url[0]
         channel_name = ""
         thumbnail_url = ""
+        duration_seconds = 0
         current_progress = 5  # Initialize current_progress here
         final_filepath = None
         filename = None  # Initialize filename here
@@ -962,6 +990,9 @@ def download(url):
             'title': video_title,
             'channel': channel_name,
             'thumbnail': thumbnail_url,
+            'duration_seconds': duration_seconds,
+            'speed': '',
+            'eta': '',
             'start_time': time.time()
         }
         
@@ -974,6 +1005,9 @@ def download(url):
             video_title = metadata.get("title") or metadata.get("playlist_title") or video_title
             channel_name = metadata.get("uploader") or metadata.get("channel") or ""
             thumbnail_url = metadata.get("thumbnail") or ""
+            duration_seconds = metadata.get("duration") or 0
+            if download_manager.current_download:
+                download_manager.current_download['duration_seconds'] = duration_seconds
             download_manager.send_title(video_title)
             if channel_name:
                 download_manager.send_channel(channel_name)
@@ -1009,6 +1043,11 @@ def download(url):
                 break
             if line:
                 print(f"yt-dlp output: {line.strip()}")
+
+                plain_line = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                transfer_match = re.search(r'\bat\s+([^\s]+/s)\s+ETA\s+([0-9:]+)', plain_line)
+                if transfer_match:
+                    download_manager.update_transfer_stats(transfer_match.group(1), transfer_match.group(2))
 
                 # Capture the final path emitted after post-processing.
                 if re.match(r"(vtt|srt)",dn_type):
@@ -1071,6 +1110,8 @@ def download(url):
                 'resolution': url[2],
                 'title': video_title,
                 'channel': channel_name,
+                'thumbnail': thumbnail_url,
+                'duration_seconds': duration_seconds,
                 'status': 'completed',
                 'filepath': final_filepath if final_filepath else "unknown",
                 'filename': filename,
@@ -1089,6 +1130,8 @@ def download(url):
                 'resolution': url[2],
                 'title': video_title,
                 'channel': channel_name,
+                'thumbnail': thumbnail_url,
+                'duration_seconds': duration_seconds,
                 'status': 'failed',
                 'progress': current_progress
             })
@@ -1104,11 +1147,28 @@ def download(url):
             'resolution': url[2] if len(url) > 2 else 'unknown',
             'title': video_title if 'video_title' in locals() else 'unknown',
             'channel': channel_name if 'channel_name' in locals() else '',
+            'thumbnail': thumbnail_url if 'thumbnail_url' in locals() else '',
+            'duration_seconds': duration_seconds if 'duration_seconds' in locals() else 0,
             'status': 'error',
             'progress': 0
         })
 
 import mimetypes
+
+def resolve_history_file(uuid):
+    download_manager.load_history()
+    file_info = download_manager.get_combined_history_item(uuid)
+    if not file_info:
+        abort(404, "File not found")
+
+    actual_filename = file_info.get('filename')
+    file_path = safe_downfolder_path(actual_filename)
+    if not actual_filename or not file_path:
+        abort(404, "Valid filename not found")
+    if not os.path.isfile(file_path):
+        abort(404, "Physical file not found")
+    return file_info, actual_filename
+
 @get('/static/downfolder/<uuid>')
 def serve_download(uuid):
     """File download using UUID"""
@@ -1117,18 +1177,7 @@ def serve_download(uuid):
         abort(403, "Unauthorized")
     
     try:
-        download_manager.load_history()
-        file_info = download_manager.get_combined_history_item(uuid)
-        if not file_info:
-            abort(404, "File not found")
-        
-        actual_filename = file_info.get('filename')
-        file_path = safe_downfolder_path(actual_filename)
-        if not actual_filename or not file_path:
-            abort(404, "Valid filename not found")
-        
-        if not os.path.isfile(file_path):
-            abort(404, "Physical file not found")
+        _, actual_filename = resolve_history_file(uuid)
         
         # Organize file names to allow safe downloads from your browser
         print(f"Serving file: {actual_filename}")
@@ -1149,6 +1198,24 @@ def serve_download(uuid):
         raise
     except Exception as e:
         print(f"Error in serve_download: {e}")
+        abort(500, "Internal server error")
+
+@get('/static/preview/<uuid>')
+def serve_preview(uuid):
+    """Serve an authenticated media file inline for the dashboard preview player."""
+    data = load_auth_data()
+    if not is_cookie_authenticated(data):
+        abort(403, "Unauthorized")
+
+    try:
+        _, actual_filename = resolve_history_file(uuid)
+        response.set_header("Content-Disposition", "inline")
+        response.set_header("X-Content-Type-Options", "nosniff")
+        return static_file(actual_filename, root=DOWNFOLDER_DIR)
+    except HTTPError:
+        raise
+    except Exception as e:
+        print(f"Error in serve_preview: {e}")
         abort(500, "Internal server error")
     
 
