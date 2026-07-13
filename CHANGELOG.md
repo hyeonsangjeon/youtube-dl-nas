@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Documentation
+
+- Added English and Korean dashboard guides covering queue activity, list/grid history views, previews, mounted files, and container updates.
+
 ## 26.0713 - 2026-07-13
 
 ### Added
