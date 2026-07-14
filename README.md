@@ -33,9 +33,11 @@ Current release: `26.0713` (`2026-07-13`)
 - Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Preview saved video and audio in the dashboard, retry failed items, download files, delete history rows, or delete physical files.
+- Compare SRT, VTT, ASS, and SSA files with a verified transcript using `nlptutti` character/word error metrics and keyword preservation checks.
 - Persist history, terms acceptance, and the signed-session secret under `./metadata`.
 - Automate downloads through a simple REST API.
 - Keep `yt-dlp` current at startup and every hour by default without stopping the app when an update check fails.
+- Install or upgrade `nlptutti` when each new container starts so Subtitle QA uses the current package release.
 - Include Deno and the matching `yt-dlp-ejs` components required for current YouTube JavaScript challenges.
 - Run cleanly on NAS or home-server Docker setups.
 
@@ -53,6 +55,13 @@ Current release: `26.0713` (`2026-07-13`)
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
+6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
+
+### Subtitle QA
+
+Subtitle QA reads the selected subtitle file directly from `/downfolder` and compares its spoken text with the reference transcript you provide. The result includes character accuracy (CRR), character error rate (CER), word error rate (WER), edit counts, and optional keyword preservation. Lower CER/WER and higher character accuracy are better.
+
+The feature supports downloaded or mounted `.srt`, `.vtt`, `.ass`, and `.ssa` files. Reference text is processed only inside your NAS container and is not sent to an external service.
 
 ### Mounted Files And Metadata
 
@@ -133,6 +142,8 @@ docker run -d \
 | `-e UMASK` | Optional file creation mask. Defaults to `022`. |
 | `-e YTDLP_AUTO_UPDATE` | Keep the startup and scheduled `yt-dlp` updater enabled. Defaults to `true`. |
 | `-e YTDLP_UPDATE_INTERVAL` | Updater interval in seconds. Defaults to `3600`, with a minimum of `300`. |
+| `-e NLPTUTTI_AUTO_UPDATE` | Install or upgrade `nlptutti` once whenever a new container starts. Defaults to `true`. |
+| `-e NLPTUTTI_UPDATE_TIMEOUT` | Maximum runtime package-update duration in seconds. Defaults to `180`. |
 | `-e YTDLP_COOKIES_FILE` | Optional path to a mounted Netscape-format cookies file. |
 | `-e YTDLP_EXTRA_ARGS` | Optional administrator-controlled extra arguments parsed with shell-style quoting. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
@@ -199,6 +210,7 @@ These endpoints are used by the web UI and require a valid login cookie:
 | `/youtube-dl/history/delete/<uuid>` | `POST` | Delete the history row only. |
 | `/youtube-dl/history/delete-file/<uuid>` | `POST` | Delete the physical file and related history rows. |
 | `/youtube-dl/history/clear` | `POST` | Clear history rows while keeping downloaded files. |
+| `/youtube-dl/subtitle-qa/<uuid>` | `POST` | Compare a stored SRT/VTT/ASS/SSA file with a reference transcript using `nlptutti`. |
 | `/static/preview/<uuid>` | `GET` | Stream an existing video or audio file inline for the authenticated preview player. |
 
 ## Local Development
@@ -262,11 +274,12 @@ That keeps every Git change build-verified without publishing unreviewed images.
 
 ## Architecture
 
-The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same in-process worker queue, and completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
+The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same in-process worker queue, and completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Each new container also installs or upgrades `nlptutti` before the app starts; a package-index failure leaves the download queue running but temporarily disables Subtitle QA. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
 
 - Web server: [`bottle`](https://github.com/bottlepy/bottle)
 - WebSocket: [`bottle-websocket`](https://github.com/zeekay/bottle-websocket)
 - Download engine: [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+- Subtitle quality metrics: [`nlptutti`](https://pypi.org/project/nlptutti/)
 - Original queue server base: [`python queue server`](https://github.com/manbearwiz/youtube-dl-server)
 
 <img src="pic/Architecture-Youtube-dl-nas.png" alt="youtube-dl-nas architecture" width="95%">

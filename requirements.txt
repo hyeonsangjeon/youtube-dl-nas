@@ -3,3 +3,4 @@ gevent-websocket
 bottle
 yt-dlp[default]
 apscheduler
+jiwer

@@ -4,9 +4,20 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- Added authenticated Subtitle QA for downloaded or mounted SRT, VTT, ASS, and SSA files, with `nlptutti` CER, WER, CRR, edit counts, and keyword preservation results.
+- Added a responsive Subtitle QA workflow to list, grid, card, and detail actions without exposing reference transcripts outside the NAS container.
+
+### Changed
+
+- Install or upgrade `nlptutti` once at new-container startup with an isolated timeout and keep the main download queue available if the package index cannot be reached.
+- Report Subtitle QA availability and the installed `nlptutti` version from `/health`.
+
 ### Documentation
 
 - Added English and Korean dashboard guides covering queue activity, list/grid history views, previews, mounted files, and container updates.
+- Documented Subtitle QA usage, supported subtitle formats, runtime updater controls, and local-only transcript processing.
 
 ## 26.0713 - 2026-07-13
 

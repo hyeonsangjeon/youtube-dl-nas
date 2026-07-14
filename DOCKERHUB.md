@@ -37,9 +37,11 @@ The second volume is strongly recommended. It preserves download history, terms 
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, and 20-item pages.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
 - Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
+- Subtitle QA for SRT/VTT/ASS/SSA files with `nlptutti` CER/WER/CRR metrics and keyword preservation.
 - Android PWA sharing, Android local-HTTP Shortcuts, and an installable iOS Shortcut.
 - REST API with normal ID/password authentication and an optional Bearer token.
 - `yt-dlp`, `yt-dlp-ejs`, and Deno updates at startup and every hour by default.
+- Current `nlptutti` installation or upgrade whenever a new container starts.
 - Container health check plus PUID, PGID, and UMASK support.
 
 ## Dashboard
@@ -67,6 +69,8 @@ The second volume is strongly recommended. It preserves download history, terms 
 | `PROXY` | No | Empty | Proxy passed to `yt-dlp` |
 | `YTDLP_COOKIES_FILE` | No | Empty | Mounted Netscape-format cookie file |
 | `YTDLP_EXTRA_ARGS` | No | Empty | Administrator-controlled extra `yt-dlp` arguments |
+| `NLPTUTTI_AUTO_UPDATE` | No | `true` | Install or upgrade `nlptutti` at new-container startup for Subtitle QA |
+| `NLPTUTTI_UPDATE_TIMEOUT` | No | `180` | Runtime package-update timeout in seconds |
 | `YDLNAS_API_TOKEN` | No | Empty | Optional Bearer token; ID/password remains supported |
 | `COOKIE_SECURE` | No | `false` | Set `true` behind an HTTPS-only reverse proxy |
 

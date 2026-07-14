@@ -29,6 +29,12 @@ The activity panel shows the active title, channel, thumbnail, progress, transfe
 
 Use **Preview** to play an existing video or audio file without downloading it again. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file.
 
+## Subtitle QA
+
+For an available SRT, VTT, ASS, or SSA file, select **Subtitle QA** from the item actions. Paste the verified reference transcript and optionally add comma- or line-separated keywords, then select **Analyze**.
+
+The result reports character accuracy (CRR), character error rate (CER), word error rate (WER), character edit counts, and keyword preservation. The selected file and reference text remain inside the NAS container. `nlptutti` is installed or upgraded when a new container starts so the analyzer follows current package releases.
+
 ## Mounted Files
 
 Files already present in `/downfolder` are discovered automatically. When no saved download record exists, the dashboard labels the item **Mounted** and **No metadata**. The file remains available for preview, browser download, and deletion, but its original source URL and quality cannot be reconstructed.

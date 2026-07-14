@@ -34,7 +34,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0713"
+    assert health.json["version"] == "26.0714"
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -223,3 +223,106 @@ def test_preview_requires_login_and_serves_media_inline(app, tmp_path):
     assert response.body == b"preview-data"
     assert response.content_type == "video/mp4"
     assert "attachment" not in response.headers.get("Content-Disposition", "").lower()
+
+
+def test_extract_subtitle_text_supports_srt_vtt_and_ass():
+    srt = """1
+00:00:00,000 --> 00:00:02,000
+<i>안녕하세요</i>
+
+2
+00:00:02,100 --> 00:00:04,000
+Azure AI 테스트입니다.
+"""
+    vtt = """WEBVTT
+
+cue-1
+00:00:00.000 --> 00:00:02.000
+Hello &amp; welcome
+"""
+    ass = """[Events]
+Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,{\\i1}첫 문장{\\i0}\\N둘째 문장
+"""
+
+    assert server.extract_subtitle_text(srt, ".srt") == "안녕하세요 Azure AI 테스트입니다."
+    assert server.extract_subtitle_text(vtt, ".vtt") == "Hello & welcome"
+    assert server.extract_subtitle_text(ass, ".ass") == "첫 문장 둘째 문장"
+
+
+def test_analyze_subtitle_text_uses_nlptutti_metrics_and_keywords():
+    result = server.analyze_subtitle_text(
+        "안녕하세요 Azure AI 테스트입니다",
+        "안녕하세요 Azure AI 테스트입니다",
+        ["Azure AI"],
+    )
+
+    assert result["cer"]["cer"] == 0
+    assert result["wer"]["wer"] == 0
+    assert result["crr"]["crr"] == 1
+    assert result["keywords"][0]["preservation_rate"] == 1
+    assert result["nlptutti_version"] != "unavailable"
+
+
+def test_subtitle_qa_requires_login(app):
+    response = app.post_json(
+        "/youtube-dl/subtitle-qa/subtitle-item",
+        {"reference": "reference text"},
+        status=403,
+    )
+    assert response.json["msg"] == "Unauthorized"
+
+
+def test_subtitle_qa_analyzes_stored_subtitle(app, tmp_path):
+    subtitle_file = tmp_path / "sample.ko.srt"
+    subtitle_file.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\n안녕하세요 Azure AI 테스트입니다\n",
+        encoding="utf-8",
+    )
+    history_item = {
+        "uuid": "subtitle-item",
+        "title": "Sample subtitle",
+        "filename": subtitle_file.name,
+        "filepath": str(subtitle_file),
+        "status": "completed",
+        "resolution": "srt|ko",
+    }
+
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), \
+         patch.object(server.download_manager, "load_history"), \
+         patch.object(server.download_manager, "get_combined_history_item", return_value=history_item):
+        response = app.post_json(
+            "/youtube-dl/subtitle-qa/subtitle-item",
+            {
+                "reference": "안녕하세요 Azure AI 테스트입니다",
+                "keywords": "Azure AI, 누락 키워드",
+            },
+        )
+
+    assert response.json["success"] is True
+    assert response.json["result"]["cer"]["cer"] == 0
+    assert response.json["result"]["keywords"][0]["preservation_rate"] == 1
+    assert response.json["result"]["keywords"][1]["preservation_rate"] is None
+
+
+def test_subtitle_qa_rejects_non_subtitle_files(app, tmp_path):
+    video_file = tmp_path / "sample.mp4"
+    video_file.write_bytes(b"video")
+    history_item = {
+        "uuid": "video-item",
+        "filename": video_file.name,
+        "status": "completed",
+        "resolution": "best",
+    }
+
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), \
+         patch.object(server.download_manager, "load_history"), \
+         patch.object(server.download_manager, "get_combined_history_item", return_value=history_item):
+        response = app.post_json(
+            "/youtube-dl/subtitle-qa/video-item",
+            {"reference": "reference text"},
+            status=400,
+        )
+
+    assert "SRT, VTT, ASS, and SSA" in response.json["msg"]

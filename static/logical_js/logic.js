@@ -781,9 +781,14 @@ $(function () {
         const mountedFile = isMountedFile(item);
         const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
         const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
+        const canAnalyzeSubtitle = item.file_exists && item.download_type === 'subtitle';
         const previewButton = canPreview ? `
             <button class="action-btn action-preview" data-uuid="${safeUuid}" title="Preview media">
                 <span class="glyphicon glyphicon-play"></span>${isDetail ? '<span>Preview</span>' : ''}
+            </button>` : '';
+        const subtitleQaButton = canAnalyzeSubtitle ? `
+            <button class="action-btn action-subtitle-qa" data-uuid="${safeUuid}" title="Analyze subtitle accuracy">
+                <span class="glyphicon glyphicon-check"></span>${isDetail ? '<span>Subtitle QA</span>' : ''}
             </button>` : '';
         const downloadButton = item.file_exists ? `
             <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="Download file">
@@ -807,6 +812,7 @@ $(function () {
         return `
             <div class="action-group${detailClass}">
                 ${previewButton}
+                ${subtitleQaButton}
                 ${downloadButton}
                 ${retryButton}
                 ${historyDeleteButton}
@@ -1511,6 +1517,163 @@ $(function () {
         modal.find('.media-preview-close').focus();
     }
 
+    function closeSubtitleQa() {
+        $('.subtitle-qa-modal').remove();
+    }
+
+    function formatQaPercent(value) {
+        const percentage = Number(value) * 100;
+        return Number.isFinite(percentage) ? `${percentage.toFixed(1)}%` : '--';
+    }
+
+    function showSubtitleQa(item) {
+        if (!item || !item.file_exists || item.download_type !== 'subtitle') {
+            addMessage('Subtitle QA requires an available subtitle file', 'warning');
+            return;
+        }
+
+        closeSubtitleQa();
+        const title = item.title || item.filename || 'Subtitle QA';
+        const modal = $(`
+            <div class="subtitle-qa-modal" role="dialog" aria-modal="true" aria-labelledby="subtitle-qa-title">
+                <div class="subtitle-qa-content">
+                    <header class="subtitle-qa-header">
+                        <div>
+                            <span>Subtitle QA</span>
+                            <h2 id="subtitle-qa-title">${escapeHtml(title)}</h2>
+                            <p>${escapeHtml(item.filename || 'Subtitle file')}</p>
+                        </div>
+                        <button type="button" class="subtitle-qa-close" title="Close Subtitle QA" aria-label="Close Subtitle QA">
+                            <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                        </button>
+                    </header>
+                    <form class="subtitle-qa-form">
+                        <label class="subtitle-qa-field">
+                            <span>Reference transcript</span>
+                            <textarea class="form-control" name="reference" rows="8" maxlength="100000" required placeholder="Paste the verified transcript to compare with this subtitle file."></textarea>
+                        </label>
+                        <label class="subtitle-qa-field">
+                            <span>Keywords <small>optional, comma or line separated</small></span>
+                            <input class="form-control" name="keywords" type="text" placeholder="Azure AI, yt-dlp, Synology">
+                        </label>
+                        <div class="subtitle-qa-error" role="alert" hidden></div>
+                        <div class="subtitle-qa-actions">
+                            <button type="button" class="btn btn-default subtitle-qa-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary subtitle-qa-submit">
+                                <span class="glyphicon glyphicon-stats" aria-hidden="true"></span>
+                                Analyze
+                            </button>
+                        </div>
+                    </form>
+                    <section class="subtitle-qa-results" aria-live="polite" hidden></section>
+                </div>
+            </div>
+        `);
+
+        $('body').append(modal);
+        modal.find('textarea[name="reference"]').focus();
+        modal.find('.subtitle-qa-form').on('submit', function(event) {
+            event.preventDefault();
+            analyzeSubtitle(item, modal);
+        });
+    }
+
+    function analyzeSubtitle(item, modal) {
+        const form = modal.find('.subtitle-qa-form');
+        const submit = modal.find('.subtitle-qa-submit');
+        const error = modal.find('.subtitle-qa-error');
+        const reference = String(form.find('[name="reference"]').val() || '').trim();
+        const keywords = String(form.find('[name="keywords"]').val() || '').trim();
+
+        if (!reference) {
+            error.text('Paste a reference transcript before analyzing.').prop('hidden', false);
+            form.find('[name="reference"]').focus();
+            return;
+        }
+
+        error.prop('hidden', true).empty();
+        submit.prop('disabled', true).html('<span class="glyphicon glyphicon-refresh qa-spin" aria-hidden="true"></span> Analyzing');
+        $.ajax({
+            method: 'POST',
+            url: `/youtube-dl/subtitle-qa/${encodeURIComponent(item.uuid)}`,
+            data: JSON.stringify({ reference: reference, keywords: keywords }),
+            contentType: 'application/json',
+            dataType: 'json',
+            success: function(response) {
+                if (!response.success) {
+                    error.text(response.msg || 'Subtitle QA failed').prop('hidden', false);
+                    return;
+                }
+                renderSubtitleQaResults(modal, response);
+            },
+            error: function(jqXHR) {
+                error.text(getAjaxErrorMessage(jqXHR, 'Subtitle QA failed')).prop('hidden', false);
+            },
+            complete: function() {
+                submit.prop('disabled', false).html('<span class="glyphicon glyphicon-stats" aria-hidden="true"></span> Analyze');
+            }
+        });
+    }
+
+    function renderSubtitleQaResults(modal, response) {
+        const result = response.result || {};
+        const cer = result.cer || {};
+        const wer = result.wer || {};
+        const crr = result.crr || {};
+        const keywords = Array.isArray(result.keywords) ? result.keywords : [];
+        const keywordRows = keywords.length ? keywords.map(function(keyword) {
+            const rate = keyword.preservation_rate === null ? 'Not in reference' : formatQaPercent(keyword.preservation_rate);
+            return `
+                <tr>
+                    <td>${escapeHtml(keyword.keyword)}</td>
+                    <td>${Number(keyword.reference_count || 0)}</td>
+                    <td>${Number(keyword.subtitle_count || 0)}</td>
+                    <td>${rate}</td>
+                </tr>
+            `;
+        }).join('') : '';
+        const keywordSection = keywordRows ? `
+            <div class="subtitle-qa-keywords">
+                <h3>Keyword preservation</h3>
+                <div class="subtitle-qa-table-wrap">
+                    <table>
+                        <thead><tr><th>Keyword</th><th>Reference</th><th>Subtitle</th><th>Preserved</th></tr></thead>
+                        <tbody>${keywordRows}</tbody>
+                    </table>
+                </div>
+            </div>
+        ` : '';
+
+        modal.find('.subtitle-qa-results').html(`
+            <div class="subtitle-qa-result-heading">
+                <div>
+                    <span>Analysis complete</span>
+                    <h3>${escapeHtml((response.file && response.file.filename) || 'Subtitle file')}</h3>
+                </div>
+                <span class="subtitle-qa-engine">nlptutti ${escapeHtml(result.nlptutti_version || '')}</span>
+            </div>
+            <div class="subtitle-qa-metrics">
+                <div><span>Character accuracy</span><strong>${formatQaPercent(crr.crr)}</strong><small>Higher is better</small></div>
+                <div><span>Character error</span><strong>${formatQaPercent(cer.cer)}</strong><small>Lower is better</small></div>
+                <div><span>Word error</span><strong>${formatQaPercent(wer.wer)}</strong><small>Lower is better</small></div>
+            </div>
+            <div class="subtitle-qa-breakdown">
+                <div><span>Characters</span><strong>${Number(result.subtitle_characters || 0)}</strong><small>Reference ${Number(result.reference_characters || 0)}</small></div>
+                <div><span>Words</span><strong>${Number(result.subtitle_words || 0)}</strong><small>Reference ${Number(result.reference_words || 0)}</small></div>
+                <div><span>Substitutions</span><strong>${Number(cer.substitutions || 0)}</strong><small>Character level</small></div>
+                <div><span>Deletions</span><strong>${Number(cer.deletions || 0)}</strong><small>Character level</small></div>
+                <div><span>Insertions</span><strong>${Number(cer.insertions || 0)}</strong><small>Character level</small></div>
+            </div>
+            ${keywordSection}
+            <div class="subtitle-qa-result-actions">
+                <button type="button" class="btn btn-default subtitle-qa-edit">Edit reference</button>
+                <button type="button" class="btn btn-primary subtitle-qa-done">Done</button>
+            </div>
+        `).prop('hidden', false);
+        modal.find('.subtitle-qa-form').prop('hidden', true);
+        modal.find('.subtitle-qa-results').attr('tabindex', '-1').focus();
+    }
+
     function fetchHistory(options) {
         const settings = Object.assign({ quiet: false }, options || {});
         $.ajax({
@@ -1865,6 +2028,12 @@ $(function () {
         showMediaPreview(historyItems.find((item) => item.uuid === uuid));
     });
 
+    $(document).on("click", ".action-subtitle-qa", function(event) {
+        event.stopPropagation();
+        const uuid = $(this).data('uuid');
+        showSubtitleQa(historyItems.find((item) => item.uuid === uuid));
+    });
+
     $(document).on("click", ".media-preview-close", function() {
         closeMediaPreview();
     });
@@ -1875,9 +2044,29 @@ $(function () {
         }
     });
 
+    $(document).on("click", ".subtitle-qa-close, .subtitle-qa-cancel, .subtitle-qa-done", function() {
+        closeSubtitleQa();
+    });
+
+    $(document).on("click", ".subtitle-qa-edit", function() {
+        const modal = $(this).closest('.subtitle-qa-modal');
+        modal.find('.subtitle-qa-results').prop('hidden', true).empty();
+        modal.find('.subtitle-qa-form').prop('hidden', false);
+        modal.find('textarea[name="reference"]').focus();
+    });
+
+    $(document).on("click", ".subtitle-qa-modal", function(event) {
+        if (event.target === this) {
+            closeSubtitleQa();
+        }
+    });
+
     $(document).on("keydown", function(event) {
         if (event.key === 'Escape' && $('.media-preview-modal').length) {
             closeMediaPreview();
+        }
+        if (event.key === 'Escape' && $('.subtitle-qa-modal').length) {
+            closeSubtitleQa();
         }
     });
 

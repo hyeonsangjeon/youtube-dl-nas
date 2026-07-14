@@ -8,6 +8,7 @@ PUID=${PUID:-0}
 PGID=${PGID:-0}
 UMASK=${UMASK:-022}
 YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-true}
+NLPTUTTI_AUTO_UPDATE=${NLPTUTTI_AUTO_UPDATE:-true}
 SCHEDULER_PID=""
 SERVER_PID=""
 
@@ -41,6 +42,10 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 umask "$UMASK"
+
+if [ "$NLPTUTTI_AUTO_UPDATE" = "true" ] || [ "$NLPTUTTI_AUTO_UPDATE" = "1" ]; then
+  python -u "$APP_DIR/upd_schedule.py" --nlptutti-once || echo "Startup nlptutti install/update failed; Subtitle QA will be unavailable"
+fi
 
 if [ "$YTDLP_AUTO_UPDATE" = "true" ] || [ "$YTDLP_AUTO_UPDATE" = "1" ]; then
   python -u "$APP_DIR/upd_schedule.py" --once || echo "Startup yt-dlp update failed; continuing with the installed version"

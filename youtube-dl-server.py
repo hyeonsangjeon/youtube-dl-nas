@@ -1,11 +1,13 @@
 import json
 import subprocess
+import html
 from queue import Queue
 import re
 import time
 import uuid
 import hmac
 import shlex
+from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime, timedelta
 from collections import defaultdict
 from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort, HTTPError
@@ -23,7 +25,7 @@ STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
 AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0713")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0714")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -35,6 +37,9 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".ogg", ".wav"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa"}
 SKIPPED_DOWNFOLDER_NAMES = {".incomplete", ".DS_Store"}
 SHARED_URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_BYTES", str(5 * 1024 * 1024))))
+SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
+SUBTITLE_QA_MAX_KEYWORDS = 20
 
 os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -196,6 +201,112 @@ def safe_downfolder_path(filename):
     except ValueError:
         return None
     return candidate
+
+def get_nlptutti_version():
+    try:
+        return package_version("nlptutti")
+    except PackageNotFoundError:
+        return "unavailable"
+
+def clean_subtitle_text_line(value):
+    value = re.sub(r"\{\\[^}]+\}", "", value or "")
+    value = re.sub(r"<[^>]+>", "", value)
+    value = html.unescape(value.replace("\\N", " ").replace("\\n", " "))
+    return re.sub(r"\s+", " ", value).strip()
+
+def extract_subtitle_text(content, extension):
+    """Extract spoken text from SRT, VTT, ASS, or SSA subtitle content."""
+    extension = (extension or "").lower()
+    normalized = (content or "").replace("\ufeff", "").replace("\r\n", "\n").replace("\r", "\n")
+
+    if extension in {".ass", ".ssa"}:
+        dialogue_lines = []
+        for line in normalized.splitlines():
+            if not line.lstrip().lower().startswith("dialogue:"):
+                continue
+            fields = line.split(",", 9)
+            if len(fields) == 10:
+                text = clean_subtitle_text_line(fields[9])
+                if text:
+                    dialogue_lines.append(text)
+        return " ".join(dialogue_lines)
+
+    cue_lines = []
+    blocks = re.split(r"\n\s*\n", normalized)
+    for block in blocks:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines or lines[0].upper() == "WEBVTT":
+            continue
+        if lines[0].upper().startswith(("NOTE", "STYLE", "REGION")):
+            continue
+
+        timestamp_index = next((index for index, line in enumerate(lines) if "-->" in line), None)
+        if timestamp_index is not None:
+            text_lines = lines[timestamp_index + 1:]
+        else:
+            text_lines = [line for line in lines if not line.isdigit() and "-->" not in line]
+
+        for line in text_lines:
+            text = clean_subtitle_text_line(line)
+            if text:
+                cue_lines.append(text)
+    return " ".join(cue_lines)
+
+def normalize_qa_keywords(value):
+    if isinstance(value, str):
+        candidates = re.split(r"[,\n]", value)
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = []
+
+    keywords = []
+    for candidate in candidates:
+        keyword = re.sub(r"\s+", " ", str(candidate or "")).strip()
+        if keyword and keyword not in keywords:
+            keywords.append(keyword)
+        if len(keywords) >= SUBTITLE_QA_MAX_KEYWORDS:
+            break
+    return keywords
+
+def analyze_subtitle_text(reference, transcription, keywords=None):
+    try:
+        import nlptutti
+    except ImportError as error:
+        raise RuntimeError("nlptutti is not installed") from error
+
+    reference = re.sub(r"\s+", " ", reference or "").strip()
+    transcription = re.sub(r"\s+", " ", transcription or "").strip()
+    cer = nlptutti.get_cer(reference, transcription)
+    wer = nlptutti.get_wer(reference, transcription)
+    crr = nlptutti.get_crr(reference, transcription)
+
+    keyword_results = []
+    for keyword in keywords or []:
+        pattern = nlptutti.make_keyword_pattern(keyword, nlptutti.COMPLEX_JOSA, nlptutti.COMPLEX_EOMI)
+        reference_count = len(pattern.findall(reference))
+        subtitle_count = len(pattern.findall(transcription))
+        preserved_count = min(reference_count, subtitle_count)
+        preservation_rate = round(preserved_count / reference_count, 4) if reference_count else None
+        keyword_results.append({
+            "keyword": keyword,
+            "reference_count": reference_count,
+            "subtitle_count": subtitle_count,
+            "preserved_count": preserved_count,
+            "preservation_rate": preservation_rate,
+        })
+
+    return {
+        "cer": cer,
+        "wer": wer,
+        "crr": crr,
+        "reference_characters": len(reference.replace(" ", "")),
+        "subtitle_characters": len(transcription.replace(" ", "")),
+        "reference_words": len(reference.split()),
+        "subtitle_words": len(transcription.split()),
+        "keywords": keyword_results,
+        "nlptutti_version": get_nlptutti_version(),
+    }
 
 def get_download_type(resolution):
     resolution = resolution or ""
@@ -658,6 +769,10 @@ def health_check():
         "app": "youtube-dl-nas",
         "version": APP_VERSION,
         "queue_count": dl_q.qsize(),
+        "subtitle_qa": {
+            "available": get_nlptutti_version() != "unavailable",
+            "nlptutti_version": get_nlptutti_version(),
+        },
     }
 
 @get('/manifest.webmanifest')
@@ -888,6 +1003,65 @@ def get_history():
         "success": True, 
         "history": combined_history,
         "total": len(combined_history)
+    }
+
+@post('/youtube-dl/subtitle-qa/<uuid>')
+def subtitle_qa(uuid):
+    """Compare a stored subtitle file with a user-supplied reference transcript."""
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    payload = get_request_json()
+    reference = payload.get("reference")
+    if not isinstance(reference, str) or not reference.strip():
+        return json_error("Reference transcript is required", 400)
+    if len(reference) > SUBTITLE_QA_MAX_REFERENCE_CHARS:
+        return json_error(f"Reference transcript exceeds {SUBTITLE_QA_MAX_REFERENCE_CHARS} characters", 413)
+
+    download_manager.load_history()
+    item = download_manager.get_combined_history_item(uuid)
+    if not item:
+        return json_error("Subtitle history item not found", 404)
+
+    normalized = normalize_history_item(item)
+    filename = normalized.get("filename", "")
+    extension = os.path.splitext(filename)[1].lower()
+    if normalized.get("download_type") != "subtitle" or extension not in SUBTITLE_EXTENSIONS:
+        return json_error("Subtitle QA supports SRT, VTT, ASS, and SSA files", 400)
+
+    file_path = safe_downfolder_path(filename)
+    if not file_path or not os.path.isfile(file_path):
+        return json_error("Subtitle file not found", 404)
+    if os.path.getsize(file_path) > SUBTITLE_QA_MAX_FILE_BYTES:
+        return json_error("Subtitle file is too large to analyze", 413)
+
+    try:
+        with open(file_path, "r", encoding="utf-8-sig", errors="replace") as subtitle_file:
+            transcription = extract_subtitle_text(subtitle_file.read(), extension)
+    except OSError as error:
+        print(f"Failed to read subtitle file for QA: {error}")
+        return json_error("Subtitle file could not be read", 500)
+
+    if not transcription:
+        return json_error("No subtitle text was found in this file", 422)
+
+    try:
+        result = analyze_subtitle_text(reference, transcription, normalize_qa_keywords(payload.get("keywords")))
+    except RuntimeError:
+        return json_error("Subtitle QA is unavailable because nlptutti is not installed", 503)
+    except (TypeError, ValueError) as error:
+        print(f"Subtitle QA input error: {error}")
+        return json_error("Subtitle QA could not analyze this transcript", 422)
+
+    return {
+        "success": True,
+        "file": {
+            "uuid": normalized.get("uuid"),
+            "title": normalized.get("title") or os.path.splitext(filename)[0],
+            "filename": filename,
+        },
+        "result": result,
     }
     
 def dl_worker():
