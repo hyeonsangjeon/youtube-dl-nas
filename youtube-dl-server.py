@@ -25,7 +25,7 @@ STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
 AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0714")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0715")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -40,6 +40,8 @@ SHARED_URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_BYTES", str(5 * 1024 * 1024))))
 SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
 SUBTITLE_QA_MAX_KEYWORDS = 20
+YTDLP_OUTPUT_TEMPLATE = "%(title)s__%(extractor_key)s_%(id)s.%(ext)s"
+GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
 
 os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -188,6 +190,28 @@ def get_actual_filename(item):
     if filepath and filepath != "unknown":
         return os.path.basename(filepath)
     return ""
+
+
+def get_media_identity(metadata):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    media_id = str(metadata.get("id") or "").strip()
+    extractor = str(metadata.get("extractor_key") or metadata.get("extractor") or "").strip()
+    return media_id, extractor
+
+
+def get_media_display_title(metadata, fallback):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    title = str(metadata.get("title") or metadata.get("playlist_title") or fallback or "").strip()
+    media_id, extractor = get_media_identity(metadata)
+    if (
+        media_id
+        and extractor.lower().startswith("instagram")
+        and GENERIC_INSTAGRAM_TITLE_PATTERN.fullmatch(title)
+        and media_id not in title
+    ):
+        return f"{title} [{media_id}]"
+    return title
+
 
 def safe_downfolder_path(filename):
     if not filename:
@@ -398,6 +422,8 @@ def normalize_history_item(item):
     item.setdefault('channel', '')
     item.setdefault('thumbnail', '')
     item.setdefault('duration_seconds', 0)
+    item.setdefault('media_id', '')
+    item.setdefault('extractor', '')
     item.setdefault('status', 'unknown')
     item.setdefault('filepath', '')
     item.setdefault('source', 'history')
@@ -1119,7 +1145,7 @@ def build_youtube_dl_cmd(url):
         "--replace-in-metadata", "title", unsafe_chars_pattern, "_",
         "--paths", f"home:{DOWNFOLDER_DIR}",
         "--paths", f"temp:{os.path.join(DOWNFOLDER_DIR, '.incomplete')}",
-        "-o", "%(title)s.%(ext)s",
+        "-o", YTDLP_OUTPUT_TEMPLATE,
     ]
     if url[2] == "best":
         cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
@@ -1151,6 +1177,8 @@ def download(url):
         channel_name = ""
         thumbnail_url = ""
         duration_seconds = 0
+        media_id = ""
+        extractor = ""
         current_progress = 5  # Initialize current_progress here
         final_filepath = None
         filename = None  # Initialize filename here
@@ -1165,6 +1193,8 @@ def download(url):
             'channel': channel_name,
             'thumbnail': thumbnail_url,
             'duration_seconds': duration_seconds,
+            'media_id': media_id,
+            'extractor': extractor,
             'speed': '',
             'eta': '',
             'start_time': time.time()
@@ -1176,12 +1206,15 @@ def download(url):
 
         try:
             metadata = fetch_media_metadata(url[0])
-            video_title = metadata.get("title") or metadata.get("playlist_title") or video_title
+            video_title = get_media_display_title(metadata, video_title)
             channel_name = metadata.get("uploader") or metadata.get("channel") or ""
             thumbnail_url = metadata.get("thumbnail") or ""
             duration_seconds = metadata.get("duration") or 0
+            media_id, extractor = get_media_identity(metadata)
             if download_manager.current_download:
                 download_manager.current_download['duration_seconds'] = duration_seconds
+                download_manager.current_download['media_id'] = media_id
+                download_manager.current_download['extractor'] = extractor
             download_manager.send_title(video_title)
             if channel_name:
                 download_manager.send_channel(channel_name)
@@ -1286,6 +1319,8 @@ def download(url):
                 'channel': channel_name,
                 'thumbnail': thumbnail_url,
                 'duration_seconds': duration_seconds,
+                'media_id': media_id,
+                'extractor': extractor,
                 'status': 'completed',
                 'filepath': final_filepath if final_filepath else "unknown",
                 'filename': filename,
@@ -1306,6 +1341,8 @@ def download(url):
                 'channel': channel_name,
                 'thumbnail': thumbnail_url,
                 'duration_seconds': duration_seconds,
+                'media_id': media_id,
+                'extractor': extractor,
                 'status': 'failed',
                 'progress': current_progress
             })
@@ -1323,6 +1360,8 @@ def download(url):
             'channel': channel_name if 'channel_name' in locals() else '',
             'thumbnail': thumbnail_url if 'thumbnail_url' in locals() else '',
             'duration_seconds': duration_seconds if 'duration_seconds' in locals() else 0,
+            'media_id': media_id if 'media_id' in locals() else '',
+            'extractor': extractor if 'extractor' in locals() else '',
             'status': 'error',
             'progress': 0
         })

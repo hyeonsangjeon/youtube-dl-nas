@@ -14,6 +14,11 @@ All notable changes to this project are documented here.
 - Install or upgrade `nlptutti` once at new-container startup with an isolated timeout and keep the main download queue available if the package index cannot be reached.
 - Report Subtitle QA availability and the installed `nlptutti` version from `/health`.
 
+### Fixed
+
+- Prevented different media with the same extracted title, especially Instagram Reels, from reusing an existing download by including the extractor and stable media ID in every new filename.
+- Added the Reel ID to generic Instagram titles so separate downloads remain distinguishable in activity and history views.
+
 ### Documentation
 
 - Added English and Korean dashboard guides covering queue activity, list/grid history views, previews, mounted files, and container updates.

@@ -34,7 +34,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0714"
+    assert health.json["version"] == "26.0715"
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -147,8 +147,51 @@ def test_download_command_uses_temp_path_and_final_path_marker():
     command = server.build_youtube_dl_cmd(("https://youtu.be/example", "", "best", "api"))
     assert "home:./downfolder" in command
     assert "temp:./downfolder/.incomplete" in command
+    assert server.YTDLP_OUTPUT_TEMPLATE in command
+    assert "%(extractor_key)s" in server.YTDLP_OUTPUT_TEMPLATE
+    assert "%(id)s" in server.YTDLP_OUTPUT_TEMPLATE
     assert "after_move:__YDLNAS_FILE__:%(filepath)s" in command
     assert "--exec" not in command
+
+
+def test_instagram_generic_titles_include_reel_id():
+    first = {
+        "extractor_key": "Instagram",
+        "id": "DapoFfVlR7F",
+        "title": "Video by technicallyhash",
+    }
+    second = {
+        "extractor_key": "Instagram",
+        "id": "Daxhbdmk5G9",
+        "title": "Video by technicallyhash",
+    }
+
+    assert server.get_media_display_title(first, "") == "Video by technicallyhash [DapoFfVlR7F]"
+    assert server.get_media_display_title(second, "") == "Video by technicallyhash [Daxhbdmk5G9]"
+    assert server.get_media_display_title(first, "") != server.get_media_display_title(second, "")
+
+
+def test_output_template_separates_same_title_media():
+    shared = {
+        "title": "Video_by_technicallyhash",
+        "extractor_key": "Instagram",
+        "ext": "mp4",
+    }
+    first_filename = server.YTDLP_OUTPUT_TEMPLATE % {**shared, "id": "DapoFfVlR7F"}
+    second_filename = server.YTDLP_OUTPUT_TEMPLATE % {**shared, "id": "Daxhbdmk5G9"}
+
+    assert first_filename == "Video_by_technicallyhash__Instagram_DapoFfVlR7F.mp4"
+    assert second_filename == "Video_by_technicallyhash__Instagram_Daxhbdmk5G9.mp4"
+    assert first_filename != second_filename
+
+
+def test_non_instagram_titles_remain_unchanged():
+    metadata = {
+        "extractor_key": "Youtube",
+        "id": "example",
+        "title": "Video by Example Creator",
+    }
+    assert server.get_media_display_title(metadata, "") == "Video by Example Creator"
 
 
 def test_queue_listing_is_json_serializable(app):
