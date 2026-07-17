@@ -6,6 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/hyeonsangjeon/youtube-dl-nas?style=flat-square)](https://github.com/hyeonsangjeon/youtube-dl-nas/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/modenaf360/youtube-dl-nas?style=flat-square)](https://hub.docker.com/r/modenaf360/youtube-dl-nas/)
 [![Docker Stars](https://img.shields.io/docker/stars/modenaf360/youtube-dl-nas?style=flat-square)](https://hub.docker.com/r/modenaf360/youtube-dl-nas/)
+[![Mentioned in Awesome Selfhosted](https://awesome.re/mentioned-badge.svg)](https://awesome-selfhosted.net/tags/media-management.html)
 
 `youtube-dl-nas` is a small NAS-friendly download queue for videos, audio, and subtitles. It wraps `yt-dlp` with an authenticated web dashboard, real-time progress updates, download history, file actions, and a REST API for automation.
 
