@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0713` (`2026-07-13`)
+Current release: `26.0731` (`2026-07-31`)
 
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
@@ -29,13 +29,14 @@ Current release: `26.0713` (`2026-07-13`)
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
+- Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
 - Share a URL from an installed Android PWA, an Android HTTP Shortcut, or an iOS Shortcut workflow.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
 - Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Preview saved video and audio in the dashboard, retry failed items, download files, delete history rows, or delete physical files.
 - Compare SRT, VTT, ASS, and SSA files with a verified transcript using `nlptutti` character/word error metrics and keyword preservation checks.
-- Persist history, terms acceptance, and the signed-session secret under `./metadata`.
+- Persist the queue, history, terms acceptance, and the signed-session secret under `./metadata`.
 - Automate downloads through a simple REST API.
 - Keep `yt-dlp` current at startup and every hour by default without stopping the app when an update check fails.
 - Install or upgrade `nlptutti` when each new container starts so Subtitle QA uses the current package release.
@@ -53,6 +54,7 @@ Current release: `26.0713` (`2026-07-13`)
 
 1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue.
 2. Watch the Current Activity panel for progress, speed, ETA, and the ordered list of jobs waiting next.
+   Waiting jobs can be removed before they start. Jobs restored after a container restart are labeled in the queue.
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
@@ -70,6 +72,14 @@ Files already present in `/downfolder` are scanned into Files & History even if 
 
 Clearing history rows does not delete files. Kept files are reloaded from `/downfolder` and shown again as mounted files. Use the file delete action only when you want to remove the physical file.
 
+### Safe Queue And Restart Recovery
+
+The active request and waiting jobs are written atomically to `queue_state.json` in the metadata volume. After a container restart, the interrupted active request is restored first, followed by the remaining queue in its original order. `yt-dlp --continue` reuses compatible partial files from `/downfolder/.incomplete`; whether a remote source can resume the exact byte range depends on that source.
+
+Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. Failed history items remain retryable. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
+
+Mount `/usr/src/app/metadata` persistently to retain the safe queue across container replacement. The queue remains intentionally file-backed and does not require a database.
+
 ## Quick Start
 
 Docker Compose is the recommended installation because it preserves both downloads and application state:
@@ -79,7 +89,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Edit `.env` before starting and set at least `MY_ID` and `MY_PW`. Downloads are stored in `./downloads`; history, terms acceptance, and the session secret are stored in `./config`.
+Edit `.env` before starting and set at least `MY_ID` and `MY_PW`. Downloads are stored in `./downloads`; queue state, history, terms acceptance, and the session secret are stored in `./config`.
 
 The equivalent `docker run` command is:
 
@@ -132,7 +142,7 @@ docker run -d \
 | Option | Description |
 | --- | --- |
 | `-v host:/downfolder` | Required persistent download volume. Keep the guest path as `/downfolder`. |
-| `-v host:/usr/src/app/metadata` | Recommended persistent configuration volume for history, terms acceptance, and session state. |
+| `-v host:/usr/src/app/metadata` | Recommended persistent state volume for the restart-safe queue, history, terms acceptance, and signed sessions. |
 | `-p host:guest` | Port forwarding. The app defaults to `8080`. |
 | `-e MY_ID` | Required login ID. Avoid values starting with `!`, `$`, or `&`. |
 | `-e MY_PW` | Required login password. Avoid values starting with `!`, `$`, or `&`. |
@@ -178,6 +188,8 @@ Successful response:
 ```json
 {
   "success": true,
+  "queued": true,
+  "duplicate": false,
   "msg": "download has started",
   "Remaining downloading count": "7"
 }
@@ -191,6 +203,8 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://youtu.be/s9mO5q6GiAc","resolution":"best"}'
 ```
+
+The API returns `"duplicate": true` without adding another job when the same URL and profile are already queued or saved on the NAS. Add `"force": true` only when an intentional repeat download is required.
 
 Supported `resolution` examples:
 
@@ -206,6 +220,7 @@ These endpoints are used by the web UI and require a valid login cookie:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/youtube-dl/status` | `GET` | Read the active download, live transfer details, ordered queue, and connected clients. |
+| `/youtube-dl/q/<job_id>/remove` | `POST` | Remove a waiting job before it becomes active. |
 | `/youtube-dl/history` | `GET` | Read normalized download history plus mounted `/downfolder` files that are not in metadata yet. |
 | `/youtube-dl/history/retry/<uuid>` | `POST` | Queue a previous history item again. |
 | `/youtube-dl/history/delete/<uuid>` | `POST` | Delete the history row only. |
@@ -275,7 +290,7 @@ That keeps every Git change build-verified without publishing unreviewed images.
 
 ## Architecture
 
-The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same in-process worker queue, and completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Each new container also installs or upgrades `nlptutti` before the app starts; a package-index failure leaves the download queue running but temporarily disables Subtitle QA. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
+The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same single-worker queue, whose active and pending jobs are atomically mirrored to the metadata volume without a database. Completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Each new container also installs or upgrades `nlptutti` before the app starts; a package-index failure leaves the download queue running but temporarily disables Subtitle QA. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
 
 - Web server: [`bottle`](https://github.com/bottlepy/bottle)
 - WebSocket: [`bottle-websocket`](https://github.com/zeekay/bottle-websocket)

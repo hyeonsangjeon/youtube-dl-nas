@@ -33,12 +33,11 @@ fi
 
 if [ "$(id -u)" = "0" ]; then
   chown "$PUID:$PGID" "$DOWNLOAD_DIR" "$DOWNLOAD_DIR/.incomplete" "$STATE_DIR"
-  if [ -f "$STATE_DIR/download_history.json" ]; then
-    chown "$PUID:$PGID" "$STATE_DIR/download_history.json"
-  fi
-  if [ -f "$STATE_DIR/app_state.json" ]; then
-    chown "$PUID:$PGID" "$STATE_DIR/app_state.json"
-  fi
+  for state_file in download_history.json app_state.json queue_state.json; do
+    if [ -f "$STATE_DIR/$state_file" ]; then
+      chown "$PUID:$PGID" "$STATE_DIR/$state_file"
+    fi
+  done
 fi
 
 umask "$UMASK"

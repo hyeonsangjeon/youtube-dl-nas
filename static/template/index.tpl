@@ -16,7 +16,7 @@
     <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}-safe-queue-4" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -429,7 +429,7 @@
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-safe-queue-4"></script>
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {

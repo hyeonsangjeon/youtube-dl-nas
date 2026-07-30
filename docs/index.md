@@ -5,7 +5,7 @@ title: youtube-dl NAS Guides
 
 # youtube-dl NAS Guides
 
-- Current release: **26.0713**
+- Current release: **26.0731**
 - [Dashboard guide](dashboard/)
 - [대시보드 사용법](dashboard/ko.html)
 - [Mobile sharing setup](mobile/)

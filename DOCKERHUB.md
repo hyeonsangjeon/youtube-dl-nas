@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0713` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0731` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -28,12 +28,13 @@ docker run -d \
 
 Open `http://YOUR_NAS:8080`, sign in with `MY_ID` and `MY_PW`, accept the Terms of Use on first launch, and submit a URL.
 
-The second volume is strongly recommended. It preserves download history, terms acceptance, and signed-session state across container recreation.
+The second volume is strongly recommended. It preserves the restart-safe queue, download history, terms acceptance, and signed-session state across container recreation.
 
 ## What You Get
 
 - Video up to 2160p, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
 - Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
+- Database-free queue recovery across container restarts, compatible partial-download continuation, duplicate guards, and removable waiting jobs.
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, and 20-item pages.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
 - Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
@@ -54,7 +55,7 @@ The second volume is strongly recommended. It preserves download history, terms 
 | Container path | Purpose |
 | --- | --- |
 | `/downfolder` | Downloaded and pre-existing media files |
-| `/usr/src/app/metadata` | History, terms acceptance, and session state |
+| `/usr/src/app/metadata` | Restart-safe queue, history, terms acceptance, and session state |
 
 ## Main Environment Variables
 
@@ -99,14 +100,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0713` | Current pinned release |
+| `26.0731` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0713` when reproducibility matters; use `latest` to follow the current stable branch.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0731` when reproducibility matters; use `latest` to follow the current stable branch.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0713
+docker pull modenaf360/youtube-dl-nas:26.0731
 ```
 
 ## Health Check

@@ -11,21 +11,22 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime, timedelta
 from collections import defaultdict
 from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort, HTTPError
-from threading import Thread
+from threading import Event, Lock, Thread
 from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
 from socket import error
 from geventwebsocket.exceptions import WebSocketError
 import os
 import secrets
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 DOWNFOLDER_DIR = os.environ.get("DOWNLOAD_DIR", "./downfolder")
 STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
 AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0715")
+QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0731")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -42,6 +43,22 @@ SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_
 SUBTITLE_QA_MAX_KEYWORDS = 20
 YTDLP_OUTPUT_TEMPLATE = "%(title)s__%(extractor_key)s_%(id)s.%(ext)s"
 GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
+QUEUE_STATE_VERSION = 1
+TRACKING_QUERY_KEYS = {
+    "fbclid",
+    "feature",
+    "gclid",
+    "igsh",
+    "si",
+    "start",
+    "t",
+    "time_continue",
+    "utm_campaign",
+    "utm_content",
+    "utm_medium",
+    "utm_source",
+    "utm_term",
+}
 
 os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -59,14 +76,18 @@ def load_json_file(path, default=None):
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {} if default is None else default
 
+
+def atomic_write_json(path, payload, ensure_ascii=False):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    temp_path = path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as output_file:
+        json.dump(payload, output_file, indent=2, ensure_ascii=ensure_ascii)
+    os.replace(temp_path, path)
+
 def save_app_state(updates):
     state = load_json_file(APP_STATE_FILE, {})
     state.update(updates)
-    os.makedirs(STATE_DIR, exist_ok=True)
-    temp_path = APP_STATE_FILE + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as state_file:
-        json.dump(state, state_file, indent=2, ensure_ascii=True)
-    os.replace(temp_path, APP_STATE_FILE)
+    atomic_write_json(APP_STATE_FILE, state, ensure_ascii=True)
     return state
 
 def load_auth_data():
@@ -132,6 +153,36 @@ def extract_shared_url(*values):
             return match.group(0).rstrip(".,);]")
     return ""
 
+
+def normalize_media_url(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return value
+
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        return value
+
+    query = []
+    for key, item_value in parse_qsl(parsed.query, keep_blank_values=True):
+        lowered_key = key.lower()
+        if lowered_key in TRACKING_QUERY_KEYS or lowered_key.startswith("utm_"):
+            continue
+        query.append((key, item_value))
+
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit((
+        parsed.scheme.lower(),
+        parsed.netloc.lower(),
+        path,
+        urlencode(sorted(query)),
+        "",
+    ))
+
 def cookie_secure_enabled():
     return os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 
@@ -152,8 +203,11 @@ def queue_shared_url(shared_url):
     if validation_error:
         redirect("/youtube-dl?shared=invalid")
 
+    result = enqueue_download(shared_url, "best", "web", ws_addr.wsClassVal)
+    if result.get("duplicate"):
+        redirect("/youtube-dl?shared=duplicate")
+
     download_manager.send_message("Shared URL received. Added to the NAS queue.")
-    enqueue_download(shared_url, "best", "web", ws_addr.wsClassVal)
     redirect("/youtube-dl?shared=queued")
 
 def require_cookie_auth():
@@ -435,27 +489,315 @@ def normalize_history_item(item):
     item.setdefault('progress', 0)
     return item
 
+
+def parse_boolean(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def normalize_queue_job(item, restored=False):
+    if isinstance(item, dict):
+        job = dict(item)
+    elif isinstance(item, (list, tuple)):
+        job = {
+            "url": item[0] if len(item) > 0 else "",
+            "resolution": item[2] if len(item) > 2 else "",
+            "source": item[3] if len(item) > 3 else "web",
+        }
+    else:
+        return None
+
+    url = str(job.get("url") or "").strip()
+    resolution = str(job.get("resolution") or "").strip()
+    if validate_download_request(url, resolution):
+        return None
+
+    source = str(job.get("source") or "web").strip() or "web"
+    created_at = str(job.get("created_at") or datetime.now().isoformat())
+    job_id = str(job.get("id") or uuid.uuid4())
+    try:
+        attempts = max(0, int(job.get("attempts") or 0))
+    except (TypeError, ValueError):
+        attempts = 0
+    return {
+        "id": job_id,
+        "url": url,
+        "normalized_url": normalize_media_url(job.get("normalized_url") or url),
+        "resolution": resolution,
+        "source": source,
+        "created_at": created_at,
+        "restored": bool(restored or job.get("restored")),
+        "force": parse_boolean(job.get("force")),
+        "attempts": attempts,
+    }
+
+
+def create_queue_job(url, resolution, source, force=False):
+    return normalize_queue_job({
+        "id": str(uuid.uuid4()),
+        "url": url,
+        "resolution": resolution,
+        "source": source,
+        "created_at": datetime.now().isoformat(),
+        "force": force,
+    })
+
+
+def public_queue_job(job, position=None):
+    job = normalize_queue_job(job)
+    if not job:
+        return None
+
+    public_job = {
+        "id": job["id"],
+        "url": job["url"],
+        "resolution": job["resolution"],
+        "source": job["source"],
+        "created_at": job["created_at"],
+        "restored": job["restored"],
+    }
+    if position is not None:
+        public_job["position"] = position
+    return public_job
+
+
+def pending_queue_jobs():
+    with dl_q.mutex:
+        return [
+            job
+            for item in list(dl_q.queue)
+            if (job := normalize_queue_job(item)) is not None
+        ]
+
+
+def persist_queue_state():
+    try:
+        with queue_state_lock:
+            active = normalize_queue_job(active_queue_job) if active_queue_job else None
+            pending = pending_queue_jobs()
+            atomic_write_json(QUEUE_STATE_FILE, {
+                "version": QUEUE_STATE_VERSION,
+                "updated_at": datetime.now().isoformat(),
+                "active": active,
+                "pending": pending,
+            })
+    except Exception as error:
+        print(f"Failed to save queue state: {error}")
+
+
+def load_persisted_queue():
+    global queue_restore_count, queue_state_loaded
+
+    with queue_state_lock:
+        if queue_state_loaded:
+            return queue_restore_count
+        queue_state_loaded = True
+
+    payload = load_json_file(QUEUE_STATE_FILE, {})
+    candidates = []
+    if isinstance(payload, dict):
+        if payload.get("active"):
+            candidates.append(payload["active"])
+        if isinstance(payload.get("pending"), list):
+            candidates.extend(payload["pending"])
+
+    restored_jobs = []
+    seen_job_ids = set()
+    for item in candidates:
+        job = normalize_queue_job(item, restored=True)
+        if not job or job["id"] in seen_job_ids:
+            continue
+        seen_job_ids.add(job["id"])
+        job["attempts"] += 1
+        restored_jobs.append(job)
+
+    for job in restored_jobs:
+        dl_q.put(job)
+
+    queue_restore_count = len(restored_jobs)
+    persist_queue_state()
+    if restored_jobs:
+        print(f"Restored {len(restored_jobs)} queued download(s)")
+    return queue_restore_count
+
+
+def set_active_queue_job(job):
+    global active_queue_job
+    with queue_state_lock:
+        active_queue_job = normalize_queue_job(job)
+    persist_queue_state()
+
+
+def clear_active_queue_job():
+    global active_queue_job
+    with queue_state_lock:
+        active_queue_job = None
+    persist_queue_state()
+
+
+def same_queue_request(first, second):
+    first = normalize_queue_job(first)
+    second = normalize_queue_job(second)
+    if not first or not second:
+        return False
+    return (
+        first["normalized_url"] == second["normalized_url"]
+        and first["resolution"] == second["resolution"]
+    )
+
+
+def find_queued_duplicate(job):
+    with queue_state_lock:
+        active = normalize_queue_job(active_queue_job) if active_queue_job else None
+    if active and same_queue_request(active, job):
+        return public_queue_job(active)
+
+    for queued_job in pending_queue_jobs():
+        if same_queue_request(queued_job, job):
+            return public_queue_job(queued_job)
+    return None
+
+
+def media_identity_matches_filename(filename, media_id, extractor):
+    filename = os.path.basename(str(filename or ""))
+    media_id = str(media_id or "").strip()
+    extractor = str(extractor or "").strip()
+    if not filename or not media_id or not extractor:
+        return False
+
+    stem = os.path.splitext(filename)[0]
+    expected_suffix = f"__{extractor}_{media_id}"
+    return stem.casefold().endswith(expected_suffix.casefold())
+
+
+def existing_download_summary(item):
+    item = normalize_history_item(item)
+    return {
+        "uuid": item.get("uuid"),
+        "title": item.get("title") or item.get("filename") or "Existing download",
+        "filename": item.get("filename"),
+        "resolution": item.get("resolution"),
+        "timestamp": item.get("timestamp"),
+        "status": item.get("status"),
+        "source": item.get("source"),
+    }
+
+
+def find_existing_download(url, resolution, media_id="", extractor=""):
+    normalized_url = normalize_media_url(url)
+    requested_type = get_download_type(resolution)
+    items = download_manager.normalized_history() + list_mounted_file_items()
+
+    for item in items:
+        item = normalize_history_item(item)
+        if not item.get("file_exists"):
+            continue
+
+        item_resolution = str(item.get("resolution") or "")
+        item_type = item.get("download_type") or infer_download_type(item_resolution, item.get("filename"))
+        profile_matches = item_resolution == resolution
+        mounted_type_matches = item_resolution == "mounted" and item_type == requested_type
+        if not profile_matches and not mounted_type_matches:
+            continue
+
+        item_url = normalize_media_url(item.get("url"))
+        if normalized_url and item_url and normalized_url == item_url:
+            return existing_download_summary(item)
+
+        if media_id and extractor:
+            identity_matches = (
+                str(item.get("media_id") or "") == str(media_id)
+                and str(item.get("extractor") or "").casefold() == str(extractor).casefold()
+            )
+            filename_matches = media_identity_matches_filename(
+                item.get("filename"), media_id, extractor
+            )
+            if identity_matches or filename_matches:
+                return existing_download_summary(item)
+    return None
+
+
+def remove_queued_job(job_id):
+    removed = None
+    with queue_operation_lock:
+        with dl_q.mutex:
+            kept = []
+            for item in list(dl_q.queue):
+                job = normalize_queue_job(item)
+                if job and job["id"] == job_id and removed is None:
+                    removed = job
+                    continue
+                kept.append(item)
+
+            if removed:
+                dl_q.queue.clear()
+                dl_q.queue.extend(kept)
+                dl_q.unfinished_tasks = max(0, dl_q.unfinished_tasks - 1)
+                if dl_q.unfinished_tasks == 0:
+                    dl_q.all_tasks_done.notify_all()
+                dl_q.not_full.notify_all()
+
+        if removed:
+            persist_queue_state()
+
+    if removed:
+        download_manager.broadcast_to_all_clients(
+            f"[QUEUE_UPDATED], {json.dumps({'removed_job_id': job_id})}"
+        )
+        return public_queue_job(removed)
+    return None
+
+
 def start_download_thread_if_needed():
     global download_thread
     if download_thread is None or not download_thread.is_alive():
         download_thread = Thread(target=dl_worker, name="download-worker", daemon=True)
         download_thread.start()
 
-def enqueue_download(url, resolution, source, ws=None):
-    dl_q.put((url.strip(), ws, resolution.strip(), source))
+
+def enqueue_download(url, resolution, source, ws=None, force=False):
+    job = create_queue_job(url, resolution, source, force=force)
+    if not job:
+        raise ValueError("Invalid download request")
+
+    with queue_operation_lock:
+        if not force:
+            duplicate_job = find_queued_duplicate(job)
+            if duplicate_job:
+                return {
+                    "queued": False,
+                    "duplicate": True,
+                    "duplicate_type": "queue",
+                    "job": duplicate_job,
+                }
+
+            existing = find_existing_download(job["url"], job["resolution"])
+            if existing:
+                return {
+                    "queued": False,
+                    "duplicate": True,
+                    "duplicate_type": "history",
+                    "existing": existing,
+                }
+
+        dl_q.put(job)
+        persist_queue_state()
+
     start_download_thread_if_needed()
+    download_manager.broadcast_to_all_clients(
+        f"[QUEUE_UPDATED], {json.dumps({'queued_job_id': job['id']})}"
+    )
+    return {
+        "queued": True,
+        "duplicate": False,
+        "job": public_queue_job(job),
+    }
 
 def get_queued_downloads():
     queued_items = []
-    for position, item in enumerate(list(dl_q.queue), start=1):
-        if not item:
-            continue
-        queued_items.append({
-            "position": position,
-            "url": item[0] if len(item) > 0 else "",
-            "resolution": item[2] if len(item) > 2 else "",
-            "source": item[3] if len(item) > 3 else "web",
-        })
+    for position, job in enumerate(pending_queue_jobs(), start=1):
+        queued_items.append(public_queue_job(job, position=position))
     return queued_items
 
 # single use global download manager
@@ -484,10 +826,7 @@ class GlobalDownloadManager:
     def save_history(self):        
         """Save history to file"""
         try:
-            temp_path = self.history_file + ".tmp"
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                json.dump(self.download_history, f, indent=2, ensure_ascii=False)
-            os.replace(temp_path, self.history_file)
+            atomic_write_json(self.history_file, self.download_history)
         except Exception as e:
             print(f"Failed to save history: {e}")
     
@@ -618,6 +957,23 @@ class GlobalDownloadManager:
         # Reset current download information
         self.current_download = None
         self.is_downloading = False
+
+    def skip_duplicate(self, existing, job):
+        """Finish an active queue item without downloading an existing NAS file again."""
+        payload = {
+            "existing": existing,
+            "job": public_queue_job(job),
+        }
+        if self.current_download:
+            self.current_download["status"] = "duplicate"
+        self.broadcast_to_all_clients(f"[DUPLICATE], {json.dumps(payload, ensure_ascii=False)}")
+        self.current_download = None
+        self.is_downloading = False
+
+    def defer_current_download(self):
+        """Release transient UI state while queue persistence retains the job for restart."""
+        self.current_download = None
+        self.is_downloading = False
     
     def add_client(self, ws):
         """Add a new client connection"""
@@ -667,7 +1023,8 @@ class GlobalDownloadManager:
             'current_download': self.current_download,
             'is_downloading': self.is_downloading,
             'recent_history': self.download_history[-10:],
-            'connected_clients': len(self.connected_clients)
+            'connected_clients': len(self.connected_clients),
+            'queue_restore_count': queue_restore_count,
         }
 
 # Initialize global download manager
@@ -795,6 +1152,11 @@ def health_check():
         "app": "youtube-dl-nas",
         "version": APP_VERSION,
         "queue_count": dl_q.qsize(),
+        "queue": {
+            "persistent": True,
+            "restored_count": queue_restore_count,
+            "state_file": os.path.basename(QUEUE_STATE_FILE),
+        },
         "subtitle_qa": {
             "available": get_nlptutti_version() != "unavailable",
             "nlptutti_version": get_nlptutti_version(),
@@ -892,20 +1254,39 @@ def q_put():
     payload = get_request_json()
     url = payload.get("url")
     resolution = payload.get("resolution")
+    force = parse_boolean(payload.get("force"))
 
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
 
+    result = enqueue_download(url, resolution, "web", ws_addr.wsClassVal, force=force)
+    if result.get("duplicate"):
+        return {
+            "success": True,
+            "queued": False,
+            "duplicate": True,
+            "duplicate_type": result.get("duplicate_type"),
+            "existing": result.get("existing"),
+            "job": result.get("job"),
+            "msg": "This download is already queued or available on the NAS.",
+        }
+
     download_manager.send_message('We received your download. Please wait.')
-    enqueue_download(url, resolution, "web", ws_addr.wsClassVal)
-    return {"success": True, "msg": 'We received your download. Please wait.'}
+    return {
+        "success": True,
+        "queued": True,
+        "duplicate": False,
+        "job": result.get("job"),
+        "msg": 'We received your download. Please wait.',
+    }
 
 @get('/youtube-dl/rest', method='POST')
 def q_put_rest():
     payload = get_request_json()
     url = payload.get("url")
     resolution = payload.get("resolution")
+    force = parse_boolean(payload.get("force"))
 
     data = load_auth_data()
     if not is_api_authenticated(payload, data):
@@ -915,8 +1296,40 @@ def q_put_rest():
     if validation_error:
         return json_error(validation_error, 400)
 
-    enqueue_download(url, resolution, "api", "")
-    return {"success": True, "msg": 'download has started', "Remaining downloading count": json.dumps(dl_q.qsize()) }
+    result = enqueue_download(url, resolution, "api", "", force=force)
+    if result.get("duplicate"):
+        return {
+            "success": True,
+            "queued": False,
+            "duplicate": True,
+            "duplicate_type": result.get("duplicate_type"),
+            "existing": result.get("existing"),
+            "job": result.get("job"),
+            "msg": "This download is already queued or available on the NAS.",
+        }
+    return {
+        "success": True,
+        "queued": True,
+        "duplicate": False,
+        "job": result.get("job"),
+        "msg": 'download has started',
+        "Remaining downloading count": json.dumps(dl_q.qsize()),
+    }
+
+@post('/youtube-dl/q/<job_id>/remove')
+def remove_queue_item(job_id):
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    removed = remove_queued_job(job_id)
+    if not removed:
+        return json_error("Queued download not found or already active", 404)
+    return {
+        "success": True,
+        "removed": removed,
+        "msg": "Queued download removed",
+    }
 
 # History deletion API
 @get('/youtube-dl/history/clear', method='POST')
@@ -1091,15 +1504,23 @@ def subtitle_qa(uuid):
     }
     
 def dl_worker():
-    while True:
+    while not shutdown_event.is_set():
         item = dl_q.get()
+        job = None
         try:
             if item is None:
                 return
-            download(item)
+            job = normalize_queue_job(item)
+            if not job:
+                print("Skipping invalid queued download")
+                continue
+            set_active_queue_job(job)
+            download(job)
         except Exception as e:
             print(f"Download worker error: {e}")
         finally:
+            if job is not None and not shutdown_event.is_set():
+                clear_active_queue_job()
             dl_q.task_done()
 
 def build_ytdlp_common_args(data=None):
@@ -1135,45 +1556,53 @@ def fetch_media_metadata(media_url):
     return metadata if isinstance(metadata, dict) else {}
 
 
-def build_youtube_dl_cmd(url):
-    validation_error = validate_download_request(url[0] if len(url) > 0 else None, url[2] if len(url) > 2 else None)
-    if validation_error:
-        raise ValueError(validation_error)
+def build_youtube_dl_cmd(item):
+    job = normalize_queue_job(item)
+    if not job:
+        raise ValueError("Invalid download request")
 
     unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~=;,^#(){}\\[\\] ]"
     cmd = build_ytdlp_common_args() + [
+        "--continue",
         "--replace-in-metadata", "title", unsafe_chars_pattern, "_",
         "--paths", f"home:{DOWNFOLDER_DIR}",
         "--paths", f"temp:{os.path.join(DOWNFOLDER_DIR, '.incomplete')}",
         "-o", YTDLP_OUTPUT_TEMPLATE,
     ]
-    if url[2] == "best":
+    if job["force"]:
+        cmd.append("--force-overwrites")
+    resolution = job["resolution"]
+    if resolution == "best":
         cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
-    elif url[2] in ("audio-m4a", "audio"):
+    elif resolution in ("audio-m4a", "audio"):
         cmd.extend(["-f", "bestaudio[ext=m4a]"])
-    elif url[2] == "audio-mp3":
+    elif resolution == "audio-mp3":
         cmd.extend(["-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3"])
-    elif re.match(r"(vtt|srt)", url[2]):
-        sub_format, sub_lang = url[2].split('|', 1)
+    elif re.match(r"(vtt|srt)", resolution):
+        sub_format, sub_lang = resolution.split('|', 1)
         cmd.extend(["--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download"])
     else:
-        resolution = url[2][:-1]
-        cmd.extend(["-f", "bestvideo[height<="+resolution+"][ext=mp4]+bestaudio[ext=m4a]"])
+        height = resolution[:-1]
+        cmd.extend(["-f", "bestvideo[height<="+height+"][ext=mp4]+bestaudio[ext=m4a]"])
 
-    if not re.match(r"(vtt|srt)", url[2]):
+    if not re.match(r"(vtt|srt)", resolution):
         cmd.extend(["--print", "after_move:__YDLNAS_FILE__:%(filepath)s"])
-    cmd.append(url[0])
+    cmd.append(job["url"])
     print(" ".join(cmd))
     return cmd
 
 
-def download(url):
+def download(item):
+    job = normalize_queue_job(item)
+    if not job:
+        raise ValueError("Invalid download request")
+
+    request_url = job["url"]
+    resolution = job["resolution"]
+    download_uuid = job["id"]
     try:
-        # Generate UUID at function start time
-        download_uuid = str(uuid.uuid4())
-        
         # Download information initialization
-        video_title = url[0]
+        video_title = request_url
         channel_name = ""
         thumbnail_url = ""
         duration_seconds = 0
@@ -1185,8 +1614,13 @@ def download(url):
 
         # Download status setting
         download_info = {
-            'url': url[0],
-            'resolution': url[2],
+            'uuid': download_uuid,
+            'job_id': job["id"],
+            'url': request_url,
+            'resolution': resolution,
+            'source': job["source"],
+            'restored': job["restored"],
+            'attempts': job["attempts"],
             'status': 'extracting_info',
             'progress': 0,
             'title': video_title,
@@ -1205,7 +1639,7 @@ def download(url):
         download_manager.update_progress(0)
 
         try:
-            metadata = fetch_media_metadata(url[0])
+            metadata = fetch_media_metadata(request_url)
             video_title = get_media_display_title(metadata, video_title)
             channel_name = metadata.get("uploader") or metadata.get("channel") or ""
             thumbnail_url = metadata.get("thumbnail") or ""
@@ -1223,16 +1657,31 @@ def download(url):
         except Exception as e:
             print(f"Info extraction error: {e}")
 
+        if shutdown_event.is_set():
+            download_manager.defer_current_download()
+            return
+
+        if not job["force"]:
+            existing = find_existing_download(
+                request_url,
+                resolution,
+                media_id=media_id,
+                extractor=extractor,
+            )
+            if existing:
+                download_manager.skip_duplicate(existing, job)
+                return
+
         # Download start
         display_info = video_title
         if channel_name:
             display_info = f"{video_title} by {channel_name}"
             
         download_manager.update_status('downloading')
-        download_manager.send_message(f"[Started] downloading {display_info} resolution below {url[2]}")
+        download_manager.send_message(f"[Started] downloading {display_info} resolution below {resolution}")
         download_manager.update_progress(5)
         
-        cmd = build_youtube_dl_cmd(url)
+        cmd = build_youtube_dl_cmd(job)
         print(f"Executing command: {' '.join(cmd)}")
         
         process = subprocess.Popen(
@@ -1304,6 +1753,11 @@ def download(url):
         return_code = process.poll()
         print(f"Process finished with return code: {return_code}")
         print("-------------------------------------------------")
+        if shutdown_event.is_set():
+            print(f"Download deferred for restart: {request_url}")
+            download_manager.defer_current_download()
+            return
+
         # Completion handling
         if return_code == 0:
             download_manager.update_status('completed')
@@ -1313,8 +1767,8 @@ def download(url):
             download_info = {  
                 'uuid': download_uuid,              
                 'timestamp': datetime.now().isoformat(),
-                'url': url[0],
-                'resolution': url[2],
+                'url': request_url,
+                'resolution': resolution,
                 'title': video_title,
                 'channel': channel_name,
                 'thumbnail': thumbnail_url,
@@ -1324,7 +1778,9 @@ def download(url):
                 'status': 'completed',
                 'filepath': final_filepath if final_filepath else "unknown",
                 'filename': filename,
-                'progress': 100
+                'progress': 100,
+                'source': job["source"],
+                'restored': job["restored"],
                 
             }
 
@@ -1335,8 +1791,8 @@ def download(url):
             download_manager.send_message(f"[Finished] downloading failed {display_info}")
             download_manager.complete_download({
                 'uuid': download_uuid,
-                'url': url[0],
-                'resolution': url[2],
+                'url': request_url,
+                'resolution': resolution,
                 'title': video_title,
                 'channel': channel_name,
                 'thumbnail': thumbnail_url,
@@ -1344,18 +1800,23 @@ def download(url):
                 'media_id': media_id,
                 'extractor': extractor,
                 'status': 'failed',
-                'progress': current_progress
+                'progress': current_progress,
+                'source': job["source"],
+                'restored': job["restored"],
             })
             
         print(f"Download completed: {video_title}")
             
     except Exception as e:
         print(f"Download error: {e}")
+        if shutdown_event.is_set():
+            download_manager.defer_current_download()
+            return
         download_manager.send_message("Download error occurred")
         download_manager.complete_download({
-            'uuid': str(uuid.uuid4()), # Generate new UUID for error case
-            'url': url[0] if url else 'unknown',
-            'resolution': url[2] if len(url) > 2 else 'unknown',
+            'uuid': download_uuid,
+            'url': request_url,
+            'resolution': resolution,
             'title': video_title if 'video_title' in locals() else 'unknown',
             'channel': channel_name if 'channel_name' in locals() else '',
             'thumbnail': thumbnail_url if 'thumbnail_url' in locals() else '',
@@ -1363,7 +1824,9 @@ def download(url):
             'media_id': media_id if 'media_id' in locals() else '',
             'extractor': extractor if 'extractor' in locals() else '',
             'status': 'error',
-            'progress': 0
+            'progress': 0,
+            'source': job["source"],
+            'restored': job["restored"],
         })
 
 import mimetypes
@@ -1479,19 +1942,28 @@ def websocket_handler(ws):
 # Global variable initialization
 dl_q = Queue()
 download_thread = None
+queue_state_lock = Lock()
+queue_operation_lock = Lock()
+shutdown_event = Event()
+active_queue_job = None
+queue_restore_count = 0
+queue_state_loaded = False
 
 def run_server():
     global port, proxy
+    shutdown_event.clear()
     data = load_auth_data()
     if data.get("APP_PORT"):
         port = data["APP_PORT"]
     if data.get("PROXY"):
         proxy = data["PROXY"]
 
+    load_persisted_queue()
     start_download_thread_if_needed()
     try:
         run(host="0.0.0.0", port=port, server=GeventWebSocketServer)
     finally:
+        shutdown_event.set()
         dl_q.put(None)
         if download_thread and download_thread.is_alive():
             download_thread.join(timeout=5)

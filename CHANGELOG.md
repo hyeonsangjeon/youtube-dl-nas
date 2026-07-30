@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0731 - 2026-07-31
+
+### Added
+
+- Added a database-free safe queue that atomically persists the active request and waiting jobs under the metadata volume.
+- Added restart recovery that restores the interrupted active request first and marks restored jobs in the dashboard.
+- Added duplicate guards for normalized share URLs and stable extractor/media IDs, with an explicit REST force override.
+- Added controls to remove waiting jobs before they become active.
+
+### Changed
+
+- Enabled explicit `yt-dlp --continue` behavior for compatible partial downloads.
+- Exposed safe-queue persistence and restored-job counts through `/health`.
+
+### Fixed
+
+- Prevented shutdown from consuming the next waiting job or recording the interrupted active job as failed, while retaining it for restart recovery.
+- Prevented different media with the same extracted title, especially Instagram Reels, from reusing an existing download by including the extractor and stable media ID in every new filename.
+- Added the Reel ID to generic Instagram titles so separate downloads remain distinguishable in activity and history views.
+
+### Documentation
+
+- Added Awesome Selfhosted recognition to the leading README badges.
+- Documented safe-queue persistence, restart recovery, duplicate handling, and waiting-job controls.
+
+## 26.0714 - 2026-07-14
+
 ### Added
 
 - Added authenticated Subtitle QA for downloaded or mounted SRT, VTT, ASS, and SSA files, with `nlptutti` CER, WER, CRR, edit counts, and keyword preservation results.
@@ -13,11 +40,6 @@ All notable changes to this project are documented here.
 
 - Install or upgrade `nlptutti` once at new-container startup with an isolated timeout and keep the main download queue available if the package index cannot be reached.
 - Report Subtitle QA availability and the installed `nlptutti` version from `/health`.
-
-### Fixed
-
-- Prevented different media with the same extracted title, especially Instagram Reels, from reusing an existing download by including the extractor and stable media ID in every new filename.
-- Added the Reel ID to generic Instagram titles so separate downloads remain distinguishable in activity and history views.
 
 ### Documentation
 

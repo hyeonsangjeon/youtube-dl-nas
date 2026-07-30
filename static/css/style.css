@@ -1799,7 +1799,7 @@ a:hover {
 
 .queue-item {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto 30px;
   gap: 10px;
   align-items: center;
   min-height: 44px;
@@ -1848,6 +1848,25 @@ a:hover {
   padding: 9px 0 2px;
   color: #98a2b3;
   font-size: 12px;
+}
+
+.queue-remove {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #d5dde8;
+  border-radius: 6px;
+  background: #fff;
+  color: #667085;
+}
+
+.queue-remove:hover,
+.queue-remove:focus {
+  border-color: #d92d20;
+  color: #b42318;
+  outline: none;
 }
 
 .message-stack {
@@ -3421,7 +3440,7 @@ a.video-title {
   }
 
   .queue-item {
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-columns: 24px minmax(0, 1fr) auto 30px;
     gap: 7px;
     padding: 7px;
   }

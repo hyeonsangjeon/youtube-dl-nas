@@ -17,7 +17,11 @@ The authenticated dashboard manages individual video, audio, and subtitle downlo
 
 ## Current Activity
 
-The activity panel shows the active title, channel, thumbnail, progress, transfer speed, and ETA. **Up next** lists waiting requests in processing order with their source and selected quality.
+The activity panel shows the active title, channel, thumbnail, progress, transfer speed, and ETA. **Up next** lists waiting requests in processing order with their source and selected quality. Use the remove icon to cancel a waiting request before it starts.
+
+The queue is saved in the persistent metadata volume without a database. If the container restarts, the interrupted active request returns first, followed by the remaining jobs. Restored jobs are labeled **Restored after restart**. Compatible partial files continue through `yt-dlp`; exact byte-range resume support depends on the source.
+
+The same normalized URL and download profile cannot be queued twice accidentally. A second check uses the extracted media ID to detect an existing NAS file. Failed history items remain retryable because no completed file is present.
 
 ## Files And History
 
@@ -48,6 +52,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0713` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0731` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

@@ -109,6 +109,8 @@ $(document).ready(function() {
     const sharedStatus = pageParams.get('shared');
     if (sharedStatus === 'queued') {
         addMessage('Shared URL added to the NAS queue', 'success');
+    } else if (sharedStatus === 'duplicate') {
+        addMessage('This shared item is already queued or available on the NAS', 'warning');
     } else if (sharedStatus === 'missing') {
         addMessage('No URL was found in the shared content', 'warning');
     } else if (sharedStatus === 'invalid') {
@@ -1103,10 +1105,27 @@ $(function () {
     }
 
     function updateQueueCount(count, items) {
-        queueCount = Math.max(0, count || 0);
-        queueItems = Array.isArray(items) ? items : [];
+        const nextQueueCount = Math.max(0, count || 0);
+        const nextQueueItems = Array.isArray(items) ? items : [];
+        const currentSignature = JSON.stringify(queueItems.map(queueItemSignature));
+        const nextSignature = JSON.stringify(nextQueueItems.map(queueItemSignature));
+        queueCount = nextQueueCount;
+        queueItems = nextQueueItems;
         $('#queue-count').text(`Queue ${queueCount}`);
-        renderQueueItems();
+        if (currentSignature !== nextSignature) {
+            renderQueueItems();
+        }
+    }
+
+    function queueItemSignature(item) {
+        return [
+            item.id,
+            item.position,
+            item.url,
+            item.resolution,
+            item.source,
+            Boolean(item.restored)
+        ];
     }
 
     function renderQueueItems() {
@@ -1124,17 +1143,28 @@ $(function () {
             const url = String(item.url || 'Queued request');
             const resolution = String(item.resolution || 'best');
             const source = String(item.source || 'web');
+            const jobId = String(item.id || '');
+            const sourceLabel = item.restored ?
+                'Restored after restart' :
+                (source === 'api' ? 'API request' : 'Dashboard request');
             return `
                 <div class="queue-item">
                     <span class="queue-position">${position}</span>
                     <div class="queue-item-copy">
                         <strong title="${escapeAttr(url)}">${escapeHtml(formatQueueUrl(url))}</strong>
-                        <span>${escapeHtml(source === 'api' ? 'API request' : 'Dashboard request')}</span>
+                        <span>${escapeHtml(sourceLabel)}</span>
                     </div>
                     <span class="resolution-tag ${getResolutionClass(resolution)}">${escapeHtml(resolution)}</span>
+                    <button type="button" class="queue-remove" data-job-id="${escapeAttr(jobId)}"
+                            title="Remove from queue" aria-label="Remove queued download">
+                        <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                    </button>
                 </div>
             `;
         }).join(''));
+        container.find('.queue-remove').on('click', function() {
+            removeQueuedJob(String($(this).attr('data-job-id') || ''));
+        });
     }
 
     function formatQueueUrl(value) {
@@ -1145,6 +1175,29 @@ $(function () {
         } catch (error) {
             return value.length > 54 ? value.substring(0, 51) + '...' : value;
         }
+    }
+
+    function removeQueuedJob(jobId) {
+        if (!jobId) {
+            return;
+        }
+        $.ajax({
+            method: 'POST',
+            url: `/youtube-dl/q/${encodeURIComponent(jobId)}/remove`,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    fetchStatus();
+                    addMessage('Queued download removed', 'info');
+                } else {
+                    addMessage(response.msg || 'Failed to remove queued download', 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, 'Failed to remove queued download'), 'error');
+                fetchStatus();
+            }
+        });
     }
 
     function updateActivityPanel(downloadData) {
@@ -1355,6 +1408,24 @@ $(function () {
                 }
             } catch (e) {
                 console.error("Error parsing active download data:", e);
+            }
+
+        } else if (messageType === "[QUEUE_UPDATED]") {
+            fetchStatus();
+
+        } else if (messageType === "[DUPLICATE]") {
+            try {
+                const duplicateData = JSON.parse(messageContent);
+                const existing = duplicateData.existing || {};
+                const title = existing.title || existing.filename || 'This download';
+                addMessage(`Already on NAS: ${title}`, 'warning');
+                activeDownload = null;
+                updateActivityPanel(null);
+                fetchStatus();
+                fetchHistory({ quiet: true });
+            } catch (error) {
+                console.error('Error parsing duplicate download data:', error);
+                fetchStatus();
             }
 
         } else if (messageType === "[PROGRESS]") {
@@ -1857,6 +1928,13 @@ $(function () {
             contentType: "application/json",
             success: function(response, status) {
                 console.log("AJAX success:", response);
+                if (response.duplicate) {
+                    const duplicate = response.existing || response.job || {};
+                    const label = duplicate.title || duplicate.filename || formatQueueUrl(data.url);
+                    fetchStatus();
+                    addMessage(`Already queued or on NAS: ${label}`, 'warning');
+                    return;
+                }
                 $('#progress-container').show();
                 updateProgress(0);
                 currentVideoTitle = '';

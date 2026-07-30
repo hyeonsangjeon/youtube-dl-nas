@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -34,7 +35,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0715"
+    assert health.json["version"] == "26.0731"
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -58,6 +59,7 @@ def test_login_rejects_empty_credentials_when_account_is_unconfigured(app):
 
 def test_rest_api_keeps_id_password_auth(app):
     with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
         response = app.post_json("/youtube-dl/rest", {
             "url": "https://youtu.be/example",
             "resolution": "best",
@@ -65,11 +67,12 @@ def test_rest_api_keeps_id_password_auth(app):
             "pw": "secret",
         })
     assert response.json["success"] is True
-    enqueue.assert_called_once_with("https://youtu.be/example", "best", "api", "")
+    enqueue.assert_called_once_with("https://youtu.be/example", "best", "api", "", force=False)
 
 
 def test_rest_api_accepts_optional_bearer_token(app):
     with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
         response = app.post_json(
             "/youtube-dl/rest",
             {"url": "https://youtu.be/example", "resolution": "audio-m4a"},
@@ -95,6 +98,7 @@ def test_rest_api_rejects_empty_or_invalid_credentials(app):
 def test_login_then_share_target_queues_url(app):
     app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
     with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
         response = app.post(
             "/youtube-dl/share-target",
             {"text": "Watch https://youtu.be/shared123"},
@@ -119,6 +123,7 @@ def test_share_target_survives_login_without_putting_url_in_redirect(app):
         status=302,
     )
     with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
         completed = app.get("/youtube-dl/share-target/complete", status=302)
     assert completed.location.endswith("/youtube-dl?shared=queued")
     enqueue.assert_called_once_with("https://youtu.be/pending123", "best", "web", server.ws_addr.wsClassVal)
@@ -151,7 +156,18 @@ def test_download_command_uses_temp_path_and_final_path_marker():
     assert "%(extractor_key)s" in server.YTDLP_OUTPUT_TEMPLATE
     assert "%(id)s" in server.YTDLP_OUTPUT_TEMPLATE
     assert "after_move:__YDLNAS_FILE__:%(filepath)s" in command
+    assert "--continue" in command
     assert "--exec" not in command
+
+
+def test_forced_download_command_overwrites_existing_output():
+    command = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "best",
+        "source": "api",
+        "force": True,
+    })
+    assert "--force-overwrites" in command
 
 
 def test_instagram_generic_titles_include_reel_id():
@@ -204,12 +220,13 @@ def test_queue_listing_is_json_serializable(app):
         response = app.get("/youtube-dl/q")
         assert response.json["count"] == 1
         assert "https://youtu.be/example" in response.json["size"]
-        assert response.json["items"] == [{
-            "position": 1,
-            "url": "https://youtu.be/example",
-            "resolution": "best",
-            "source": "web",
-        }]
+        item = response.json["items"][0]
+        assert item["position"] == 1
+        assert item["url"] == "https://youtu.be/example"
+        assert item["resolution"] == "best"
+        assert item["source"] == "web"
+        assert item["id"]
+        assert item["restored"] is False
     finally:
         with server.dl_q.mutex:
             server.dl_q.queue.clear()
@@ -232,6 +249,189 @@ def test_status_includes_visible_queue_items(app):
         with server.dl_q.mutex:
             server.dl_q.queue.clear()
             server.dl_q.queue.extend(original_queue)
+
+
+def test_media_url_normalization_removes_tracking_but_keeps_media_options():
+    assert server.normalize_media_url(
+        "https://www.instagram.com/reel/ABC123/?utm_source=share&igsh=token"
+    ) == "https://www.instagram.com/reel/ABC123"
+    assert server.normalize_media_url(
+        "https://youtu.be/example?si=share-token&t=45"
+    ) == "https://youtu.be/example"
+    assert server.normalize_media_url(
+        "https://www.youtube.com/watch?v=example&list=playlist"
+    ) == "https://www.youtube.com/watch?list=playlist&v=example"
+
+
+def test_queue_state_restores_active_before_pending(tmp_path):
+    state_file = tmp_path / "queue_state.json"
+    active = server.create_queue_job("https://youtu.be/active", "best", "web")
+    pending = server.create_queue_job("https://youtu.be/pending", "audio-mp3", "api")
+    original_active = server.active_queue_job
+    original_loaded = server.queue_state_loaded
+    original_restore_count = server.queue_restore_count
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    try:
+        with patch.object(server, "QUEUE_STATE_FILE", str(state_file)):
+            server.active_queue_job = active
+            server.dl_q.put(pending)
+            server.persist_queue_state()
+
+            saved = json.loads(state_file.read_text(encoding="utf-8"))
+            assert saved["active"]["id"] == active["id"]
+            assert saved["pending"][0]["id"] == pending["id"]
+
+            with server.dl_q.mutex:
+                server.dl_q.queue.clear()
+                server.dl_q.unfinished_tasks = 0
+            server.active_queue_job = None
+            server.queue_state_loaded = False
+            server.queue_restore_count = 0
+
+            assert server.load_persisted_queue() == 2
+            restored = server.pending_queue_jobs()
+            assert [job["id"] for job in restored] == [active["id"], pending["id"]]
+            assert all(job["restored"] for job in restored)
+            assert all(job["attempts"] == 1 for job in restored)
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+        server.active_queue_job = original_active
+        server.queue_state_loaded = original_loaded
+        server.queue_restore_count = original_restore_count
+
+
+def test_duplicate_queue_guard_ignores_share_tracking_parameters(tmp_path):
+    original_active = server.active_queue_job
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    try:
+        with patch.object(server, "QUEUE_STATE_FILE", str(tmp_path / "queue.json")), \
+             patch.object(server, "find_existing_download", return_value=None), \
+             patch.object(server, "start_download_thread_if_needed"):
+            first = server.enqueue_download(
+                "https://www.instagram.com/reel/ABC123/?utm_source=share",
+                "best",
+                "web",
+            )
+            duplicate = server.enqueue_download(
+                "https://www.instagram.com/reel/ABC123/?igsh=another-token",
+                "best",
+                "api",
+            )
+            other_profile = server.enqueue_download(
+                "https://www.instagram.com/reel/ABC123/",
+                "audio-mp3",
+                "web",
+            )
+
+        assert first["queued"] is True
+        assert duplicate["duplicate"] is True
+        assert duplicate["duplicate_type"] == "queue"
+        assert other_profile["queued"] is True
+        assert len(server.pending_queue_jobs()) == 2
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+        server.active_queue_job = original_active
+
+
+def test_remove_queued_download_endpoint(app, tmp_path):
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    job = server.create_queue_job("https://youtu.be/remove-me", "best", "web")
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    try:
+        with patch.object(server, "QUEUE_STATE_FILE", str(tmp_path / "queue.json")):
+            server.dl_q.put(job)
+            response = app.post(f"/youtube-dl/q/{job['id']}/remove")
+        assert response.json["success"] is True
+        assert response.json["removed"]["id"] == job["id"]
+        assert server.pending_queue_jobs() == []
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+
+
+def test_existing_file_can_be_matched_by_extractor_and_media_id(tmp_path):
+    filename = "Video_by_creator__Instagram_ABC123.mp4"
+    (tmp_path / filename).write_bytes(b"media")
+    history = [{
+        "uuid": "existing",
+        "url": "https://www.instagram.com/reel/old-url",
+        "resolution": "best",
+        "title": "Existing reel",
+        "filename": filename,
+        "status": "completed",
+    }]
+
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), \
+         patch.object(server.download_manager, "download_history", history):
+        existing = server.find_existing_download(
+            "https://www.instagram.com/reel/new-url",
+            "best",
+            media_id="ABC123",
+            extractor="Instagram",
+        )
+
+    assert existing["uuid"] == "existing"
+    assert existing["filename"] == filename
+
+
+def test_worker_shutdown_preserves_active_and_pending_queue_state(tmp_path):
+    active = server.create_queue_job("https://youtu.be/active-shutdown", "best", "web")
+    pending = server.create_queue_job("https://youtu.be/pending-shutdown", "audio-mp3", "api")
+    original_active = server.active_queue_job
+    original_shutdown = server.shutdown_event.is_set()
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    def stop_during_download(_job):
+        server.shutdown_event.set()
+
+    try:
+        server.shutdown_event.clear()
+        server.dl_q.put(active)
+        server.dl_q.put(pending)
+        with patch.object(server, "QUEUE_STATE_FILE", str(tmp_path / "queue.json")), \
+             patch.object(server, "download", side_effect=stop_during_download):
+            server.dl_worker()
+            saved = json.loads((tmp_path / "queue.json").read_text(encoding="utf-8"))
+
+        assert saved["active"]["id"] == active["id"]
+        assert [job["id"] for job in saved["pending"]] == [pending["id"]]
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+        server.active_queue_job = original_active
+        if original_shutdown:
+            server.shutdown_event.set()
+        else:
+            server.shutdown_event.clear()
 
 
 def test_history_normalization_preserves_media_preview_metadata():
