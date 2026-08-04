@@ -16,6 +16,14 @@ from bottle_websocket import GeventWebSocketServer
 from bottle_websocket import websocket
 from socket import error
 from geventwebsocket.exceptions import WebSocketError
+from i18n import (
+    LOCALE_COOKIE,
+    catalog_json,
+    get_translator,
+    locale_options,
+    normalize_locale,
+    select_locale,
+)
 import os
 import secrets
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -26,7 +34,7 @@ AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0731")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0804")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -60,11 +68,52 @@ TRACKING_QUERY_KEYS = {
     "utm_term",
 }
 
+ERROR_CODE_BY_MESSAGE = {
+    "Unauthorized": "unauthorized",
+    "Invalid password, account, or API token.": "invalid_credentials",
+    "URL is required": "url_required",
+    "Resolution is required": "resolution_required",
+    "Subtitle downloads require a language code, for example vtt|en or srt|ko": "subtitle_language_required",
+    "Unsupported resolution": "unsupported_resolution",
+    "Queued download not found or already active": "queue_not_found",
+    "History item not found": "history_not_found",
+    "Valid file path not found": "valid_path_not_found",
+    "Physical file not found": "physical_file_not_found",
+    "Failed to delete physical file": "physical_file_delete_failed",
+    "Reference transcript is required": "reference_required",
+    "Subtitle history item not found": "subtitle_history_not_found",
+    "Subtitle QA supports SRT, VTT, ASS, and SSA files": "subtitle_format_unsupported",
+    "Subtitle file not found": "subtitle_file_not_found",
+    "Subtitle file is too large to analyze": "subtitle_file_too_large",
+    "Subtitle file could not be read": "subtitle_file_read_failed",
+    "No subtitle text was found in this file": "subtitle_text_empty",
+    "Subtitle QA is unavailable because nlptutti is not installed": "subtitle_qa_unavailable",
+    "Subtitle QA could not analyze this transcript": "subtitle_qa_failed",
+}
+REFERENCE_TOO_LARGE_PATTERN = re.compile(r"^Reference transcript exceeds (\d+) characters$")
+
 os.makedirs(STATE_DIR, exist_ok=True)
+
+def get_error_details(msg):
+    code = ERROR_CODE_BY_MESSAGE.get(msg)
+    if code:
+        return code, {}
+
+    match = REFERENCE_TOO_LARGE_PATTERN.match(msg)
+    if match:
+        return "reference_too_large", {"limit": int(match.group(1))}
+
+    return None, {}
 
 def json_error(msg, status=400):
     response.status = status
-    return {"success": False, "msg": msg}
+    payload = {"success": False, "msg": msg}
+    code, params = get_error_details(msg)
+    if code:
+        payload["code"] = code
+    if params:
+        payload["params"] = params
+    return payload
 
 def get_request_json():
     return request.json if isinstance(request.json, dict) else {}
@@ -185,6 +234,26 @@ def normalize_media_url(value):
 
 def cookie_secure_enabled():
     return os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+
+
+def get_request_locale():
+    return select_locale(
+        request.get_cookie(LOCALE_COOKIE),
+        request.headers.get("Accept-Language", ""),
+    )
+
+
+def render_localized_template(template_path, **context):
+    locale = get_request_locale()
+    localized_context = {
+        "locale": locale,
+        "locale_json": json.dumps(locale),
+        "locale_options": locale_options(),
+        "translations_json": catalog_json(locale),
+        "t": get_translator(locale),
+    }
+    localized_context.update(context)
+    return template(template_path, **localized_context)
 
 def set_pending_share_cookie(shared_url, data):
     response.set_cookie(
@@ -1059,6 +1128,23 @@ app = Bottle()
 port = 8080
 proxy = ""
 
+
+@post('/locale')
+def set_locale():
+    locale = normalize_locale(request.forms.get("locale"))
+    next_path = safe_next_path(request.forms.get("next"), "/")
+    if locale:
+        response.set_cookie(
+            LOCALE_COOKIE,
+            locale,
+            path="/",
+            samesite="lax",
+            secure=cookie_secure_enabled(),
+            max_age=365 * 24 * 60 * 60,
+        )
+    redirect(next_path)
+
+
 @get('/')
 def dl_queue_list():        
     """Displays the login page or redirects to terms page if not accepted."""
@@ -1071,7 +1157,14 @@ def dl_queue_list():
         print(f"Error checking terms acceptance: {e}")
         redirect("/terms?next=" + quote(next_path, safe=""))
         
-    return template("./static/template/login.tpl", msg="", app_version=APP_VERSION, next_path=next_path)
+    locale_next = "/?next=" + quote(next_path, safe="")
+    return render_localized_template(
+        "./static/template/login.tpl",
+        msg_key="",
+        app_version=APP_VERSION,
+        next_path=next_path,
+        locale_next=locale_next,
+    )
 
 @get('/login', method='POST')
 def dl_queue_login():
@@ -1095,11 +1188,13 @@ def dl_queue_login():
         )
         redirect(next_path)
 
-    return template(
+    locale_next = "/?next=" + quote(next_path, safe="")
+    return render_localized_template(
         "./static/template/login.tpl",
-        msg="id or password is not correct",
+        msg_key="login.invalid",
         app_version=APP_VERSION,
         next_path=next_path,
+        locale_next=locale_next,
     )
 
 @get('/logout')
@@ -1111,10 +1206,12 @@ def dl_queue_logout():
 def terms_page():
     """Displays the terms of use page."""
     next_path = safe_next_path(request.query.get("next"), "/youtube-dl")
-    return template(
+    locale_next = "/terms?next=" + quote(next_path, safe="")
+    return render_localized_template(
         'static/template/terms.tpl',
         next_path_json=json.dumps(next_path),
         app_version=APP_VERSION,
+        locale_next=locale_next,
     )
 
 @post('/accept-terms')
@@ -1126,7 +1223,7 @@ def accept_terms():
         return {'success': True}
     except Exception as e:
         print(f"Error accepting terms: {e}")
-        return {'success': False, 'msg': str(e)}
+        return {'success': False}
     
 
 @get('/youtube-dl')
@@ -1140,7 +1237,12 @@ def dl_queue_main():
         redirect('/terms')
 
     if is_cookie_authenticated(data):
-        return template("./static/template/index.tpl", userNm=data["MY_ID"], app_version=APP_VERSION)
+        return render_localized_template(
+            "./static/template/index.tpl",
+            userNm=data["MY_ID"],
+            app_version=APP_VERSION,
+            locale_next="/youtube-dl",
+        )
 
     redirect("/")
 

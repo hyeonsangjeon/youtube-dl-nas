@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{locale}}">
 
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <meta name="description" content="Send video, audio, and subtitle URLs to a private NAS download queue.">
+    <meta name="description" content="{{t('dashboard.meta_description')}}">
     <meta name="theme-color" content="#168a92">
     <meta name="author" content="">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -16,7 +16,7 @@
     <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}-safe-queue-4" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}-i18n-1" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -28,17 +28,27 @@
             <header class="app-header">
                 <div>
                     <h1 class="app-title">youtube-dl NAS</h1>
-                    <p class="app-subtitle">Download queue and history manager</p>
+                    <p class="app-subtitle">{{t('dashboard.subtitle')}}</p>
                 </div>
                 <div class="app-meta">
+                    <form class="locale-form locale-form-dashboard" action="/locale" method="POST">
+                        <input type="hidden" name="next" value="{{locale_next}}">
+                        <label for="locale-selector" class="sr-only">{{t('common.language')}}</label>
+                        <span class="locale-icon" aria-hidden="true">&#127760;</span>
+                        <select id="locale-selector" name="locale" aria-label="{{t('common.language')}}" onchange="this.form.submit()">
+                        % for locale_code, locale_name in locale_options:
+                            <option value="{{locale_code}}"{{!' selected' if locale_code == locale else ''}}>{{locale_name}}</option>
+                        % end
+                        </select>
+                    </form>
                     <span class="user-chip">
                         <span class="glyphicon glyphicon-user" aria-hidden="true"></span>
                         {{userNm}}
                     </span>
-                    <span id="connection-status" class="connection-chip status-pending">Connecting</span>
-                    <a class="logout-btn" href="/logout" title="Log out">
+                    <span id="connection-status" class="connection-chip status-pending">{{t('dashboard.connecting')}}</span>
+                    <a class="logout-btn" href="/logout" title="{{t('dashboard.logout')}}">
                         <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
-                        Logout
+                        {{t('dashboard.logout')}}
                     </a>
                 </div>
             </header>
@@ -48,21 +58,21 @@
                     <section class="panel download-composer">
                         <div class="panel-heading-row">
                             <div>
-                                <h2>New Download</h2>
-                                <p>Paste a URL, choose an output, and send it to the NAS queue.</p>
+                                <h2>{{t('composer.heading')}}</h2>
+                                <p>{{t('composer.description')}}</p>
                             </div>
                         </div>
 
                         <form id="form1" class="download-form">
-                            <div class="mode-tabs" role="tablist" aria-label="Download mode">
-                                <button type="button" class="mode-tab active" data-download-mode="video">Video</button>
-                                <button type="button" class="mode-tab" data-download-mode="audio">Audio</button>
-                                <button type="button" class="mode-tab" data-download-mode="subtitle">Subtitle</button>
+                            <div class="mode-tabs" role="tablist" aria-label="{{t('composer.mode_label')}}">
+                                <button type="button" class="mode-tab active" data-download-mode="video">{{t('composer.video')}}</button>
+                                <button type="button" class="mode-tab" data-download-mode="audio">{{t('composer.audio')}}</button>
+                                <button type="button" class="mode-tab" data-download-mode="subtitle">{{t('composer.subtitle')}}</button>
                             </div>
                             <div class="composer-grid">
                                 <label class="form-field quality-field">
-                                    <span>Quality</span>
-                                    <select title="Pick a resolution" id="selResolution" class="form-control admin-control">
+                                    <span>{{t('composer.quality')}}</span>
+                                    <select title="{{t('composer.resolution_title')}}" id="selResolution" class="form-control admin-control">
                                     <option>best</option>
                                     <option>2160p</option>
                                     <option>1440p</option>
@@ -79,12 +89,12 @@
                                     </select>
                                 </label>
                                 <label class="form-field url-field">
-                                    <span>URL</span>
+                                    <span>{{t('composer.url')}}</span>
                                     <input name="url" id="url" type="url" class="form-control admin-control" placeholder="https://youtu.be/...">
                                 </label>
                                 <label class="form-field subtitle-field" id="subtitleLanguageContainer" style="display: none;">
-                                    <span>Subtitle language</span>
-                                    <select title="Pick a subtitle language" id="selSubtitleLanguage" class="form-control admin-control">
+                                    <span>{{t('composer.subtitle_language')}}</span>
+                                    <select title="{{t('composer.subtitle_language_title')}}" id="selSubtitleLanguage" class="form-control admin-control">
                                     <option value="en">English</option>
                                     <option value="ko">Korean</option>
                                     <option value="ja">Japanese</option>
@@ -246,13 +256,13 @@
                                 </label>
                                 <button id="send" type="submit" class="btn btn-primary submit-btn">
                                     <span class="glyphicon glyphicon-share-alt" aria-hidden="true"></span>
-                                    Submit
+                                    {{t('composer.submit')}}
                                 </button>
                             </div>
                         </form>
 
                         <div id="thumbnail-container" class="download-preview" style="display: none;">
-                            <img id="video-thumbnail" src="" alt="Video thumbnail">
+                            <img id="video-thumbnail" src="" alt="{{t('composer.thumbnail_alt')}}">
                             <div>
                                 <h4 id="video-title-display"></h4>
                                 <p id="video-channel-display"></p>
@@ -263,10 +273,10 @@
                     <section class="panel activity-panel">
                         <div class="panel-heading-row">
                             <div>
-                                <h2>Current Activity</h2>
-                                <p id="activity-summary">No active download</p>
+                                <h2>{{t('activity.heading')}}</h2>
+                                <p id="activity-summary">{{t('activity.no_active')}}</p>
                             </div>
-                            <span id="queue-count" class="metric-pill">Queue 0</span>
+                            <span id="queue-count" class="metric-pill">{{t('activity.queue_count', count=0)}}</span>
                         </div>
                         <div class="activity-content">
                             <div class="activity-thumbnail">
@@ -275,13 +285,13 @@
                             </div>
                             <div class="activity-main">
                                 <div class="activity-title-row">
-                                    <strong id="activity-title">Idle</strong>
-                                    <span id="activity-status" class="status-tag status-pending">idle</span>
+                                    <strong id="activity-title">{{t('activity.idle')}}</strong>
+                                    <span id="activity-status" class="status-tag status-pending">{{t('activity.idle')}}</span>
                                 </div>
-                                <p id="activity-channel">Waiting for the next request.</p>
+                                <p id="activity-channel">{{t('activity.waiting_next')}}</p>
                                 <div id="activity-transfer" class="activity-transfer" hidden>
                                     <span id="activity-speed">--</span>
-                                    <span id="activity-eta">ETA --</span>
+                                    <span id="activity-eta">{{t('activity.eta', value='--')}}</span>
                                 </div>
                                 <div id="progress-container" class="progress-shell" style="display: none;">
                                     <div class="progress">
@@ -294,11 +304,11 @@
                         </div>
                         <div class="queue-section">
                             <div class="queue-section-heading">
-                                <strong>Up next</strong>
-                                <span id="queue-summary">Queue is empty</span>
+                                <strong>{{t('activity.up_next')}}</strong>
+                                <span id="queue-summary">{{t('activity.queue_empty')}}</span>
                             </div>
                             <div id="queue-items" class="queue-items">
-                                <div class="queue-empty">New requests will appear here in order.</div>
+                                <div class="queue-empty">{{t('activity.queue_hint')}}</div>
                             </div>
                         </div>
                     </section>
@@ -309,84 +319,84 @@
                     <section class="panel download-history">
                         <div class="history-header">
                             <div>
-                                <h2 class="history-title">Files & History</h2>
-                                <p id="history-result-count" class="history-subtitle">0 downloads</p>
+                                <h2 class="history-title">{{t('history.heading')}}</h2>
+                                <p id="history-result-count" class="history-subtitle">{{t('history.download_count', count=0)}}</p>
                             </div>
                             <div class="history-actions">
-                                <div class="history-view-switch" role="group" aria-label="History view">
-                                    <button id="history-view-list" type="button" class="history-view-btn is-active" data-history-view="list" title="List view" aria-pressed="true">
+                                <div class="history-view-switch" role="group" aria-label="{{t('history.view_label')}}">
+                                    <button id="history-view-list" type="button" class="history-view-btn is-active" data-history-view="list" title="{{t('history.list_title')}}" aria-pressed="true">
                                         <span class="glyphicon glyphicon-list" aria-hidden="true"></span>
-                                        <span>List</span>
+                                        <span>{{t('history.list')}}</span>
                                     </button>
-                                    <button id="history-view-grid" type="button" class="history-view-btn" data-history-view="grid" title="Grid view" aria-pressed="false">
+                                    <button id="history-view-grid" type="button" class="history-view-btn" data-history-view="grid" title="{{t('history.grid_title')}}" aria-pressed="false">
                                         <span class="glyphicon glyphicon-th-large" aria-hidden="true"></span>
-                                        <span>Grid</span>
+                                        <span>{{t('history.grid')}}</span>
                                     </button>
                                 </div>
                                 <button id="refresh-history" class="btn btn-info btn-sm">
-                                    <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> Refresh
+                                    <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> {{t('history.refresh')}}
                                 </button>
                                 <button id="clear-history" class="btn btn-default btn-sm">
-                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> Clear Rows
+                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> {{t('history.clear_rows')}}
                                 </button>
                             </div>
                         </div>
                         <div class="history-controls">
                             <div class="history-search-group">
-                                <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="Search title, channel, filename, or metadata">
+                                <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="{{t('history.search_placeholder')}}">
                                 <button id="history-search-button" class="btn btn-info btn-sm history-search-button" type="button">
-                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span> Search
+                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span> {{t('history.search')}}
                                 </button>
                             </div>
-                            <select id="history-sort" class="form-control input-sm history-select" title="Sort downloads">
-                                <option value="date-desc">Newest first</option>
-                                <option value="date-asc">Oldest first</option>
-                                <option value="title-asc">Title A-Z</option>
-                                <option value="title-desc">Title Z-A</option>
-                                <option value="channel-asc">Channel A-Z</option>
-                                <option value="channel-desc">Channel Z-A</option>
-                                <option value="quality-asc">Quality A-Z</option>
-                                <option value="quality-desc">Quality Z-A</option>
-                                <option value="status-asc">Status A-Z</option>
-                                <option value="status-desc">Status Z-A</option>
+                            <select id="history-sort" class="form-control input-sm history-select" title="{{t('history.sort_title')}}">
+                                <option value="date-desc">{{t('history.sort_newest')}}</option>
+                                <option value="date-asc">{{t('history.sort_oldest')}}</option>
+                                <option value="title-asc">{{t('history.sort_title_asc')}}</option>
+                                <option value="title-desc">{{t('history.sort_title_desc')}}</option>
+                                <option value="channel-asc">{{t('history.sort_channel_asc')}}</option>
+                                <option value="channel-desc">{{t('history.sort_channel_desc')}}</option>
+                                <option value="quality-asc">{{t('history.sort_quality_asc')}}</option>
+                                <option value="quality-desc">{{t('history.sort_quality_desc')}}</option>
+                                <option value="status-asc">{{t('history.sort_status_asc')}}</option>
+                                <option value="status-desc">{{t('history.sort_status_desc')}}</option>
                             </select>
-                            <select id="history-status-filter" class="form-control input-sm history-select" title="Filter by status">
-                                <option value="all">All statuses</option>
-                                <option value="completed">Completed</option>
-                                <option value="file_only">Mounted files</option>
-                                <option value="failed">Failed</option>
-                                <option value="error">Error</option>
-                                <option value="unknown">Unknown</option>
+                            <select id="history-status-filter" class="form-control input-sm history-select" title="{{t('history.filter_status_title')}}">
+                                <option value="all">{{t('history.all_statuses')}}</option>
+                                <option value="completed">{{t('history.completed')}}</option>
+                                <option value="file_only">{{t('history.mounted_files')}}</option>
+                                <option value="failed">{{t('history.failed')}}</option>
+                                <option value="error">{{t('history.error')}}</option>
+                                <option value="unknown">{{t('history.unknown')}}</option>
                             </select>
-                            <div class="history-type-switch" role="group" aria-label="Filter by type">
-                                <button type="button" class="history-type-option is-active" data-history-type="all">All</button>
+                            <div class="history-type-switch" role="group" aria-label="{{t('history.filter_type_label')}}">
+                                <button type="button" class="history-type-option is-active" data-history-type="all">{{t('history.all')}}</button>
                                 <button type="button" class="history-type-option" data-history-type="video">
-                                    <span class="glyphicon glyphicon-facetime-video" aria-hidden="true"></span><span>Video</span>
+                                    <span class="glyphicon glyphicon-facetime-video" aria-hidden="true"></span><span>{{t('history.video')}}</span>
                                 </button>
                                 <button type="button" class="history-type-option" data-history-type="audio">
-                                    <span class="glyphicon glyphicon-music" aria-hidden="true"></span><span>Audio</span>
+                                    <span class="glyphicon glyphicon-music" aria-hidden="true"></span><span>{{t('history.audio')}}</span>
                                 </button>
                                 <button type="button" class="history-type-option" data-history-type="subtitle">
-                                    <span class="glyphicon glyphicon-subtitles" aria-hidden="true"></span><span>Subs</span>
+                                    <span class="glyphicon glyphicon-subtitles" aria-hidden="true"></span><span>{{t('history.subtitles')}}</span>
                                 </button>
                                 <button type="button" class="history-type-option" data-history-type="file">
-                                    <span class="glyphicon glyphicon-file" aria-hidden="true"></span><span>Files</span>
+                                    <span class="glyphicon glyphicon-file" aria-hidden="true"></span><span>{{t('history.files')}}</span>
                                 </button>
                             </div>
-                            <button id="reset-history-filters" class="btn btn-default btn-sm">Reset</button>
+                            <button id="reset-history-filters" class="btn btn-default btn-sm">{{t('history.reset')}}</button>
                         </div>
                         <div class="table-responsive">
                             <div class="table-container">
                                 <table class="table table-modern">
                                     <thead>
                                         <tr>
-                                            <th class="col-downloaded">Downloaded</th>
-                                            <th class="col-resolution">Type / Quality</th>
-                                            <th class="col-channel">Channel</th>
-                                            <th class="col-title">Video Title</th>
-                                            <th class="col-status">Status</th>
-                                            <th class="col-size">Size</th>
-                                            <th class="col-actions">Actions</th>
+                                            <th class="col-downloaded">{{t('history.downloaded')}}</th>
+                                            <th class="col-resolution">{{t('history.type_quality')}}</th>
+                                            <th class="col-channel">{{t('history.channel')}}</th>
+                                            <th class="col-title">{{t('history.video_title')}}</th>
+                                            <th class="col-status">{{t('history.status')}}</th>
+                                            <th class="col-size">{{t('history.size')}}</th>
+                                            <th class="col-actions">{{t('history.actions')}}</th>
                                         </tr>
                                     </thead>
                                     <tbody id="completeInfo">
@@ -404,8 +414,8 @@
                 <aside id="history-detail-drawer" class="detail-drawer" aria-live="polite">
                     <div class="detail-empty">
                         <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
-                        <h2>Select a download</h2>
-                        <p>Open a history item to view URL, file details, and actions.</p>
+                        <h2>{{t('history.select_heading')}}</h2>
+                        <p>{{t('history.select_description')}}</p>
                     </div>
                 </aside>
             </div>
@@ -413,13 +423,13 @@
             <div class="mastfoot">
                 <div class="inner">
                   <p class="lead">                    
-                    <a href="https://rg3.github.io/youtube-dl/supportedsites.html">any other supported site</a>.<br>
+                    <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md">{{t('footer.supported_sites')}}</a>.<br>
                   </p>
                     <p>
-                        Web frontend for <a href="https://github.com/hyeonsangjeon/youtube-dl-nas">youtube-dl-nas</a>, by @Hyeonsang Jeon.
+                        {{t('footer.credit')}}
                     </p>
-                    <p>latest Ver {{app_version}}</p>
-                    <a href="https://www.youtube.com/watch?v=s9mO5q6GiAc">Watch Demo</a>
+                    <p>{{t('common.latest_version', version=app_version)}}</p>
+                    <a href="https://www.youtube.com/watch?v=s9mO5q6GiAc">{{t('footer.watch_demo')}}</a>
                 </div>
             </div>
 
@@ -429,7 +439,11 @@
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-safe-queue-4"></script>
+<script>
+    window.YDLNAS_LOCALE = {{!locale_json}};
+    window.YDLNAS_I18N = {{!translations_json}};
+</script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-i18n-1"></script>
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {

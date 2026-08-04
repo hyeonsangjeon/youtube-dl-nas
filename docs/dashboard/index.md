@@ -9,6 +9,10 @@ title: Dashboard Guide
 
 The authenticated dashboard manages individual video, audio, and subtitle downloads on your NAS.
 
+## Interface Language
+
+Use the language selector before sign-in or in the dashboard header to choose English, Korean, Simplified Chinese, or Polish. The app detects a supported browser language on first use, falls back to English, and remembers your selection.
+
 ## New Download
 
 1. Choose **Video**, **Audio**, or **Subtitle**.
@@ -52,6 +56,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0731` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0804` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

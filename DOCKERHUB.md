@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0731` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0804` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -33,6 +33,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 ## What You Get
 
 - Video up to 2160p, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
+- English, Korean, Simplified Chinese, and Polish UI with automatic browser-language detection and a saved preference.
 - Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
 - Database-free queue recovery across container restarts, compatible partial-download continuation, duplicate guards, and removable waiting jobs.
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, and 20-item pages.
@@ -100,14 +101,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0731` | Current pinned release |
+| `26.0804` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0731` when reproducibility matters; use `latest` to follow the current stable branch.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0804` when reproducibility matters; use `latest` to follow the current stable branch.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0731
+docker pull modenaf360/youtube-dl-nas:26.0804
 ```
 
 ## Health Check

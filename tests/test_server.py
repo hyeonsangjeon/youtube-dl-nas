@@ -22,6 +22,8 @@ os.environ.update({
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "youtube-dl-server.py"
 sys.path.insert(0, str(MODULE_PATH.parent))
+from i18n import CATALOGS
+
 SPEC = importlib.util.spec_from_file_location("youtube_dl_nas_server", MODULE_PATH)
 server = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(server)
@@ -35,7 +37,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0731"
+    assert health.json["version"] == "26.0804"
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -43,18 +45,78 @@ def test_health_and_manifest_are_public(app):
 
 
 def test_queue_endpoints_require_login(app):
-    assert app.get("/youtube-dl/q", status=403).json["msg"] == "Unauthorized"
-    assert app.post_json(
+    get_error = app.get("/youtube-dl/q", status=403).json
+    post_error = app.post_json(
         "/youtube-dl/q",
         {"url": "https://youtu.be/example", "resolution": "best"},
         status=403,
-    ).json["msg"] == "Unauthorized"
+    ).json
+
+    assert get_error["msg"] == "Unauthorized"
+    assert get_error["code"] == "unauthorized"
+    assert post_error["msg"] == "Unauthorized"
+    assert post_error["code"] == "unauthorized"
 
 
 def test_login_rejects_empty_credentials_when_account_is_unconfigured(app):
     with patch.object(server, "load_auth_data", return_value={"MY_ID": "", "MY_PW": "", "SECRET_KEY": "test"}):
         response = app.post("/login", {"id": "", "myPw": "", "next": "/youtube-dl"})
-    assert "id or password is not correct" in response.text
+    assert "The ID or password is incorrect." in response.text
+
+
+def test_accept_language_renders_localized_login(app):
+    response = app.get("/", headers={"Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8"})
+    assert '<html lang="pl-PL">' in response.text
+    assert "Witaj ponownie" in response.text
+    assert "Zaloguj się" in response.text
+
+
+def test_locale_selection_persists_in_cookie(app):
+    response = app.post(
+        "/locale",
+        {"locale": "zh-CN", "next": "/"},
+        status=302,
+    )
+    assert response.location.endswith("/")
+
+    login = app.get("/")
+    assert '<html lang="zh-CN">' in login.text
+    assert "欢迎回来" in login.text
+    assert '<option value="zh-CN" selected>' in login.text
+
+
+def test_selected_locale_renders_dashboard_catalog(app):
+    app.post("/locale", {"locale": "ko-KR", "next": "/"}, status=302)
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    dashboard = app.get("/youtube-dl")
+
+    assert '<html lang="ko-KR">' in dashboard.text
+    assert "다운로드 대기열 및 기록 관리자" in dashboard.text
+    assert "파일 및 기록" in dashboard.text
+    assert 'window.YDLNAS_LOCALE = "ko-KR"' in dashboard.text
+
+
+def test_accept_language_renders_localized_terms(app):
+    terms = app.get("/terms", headers={"Accept-Language": "zh-CN,zh;q=0.9"})
+    assert '<html lang="zh-CN">' in terms.text
+    assert "使用条款" in terms.text
+    assert "继续进入应用" in terms.text
+
+
+def test_terms_acceptance_failure_does_not_expose_internal_error(app):
+    with patch.object(server, "save_app_state", side_effect=OSError("private filesystem detail")):
+        response = app.post("/accept-terms")
+
+    assert response.json == {"success": False}
+
+
+def test_invalid_locale_redirects_without_open_redirect(app):
+    response = app.post(
+        "/locale",
+        {"locale": "invalid", "next": "https://example.com"},
+        status=302,
+    )
+    assert response.location.endswith("/")
 
 
 def test_rest_api_keeps_id_password_auth(app):
@@ -83,16 +145,35 @@ def test_rest_api_accepts_optional_bearer_token(app):
 
 
 def test_rest_api_rejects_empty_or_invalid_credentials(app):
-    app.post_json(
+    empty_credentials = app.post_json(
         "/youtube-dl/rest",
         {"url": "https://youtu.be/example", "resolution": "best"},
         status=403,
-    )
-    app.post_json(
+    ).json
+    invalid_credentials = app.post_json(
         "/youtube-dl/rest",
         {"url": "https://youtu.be/example", "resolution": "best", "id": "tester", "pw": "wrong"},
         status=403,
+    ).json
+
+    assert empty_credentials["code"] == "invalid_credentials"
+    assert invalid_credentials["code"] == "invalid_credentials"
+
+
+def test_json_errors_include_stable_localization_codes_and_parameters():
+    assert server.get_error_details("URL is required") == ("url_required", {})
+    assert server.get_error_details("Unsupported resolution") == ("unsupported_resolution", {})
+    assert server.get_error_details("Unmapped diagnostic") == (None, {})
+    assert server.get_error_details("Reference transcript exceeds 100000 characters") == (
+        "reference_too_large",
+        {"limit": 100000},
     )
+
+
+def test_server_error_codes_have_translations_in_every_catalog():
+    error_codes = set(server.ERROR_CODE_BY_MESSAGE.values()) | {"reference_too_large"}
+    for locale, catalog in CATALOGS.items():
+        assert {f"server.{code}" for code in error_codes} <= set(catalog), locale
 
 
 def test_login_then_share_target_queues_url(app):
