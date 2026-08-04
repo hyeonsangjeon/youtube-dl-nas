@@ -5,7 +5,7 @@ title: youtube-dl NAS Guides
 
 # youtube-dl NAS Guides
 
-- Current release: **26.0731**
+- Current release: **26.0804**
 - [Dashboard guide](dashboard/)
 - [대시보드 사용법](dashboard/ko.html)
 - [Mobile sharing setup](mobile/)
@@ -15,3 +15,5 @@ title: youtube-dl NAS Guides
 - [GitHub Container Registry image](https://github.com/hyeonsangjeon/youtube-dl-nas/pkgs/container/youtube-dl-nas)
 
 These pages cover dashboard operation and mobile installation. Shared URLs and credentials travel directly between your phone and your own NAS.
+
+The application UI supports English, Korean, Simplified Chinese, and Polish. It detects a supported browser language on first use and remembers an explicit language selection.

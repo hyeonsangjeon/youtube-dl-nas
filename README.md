@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0731` (`2026-07-31`)
+Current release: `26.0804` (`2026-08-04`)
 
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
@@ -29,6 +29,7 @@ Current release: `26.0731` (`2026-07-31`)
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
+- Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
 - Share a URL from an installed Android PWA, an Android HTTP Shortcut, or an iOS Shortcut workflow.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
@@ -49,6 +50,10 @@ Current release: `26.0731` (`2026-07-31`)
   <img src="pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
   <img src="pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history cards" width="23%">
 </p>
+
+## Languages
+
+The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), and Polish (`pl-PL`). It uses the first supported browser language on a new device, falls back to English, and remembers an explicit selection for one year. The language selector is available before sign-in and from the authenticated dashboard.
 
 ## Dashboard Workflow
 
@@ -205,6 +210,8 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
 ```
 
 The API returns `"duplicate": true` without adding another job when the same URL and profile are already queued or saved on the NAS. Add `"force": true` only when an intentional repeat download is required.
+
+Error responses retain the English `msg` field for existing integrations and may also include a stable `code` plus interpolation `params`. The dashboard uses those fields to show the error in the selected language.
 
 Supported `resolution` examples:
 

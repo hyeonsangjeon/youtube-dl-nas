@@ -1319,6 +1319,27 @@ a.video-title:hover::after {
             border-radius: 12px;
             color: #333;
         }
+
+        .locale-form-terms {
+            display: inline-flex;
+            align-items: center;
+            float: right;
+            gap: 7px;
+            margin: -8px 0 14px 18px;
+            padding: 7px 10px;
+            border: 1px solid #d8e0ea;
+            border-radius: 6px;
+            background: #f8fafc;
+            color: #344054;
+        }
+
+        .locale-form-terms select {
+            border: 0;
+            background: transparent;
+            color: #344054;
+            font-weight: 600;
+            outline: 0;
+        }
         
         .terms-header {
             margin-bottom: 30px;
@@ -1475,6 +1496,36 @@ a:hover {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.locale-form-dashboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  background: #fff;
+  color: #344054;
+}
+
+.locale-icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.locale-form-dashboard select {
+  max-width: 130px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+  outline: 0;
 }
 
 .user-chip,
@@ -3023,6 +3074,23 @@ a.video-title {
   color: #667085;
 }
 
+@media (max-width: 1320px) and (min-width: 901px) {
+  .history-controls {
+    grid-template-columns: minmax(220px, 1fr) minmax(130px, 160px) minmax(120px, 150px);
+  }
+
+  .history-type-switch {
+    grid-column: 1 / span 2;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  #reset-history-filters {
+    justify-self: start;
+  }
+}
+
 @media (max-width: 1180px) {
   .dashboard-layout {
     grid-template-columns: 1fr;
@@ -3077,6 +3145,19 @@ a.video-title {
 }
 
 @media (max-width: 768px) {
+  .locale-form-terms {
+    float: none;
+    margin: 0 0 18px;
+  }
+
+  .app-meta {
+    width: 100%;
+  }
+
+  .locale-form-dashboard select {
+    max-width: 112px;
+  }
+
   .cover-container {
     width: 100%;
     padding: 0;
@@ -3447,11 +3528,14 @@ a.video-title {
 
   .history-type-switch {
     width: 100%;
+    overflow-x: visible;
   }
 
   .history-type-option {
-    flex: 1 0 auto;
-    padding: 0 8px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 5px;
+    font-size: 10px;
   }
 
   .media-preview-modal {

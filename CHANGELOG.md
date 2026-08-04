@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0804 - 2026-08-04
+
+### Added
+
+- Added first-class internationalization for English, Korean, Simplified Chinese, and Polish across sign-in, terms, dashboard, queue, history, file actions, and Subtitle QA.
+- Added language selectors before sign-in and in the authenticated dashboard, with a one-year preference cookie.
+- Added stable API error codes and optional interpolation parameters while preserving existing English `msg` fields for REST compatibility.
+
+### Changed
+
+- Detect the first supported browser language on new devices and fall back to English for unsupported locales.
+- Format dashboard dates, numbers, file sizes, status labels, and subtitle language names for the selected locale.
+- Versioned the PWA cache for the localized application shell.
+
+### Fixed
+
+- Localized dynamic success, warning, validation, and download-failure messages that previously remained in English after switching languages.
+- Prevented an internal terms-persistence error from being exposed in the browser response.
+
+### Documentation
+
+- Updated the dashboard manual and container tag examples for the multilingual `26.0804` release.
+
 ## 26.0731 - 2026-07-31
 
 ### Added

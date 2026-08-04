@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{locale}}">
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#168a92">
-    <title>Terms of Use - youtube-dl-nas</title>
+    <title>{{t('terms.title')}}</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/youtube-dl/static/pwa/icon-192.png">
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
@@ -17,57 +17,56 @@
         <div class="site-wrapper">
         <div class="site-wrapper-inner">
             <div class="terms-container">
+                <form class="locale-form locale-form-terms" action="/locale" method="POST">
+                    <input type="hidden" name="next" value="{{locale_next}}">
+                    <label for="locale-selector" class="sr-only">{{t('common.language')}}</label>
+                    <span class="locale-icon" aria-hidden="true">&#127760;</span>
+                    <select id="locale-selector" name="locale" aria-label="{{t('common.language')}}" onchange="this.form.submit()">
+                    % for locale_code, locale_name in locale_options:
+                        <option value="{{locale_code}}"{{!' selected' if locale_code == locale else ''}}>{{locale_name}}</option>
+                    % end
+                    </select>
+                </form>
                 <div class="terms-header">
-                    <h2>Terms of Use</h2>
-                    <p>Please read and accept the following terms before using this application</p>
+                    <h2>{{t('terms.heading')}}</h2>
+                    <p>{{t('terms.intro')}}</p>
                 </div>
                 
                 <div class="terms-content">
                     <div class="copyright-disclaimer">
-                        <h4>Important Notice</h4>
+                        <h4>{{t('terms.notice_heading')}}</h4>
+                        <p>{{t('terms.notice_personal')}}</p>
+                        <p>{{t('terms.notice_copyright')}}</p>
+                        <p>{{t('terms.notice_exceptions')}}</p>
+                        <p>{{t('terms.notice_liability')}}</p>
                         <p>
-                            This application is based on yt-dlp and is provided solely for <strong>personal and legitimate use</strong> in accordance with applicable laws.
-                        </p>
-                        <p>
-                            Users are responsible for complying with copyright laws regarding downloaded content. Downloading or distributing
-                            copyrighted material without explicit permission from the rightsholder may violate applicable laws, and this tool does not encourage or 
-                            support such unauthorized use.
-                        </p>
-                        <p>
-                            In some jurisdictions, limited use of copyrighted material may be permitted under doctrines such as "fair use" or "fair dealing." 
-                            Users are responsible for understanding and adhering to these limitations in their respective jurisdictions.
-                        </p>
-                        <p>
-                            The developer of this application bears no legal responsibility for any unauthorized or illegal use by users.
-                        </p>
-                        <p>
-                            <small>yt-dlp is an open source software distributed under the 
-                            <a href="https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE" target="_blank">Public Domain</a>.</small>
+                            <small>{{t('terms.ytdlp_license_prefix')}}
+                            <a href="https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">{{t('terms.public_domain')}}</a>.</small>
                         </p>
                     </div>
                     
-                    <p>By using this application, you acknowledge and agree to the following:</p>
+                    <p>{{t('terms.acknowledge')}}</p>
                     
                     <ol>
-                        <li>You will use this application only for lawful purposes in compliance with all applicable laws.</li>
-                        <li>You will only download content that you have legal permission to access and download.</li>
-                        <li>You understand that downloading copyrighted material without proper authorization is prohibited.</li>
-                        <li>You will not use this application to infringe upon any copyright laws or third-party rights.</li>
-                        <li>You will not redistribute, share, or publicly perform content downloaded using this application unless you have the legal right to do so.</li>
-                        <li>You understand that the developer of this application is not responsible for any misuse of the application by users.</li>
-                        <li>You acknowledge that this tool is intended for downloading content legally available for personal use, such as content you own, have permission to download, or falls under legitimate exceptions to copyright.</li>
+                        <li>{{t('terms.item_1')}}</li>
+                        <li>{{t('terms.item_2')}}</li>
+                        <li>{{t('terms.item_3')}}</li>
+                        <li>{{t('terms.item_4')}}</li>
+                        <li>{{t('terms.item_5')}}</li>
+                        <li>{{t('terms.item_6')}}</li>
+                        <li>{{t('terms.item_7')}}</li>
                     </ol>
                     
-                    <p><strong>Last updated: 2026-07-10</strong></p>
+                    <p><strong>{{t('terms.last_updated')}}</strong></p>
                     
                     <div class="terms-agreement">
                         <div class="checkbox-container">
                             <input type="checkbox" id="termsCheckbox">
-                            <label for="termsCheckbox">I have read, understood, and agree to the terms of use</label>
+                            <label for="termsCheckbox">{{t('terms.agree')}}</label>
                         </div>
                         
                         <div class="terms-actions">
-                            <button id="agreeBtn" class="btn btn-success" disabled>Continue to Application</button>
+                            <button id="agreeBtn" class="btn btn-success" disabled>{{t('terms.continue')}}</button>
                         </div>
                     </div>
                 </div>
@@ -78,6 +77,12 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
     <script>
+        window.YDLNAS_I18N = {{!translations_json}};
+
+        function translate(key) {
+            return window.YDLNAS_I18N[key] || key;
+        }
+
         $(document).ready(function() {
             // 체크박스 상태에 따라 버튼 활성화/비활성화
             $('#termsCheckbox').change(function() {
@@ -96,11 +101,11 @@
                                 // 로그인 페이지로 리다이렉트
                                 window.location.href = '/?next=' + encodeURIComponent({{!next_path_json}});
                             } else {
-                                alert('Error: ' + (response.msg || 'Failed to accept terms'));
+                                alert(response.msg || translate('terms.accept_failed'));
                             }
                         },
                         error: function() {
-                            alert('Network error occurred. Please try again.');
+                            alert(translate('terms.network_error'));
                         }
                     });
                 }

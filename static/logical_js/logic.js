@@ -99,6 +99,45 @@ var sessionId = null;
 var reconnectAttempts = 0;
 var maxReconnectAttempts = 5;
 var reconnectDelay = 1000; // 1second
+
+function translate(key, values) {
+    const catalog = window.YDLNAS_I18N || {};
+    let text = catalog[key] || key;
+    Object.keys(values || {}).forEach(function(name) {
+        text = text.split('{' + name + '}').join(String(values[name]));
+    });
+    return text;
+}
+
+function appLocale() {
+    return window.YDLNAS_LOCALE || 'en';
+}
+
+function localizeSubtitleLanguageOptions() {
+    const select = document.getElementById('selSubtitleLanguage');
+    if (!select || typeof Intl === 'undefined' || typeof Intl.DisplayNames !== 'function') {
+        return;
+    }
+
+    let displayNames;
+    try {
+        displayNames = new Intl.DisplayNames([appLocale()], { type: 'language' });
+    } catch (error) {
+        return;
+    }
+
+    Array.prototype.forEach.call(select.options, function(option) {
+        if (option.value === 'en-orig') {
+            option.textContent = translate('composer.english_original');
+            return;
+        }
+        try {
+            option.textContent = displayNames.of(option.value) || option.textContent;
+        } catch (error) {
+            // Keep the bundled English label for uncommon extractor language codes.
+        }
+    });
+}
 //---------------------------------------------------------------------------------------------------//
 $(document).ready(function() {
     if (!$('body').hasClass('dashboard-page')) {
@@ -108,13 +147,13 @@ $(document).ready(function() {
     const pageParams = new URLSearchParams(window.location.search);
     const sharedStatus = pageParams.get('shared');
     if (sharedStatus === 'queued') {
-        addMessage('Shared URL added to the NAS queue', 'success');
+        addMessage(translate('message.shared_queued'), 'success');
     } else if (sharedStatus === 'duplicate') {
-        addMessage('This shared item is already queued or available on the NAS', 'warning');
+        addMessage(translate('message.shared_duplicate'), 'warning');
     } else if (sharedStatus === 'missing') {
-        addMessage('No URL was found in the shared content', 'warning');
+        addMessage(translate('message.shared_missing'), 'warning');
     } else if (sharedStatus === 'invalid') {
-        addMessage('The shared URL could not be queued', 'error');
+        addMessage(translate('message.shared_invalid'), 'error');
     }
     if (sharedStatus && window.history.replaceState) {
         pageParams.delete('shared');
@@ -144,6 +183,7 @@ $(document).ready(function() {
     if (initialValue === 'srt' || initialValue === 'vtt') {
         $('#subtitleLanguageContainer').show();
     }
+    localizeSubtitleLanguageOptions();
 });
 //---------------------------------------------------------------------------------------------------//
 
@@ -187,7 +227,7 @@ $(function () {
                 console.log("WebSocket opened");
                 reconnectAttempts = 0;
                 reconnectDelay = 1000;
-                updateConnectionStatus('Online', 'completed');
+                updateConnectionStatus(translate('connection.online'), 'completed');
                 messagesTxt("[MSG], WebSocket connection opened.");
                 fetchStatus();
 
@@ -208,27 +248,27 @@ $(function () {
             wsEventBus.onclose = function(evt) {
                 console.log("WebSocket closed, attempting to reconnect...");
                 wsEventBus = null;
-                updateConnectionStatus('Reconnecting', 'pending');
+                updateConnectionStatus(translate('connection.reconnecting'), 'pending');
                 messagesTxt("[MSG], Connection lost. Reconnecting...");
                 attemptReconnect();
             }
 
             wsEventBus.onerror = function(evt) {
                 console.log("WebSocket error: ", evt);
-                updateConnectionStatus('Error', 'failed');
+                updateConnectionStatus(translate('connection.error'), 'failed');
                 messagesTxt("[MSG], Connection error occurred.");
             }
         } catch (error) {
             console.error("WebSocket connection failed:", error);
             wsEventBus = null;
-            updateConnectionStatus('Offline', 'failed');
+            updateConnectionStatus(translate('connection.offline'), 'failed');
             attemptReconnect();
         }
     }
 
     function attemptReconnect() {
         if (reconnectAttempts >= maxReconnectAttempts) {
-            updateConnectionStatus('Offline', 'failed');
+            updateConnectionStatus(translate('connection.offline'), 'failed');
             messagesTxt("[MSG], Failed to reconnect. Please refresh the page.");
             return;
         }
@@ -409,23 +449,23 @@ $(function () {
         const rangeStart = filteredItems.length > 0 ? startIndex + 1 : 0;
         const rangeEnd = Math.min(endIndex, filteredItems.length);
         const resultLabel = filteredItems.length === historyItems.length ?
-            `${rangeStart}-${rangeEnd} of ${historyItems.length} items` :
-            `${rangeStart}-${rangeEnd} of ${filteredItems.length} matching items`;
+            translate('history.result_all', { start: rangeStart, end: rangeEnd, total: historyItems.length }) :
+            translate('history.result_matching', { start: rangeStart, end: rangeEnd, total: filteredItems.length });
         $('#history-result-count').text(resultLabel);
 
         if (historyItems.length === 0) {
-            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No files yet<br><small>Start downloading or mount files into /downfolder</small></td></tr>`);
-            cards.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
-            grid.html(renderEmptyCard("No files yet", "Start downloading or mount files into /downfolder"));
+            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">${escapeHtml(translate('history.no_files'))}<br><small>${escapeHtml(translate('history.no_files_hint'))}</small></td></tr>`);
+            cards.html(renderEmptyCard(translate('history.no_files'), translate('history.no_files_hint')));
+            grid.html(renderEmptyCard(translate('history.no_files'), translate('history.no_files_hint')));
             pager.empty();
             renderDetailDrawer(null);
             return;
         }
 
         if (filteredItems.length === 0) {
-            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">No matching downloads<br><small>Try a different search or filter</small></td></tr>`);
-            cards.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
-            grid.html(renderEmptyCard("No matching downloads", "Try a different search or filter"));
+            body.html(`<tr><td colspan="${emptyColspan}" class="empty-state">${escapeHtml(translate('history.no_matches'))}<br><small>${escapeHtml(translate('history.no_matches_hint'))}</small></td></tr>`);
+            cards.html(renderEmptyCard(translate('history.no_matches'), translate('history.no_matches_hint')));
+            grid.html(renderEmptyCard(translate('history.no_matches'), translate('history.no_matches_hint')));
             pager.empty();
             if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
                 renderDetailDrawer(null);
@@ -509,12 +549,12 @@ $(function () {
         }).join('');
 
         pager.html(`
-            <button type="button" class="history-page-nav" data-page="${currentHistoryPage - 1}" ${currentHistoryPage === 1 ? 'disabled' : ''}>Prev</button>
-            <div class="history-page-list" aria-label="History pages">
+            <button type="button" class="history-page-nav" data-page="${currentHistoryPage - 1}" ${currentHistoryPage === 1 ? 'disabled' : ''}>${escapeHtml(translate('history.previous'))}</button>
+            <div class="history-page-list" aria-label="${escapeAttr(translate('history.pages_label'))}">
                 ${pageItems}
             </div>
-            <button type="button" class="history-page-nav" data-page="${currentHistoryPage + 1}" ${currentHistoryPage === totalPages ? 'disabled' : ''}>Next</button>
-            <span class="history-page-summary">Page ${currentHistoryPage} of ${totalPages}</span>
+            <button type="button" class="history-page-nav" data-page="${currentHistoryPage + 1}" ${currentHistoryPage === totalPages ? 'disabled' : ''}>${escapeHtml(translate('history.next'))}</button>
+            <span class="history-page-summary">${escapeHtml(translate('history.page_summary', { current: currentHistoryPage, total: totalPages }))}</span>
         `);
     }
 
@@ -562,13 +602,13 @@ $(function () {
 
     function renderHistoryRow(item) {
         const safeUuid = escapeAttr(item.uuid);
-        const safeTitle = escapeAttr(item.title || 'Untitled');
-        const safeChannel = escapeAttr(item.channel || 'Unknown');
+        const safeTitle = escapeAttr(item.title || translate('common.untitled'));
+        const safeChannel = escapeAttr(item.channel || translate('common.unknown'));
         const safeTimestamp = escapeAttr(item.timestamp || '');
-        const titleText = escapeHtml(item.title || 'Untitled');
-        const channelText = escapeHtml(item.channel || 'Unknown');
-        const resolutionText = escapeHtml(item.resolution || 'unknown');
-        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const titleText = escapeHtml(item.title || translate('common.untitled'));
+        const channelText = escapeHtml(item.channel || translate('common.unknown'));
+        const resolutionText = escapeHtml(item.resolution || translate('common.unknown'));
+        const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const dateText = formatTimestamp(item.timestamp);
         const statusText = escapeHtml(getStatusText(item.status));
         const sizeText = formatFileSize(item);
@@ -597,10 +637,10 @@ $(function () {
 
     function renderHistoryCard(item) {
         const safeUuid = escapeAttr(item.uuid);
-        const titleText = escapeHtml(item.title || 'Untitled');
-        const channelText = escapeHtml(item.channel || 'Unknown');
-        const resolutionText = escapeHtml(item.resolution || 'unknown');
-        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const titleText = escapeHtml(item.title || translate('common.untitled'));
+        const channelText = escapeHtml(item.channel || translate('common.unknown'));
+        const resolutionText = escapeHtml(item.resolution || translate('common.unknown'));
+        const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const statusText = escapeHtml(getStatusText(item.status));
         const metadataSourceLine = renderMetadataSourceLine(item);
         const resolutionBadge = item.resolution === 'mounted' ? '' :
@@ -633,9 +673,9 @@ $(function () {
 
     function renderHistoryGridCard(item) {
         const safeUuid = escapeAttr(item.uuid);
-        const titleText = escapeHtml(item.title || item.filename || 'Untitled');
-        const channelText = escapeHtml(item.channel || (isMountedFile(item) ? 'Mounted folder' : 'Unknown'));
-        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const titleText = escapeHtml(item.title || item.filename || translate('common.untitled'));
+        const channelText = escapeHtml(item.channel || (isMountedFile(item) ? translate('detail.mounted_folder') : translate('common.unknown')));
+        const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const thumbnailUrl = getSafeThumbnailUrl(item.thumbnail);
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
         const durationText = formatDuration(item.duration_seconds);
@@ -647,7 +687,7 @@ $(function () {
         `;
         const durationBadge = durationText ? `<span class="history-grid-duration">${durationText}</span>` : '';
         const resolutionBadge = item.resolution === 'mounted' ? '' :
-            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${escapeHtml(item.resolution || 'unknown')}</span>`;
+            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${escapeHtml(item.resolution || translate('common.unknown'))}</span>`;
 
         return `
             <article class="history-grid-card ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
@@ -657,7 +697,7 @@ $(function () {
                     <span class="history-grid-type type-${escapeAttr(item.download_type)}">${typeText}</span>
                 </div>
                 <div class="history-grid-body">
-                    <h3 title="${escapeAttr(item.title || item.filename || 'Untitled')}">${titleText}</h3>
+                    <h3 title="${escapeAttr(item.title || item.filename || translate('common.untitled'))}">${titleText}</h3>
                     <p title="${escapeAttr(item.channel || '')}">${channelText}</p>
                     <div class="history-grid-meta">
                         <span>${formatTimestamp(item.timestamp)}</span>
@@ -745,7 +785,7 @@ $(function () {
     }
 
     function getMetadataStatusText(item) {
-        return isMountedFile(item) ? 'No metadata' : 'Saved metadata';
+        return isMountedFile(item) ? translate('history.no_metadata') : translate('history.saved_metadata');
     }
 
     function renderMetadataBadge(item) {
@@ -753,7 +793,7 @@ $(function () {
             return '';
         }
 
-        return '<span class="metadata-badge metadata-missing">No metadata</span>';
+        return `<span class="metadata-badge metadata-missing">${escapeHtml(translate('history.no_metadata'))}</span>`;
     }
 
     function renderMetadataLine(item) {
@@ -764,7 +804,7 @@ $(function () {
         return `
             <div class="history-meta-line">
                 ${renderMetadataBadge(item)}
-                <span>Scanned from /downfolder</span>
+                <span>${escapeHtml(translate('history.scanned_from'))}</span>
             </div>
         `;
     }
@@ -774,7 +814,7 @@ $(function () {
             return '';
         }
 
-        return '<div class="history-meta-line history-card-meta-line"><span>Scanned from /downfolder</span></div>';
+        return `<div class="history-meta-line history-card-meta-line"><span>${escapeHtml(translate('history.scanned_from'))}</span></div>`;
     }
 
     function renderActionButtons(item, context) {
@@ -785,29 +825,29 @@ $(function () {
         const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
         const canAnalyzeSubtitle = item.file_exists && item.download_type === 'subtitle';
         const previewButton = canPreview ? `
-            <button class="action-btn action-preview" data-uuid="${safeUuid}" title="Preview media">
-                <span class="glyphicon glyphicon-play"></span>${isDetail ? '<span>Preview</span>' : ''}
+            <button class="action-btn action-preview" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.preview_title'))}">
+                <span class="glyphicon glyphicon-play"></span>${isDetail ? `<span>${escapeHtml(translate('action.preview'))}</span>` : ''}
             </button>` : '';
         const subtitleQaButton = canAnalyzeSubtitle ? `
-            <button class="action-btn action-subtitle-qa" data-uuid="${safeUuid}" title="Analyze subtitle accuracy">
-                <span class="glyphicon glyphicon-check"></span>${isDetail ? '<span>Subtitle QA</span>' : ''}
+            <button class="action-btn action-subtitle-qa" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.subtitle_qa_title'))}">
+                <span class="glyphicon glyphicon-check"></span>${isDetail ? `<span>${escapeHtml(translate('action.subtitle_qa'))}</span>` : ''}
             </button>` : '';
         const downloadButton = item.file_exists ? `
-            <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="Download file">
-                <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? '<span>Download File</span>' : ''}
+            <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="${escapeAttr(translate('action.download_title'))}">
+                <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? `<span>${escapeHtml(translate('action.download'))}</span>` : ''}
             </a>` : '';
-        const fileDeleteTitle = mountedFile ? 'Delete mounted file' : 'Delete file and related history';
+        const fileDeleteTitle = mountedFile ? translate('action.delete_mounted_title') : translate('action.delete_file_title');
         const retryButton = canRetry ? `
-            <button class="action-btn action-retry" data-uuid="${safeUuid}" title="Retry download">
-                <span class="glyphicon glyphicon-repeat"></span>${isDetail ? '<span>Retry Download</span>' : ''}
+            <button class="action-btn action-retry" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.retry_title'))}">
+                <span class="glyphicon glyphicon-repeat"></span>${isDetail ? `<span>${escapeHtml(translate('action.retry'))}</span>` : ''}
             </button>` : '';
         const fileDeleteButton = item.file_exists ? `
             <button class="action-btn action-file-delete" data-uuid="${safeUuid}" title="${escapeAttr(fileDeleteTitle)}">
-                <span class="glyphicon glyphicon-remove"></span>${isDetail ? '<span>Delete File</span>' : ''}
+                <span class="glyphicon glyphicon-remove"></span>${isDetail ? `<span>${escapeHtml(translate('action.delete_file'))}</span>` : ''}
             </button>` : '';
         const historyDeleteButton = !mountedFile ? `
-                <button class="action-btn action-history-delete" data-uuid="${safeUuid}" title="Delete history only">
-                    <span class="glyphicon glyphicon-trash"></span>${isDetail ? '<span>Delete History</span>' : ''}
+                <button class="action-btn action-history-delete" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.delete_history_title'))}">
+                    <span class="glyphicon glyphicon-trash"></span>${isDetail ? `<span>${escapeHtml(translate('action.delete_history'))}</span>` : ''}
                 </button>` : '';
         const detailClass = context === 'detail' ? ' detail-action-group' : '';
 
@@ -846,35 +886,35 @@ $(function () {
             drawer.html(`
                 <div class="detail-empty">
                     <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
-                    <h2>Select a download</h2>
-                    <p>Open a history item to view URL, file details, and actions.</p>
+                    <h2>${escapeHtml(translate('history.select_heading'))}</h2>
+                    <p>${escapeHtml(translate('history.select_description'))}</p>
                 </div>
             `);
             return;
         }
 
-        const typeText = escapeHtml(item.download_type || getHistoryType(item.resolution));
+        const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const statusText = escapeHtml(getStatusText(item.status));
         const url = item.url || '';
         const urlHtml = url ?
             `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>` :
-            '<span class="muted">No URL saved</span>';
+            `<span class="muted">${escapeHtml(translate('detail.no_url'))}</span>`;
         const mountedFile = isMountedFile(item);
-        const sourceText = mountedFile ? 'Mounted folder' : 'Download history';
+        const sourceText = mountedFile ? translate('detail.mounted_folder') : translate('detail.download_history');
         const metadataText = getMetadataStatusText(item);
         const metadataNotice = mountedFile ? `
             <div class="metadata-notice">
                 <span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span>
                 <div>
-                    <strong>No download metadata</strong>
-                    <p>This file was found in /downfolder without a saved history row, so source URL, channel, and quality details are unavailable.</p>
+                    <strong>${escapeHtml(translate('detail.no_metadata_heading'))}</strong>
+                    <p>${escapeHtml(translate('detail.no_metadata_description'))}</p>
                 </div>
             </div>
         ` : '';
 
         drawer.html(`
             <article class="detail-panel ${mountedFile ? 'detail-panel-mounted' : ''}" data-uuid="${escapeAttr(item.uuid)}">
-                <button type="button" id="close-detail" class="detail-close" title="Close details">
+                <button type="button" id="close-detail" class="detail-close" title="${escapeAttr(translate('detail.close'))}">
                     <span class="glyphicon glyphicon-remove"></span>
                 </button>
                 <div class="detail-heading">
@@ -882,22 +922,22 @@ $(function () {
                         <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
                         <span class="status-tag ${getStatusClass(item.status)}">${statusText}</span>
                     </div>
-                    <h2 title="${escapeAttr(item.title || 'Untitled')}">${escapeHtml(item.title || 'Untitled')}</h2>
-                    <p>${escapeHtml(item.channel || 'Unknown channel')}</p>
+                    <h2 title="${escapeAttr(item.title || translate('common.untitled'))}">${escapeHtml(item.title || translate('common.untitled'))}</h2>
+                    <p>${escapeHtml(item.channel || translate('common.unknown_channel'))}</p>
                 </div>
                 ${metadataNotice}
                 <dl class="detail-list">
-                    ${renderDetailField('Downloaded', formatTimestamp(item.timestamp), 'downloaded')}
-                    ${renderDetailField('Duration', formatDuration(item.duration_seconds) || 'Unknown', 'duration')}
-                    ${renderDetailField('Resolution', item.resolution || 'unknown', 'resolution')}
-                    ${renderDetailField('Size', formatFileSize(item), 'size')}
-                    ${renderDetailField('Filename', item.filename || 'No file saved', 'filename')}
-                    ${renderDetailField('Source', sourceText, 'source')}
-                    ${renderDetailField('Metadata', metadataText, 'metadata')}
-                    ${renderDetailField('UUID', item.uuid || '', 'uuid')}
+                    ${renderDetailField(translate('detail.downloaded'), formatTimestamp(item.timestamp), 'downloaded')}
+                    ${renderDetailField(translate('detail.duration'), formatDuration(item.duration_seconds) || translate('common.unknown'), 'duration')}
+                    ${renderDetailField(translate('detail.resolution'), item.resolution || translate('common.unknown'), 'resolution')}
+                    ${renderDetailField(translate('detail.size'), formatFileSize(item), 'size')}
+                    ${renderDetailField(translate('detail.filename'), item.filename || translate('detail.no_file'), 'filename')}
+                    ${renderDetailField(translate('detail.source'), sourceText, 'source')}
+                    ${renderDetailField(translate('detail.metadata'), metadataText, 'metadata')}
+                    ${renderDetailField(translate('detail.uuid'), item.uuid || '', 'uuid')}
                 </dl>
                 <div class="detail-url ${url ? '' : 'detail-url-empty'}">
-                    <span>Source URL</span>
+                    <span>${escapeHtml(translate('detail.source_url'))}</span>
                     ${urlHtml}
                 </div>
                 <div class="detail-actions">${renderActionButtons(item, 'detail')}</div>
@@ -922,7 +962,7 @@ $(function () {
 
     function formatTimestamp(timestamp) {
         if (!timestamp) {
-            return 'Unknown';
+            return translate('common.unknown');
         }
 
         const date = new Date(timestamp);
@@ -930,7 +970,17 @@ $(function () {
             return timestamp;
         }
 
-        return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+        try {
+            return new Intl.DateTimeFormat(appLocale(), {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(date);
+        } catch (error) {
+            return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+        }
     }
 
     function pad2(value) {
@@ -940,7 +990,7 @@ $(function () {
     function formatFileSize(item) {
         const size = Number(item.file_size_bytes || 0);
         if (!item.file_exists) {
-            return item.filename ? 'Missing' : '-';
+            return item.filename ? translate('history.missing') : '-';
         }
         if (size <= 0) {
             return '0 B';
@@ -955,7 +1005,16 @@ $(function () {
         }
 
         const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
-        return `${value.toFixed(precision)} ${units[unitIndex]}`;
+        let formattedValue = value.toFixed(precision);
+        try {
+            formattedValue = new Intl.NumberFormat(appLocale(), {
+                minimumFractionDigits: precision,
+                maximumFractionDigits: precision
+            }).format(value);
+        } catch (error) {
+            // Keep the stable numeric fallback above.
+        }
+        return `${formattedValue} ${units[unitIndex]}`;
     }
 
     function getHistoryType(resolution) {
@@ -970,6 +1029,16 @@ $(function () {
             return 'subtitle';
         }
         return 'video';
+    }
+
+    function getDownloadTypeText(type) {
+        const keyByType = {
+            video: 'history.video',
+            audio: 'history.audio',
+            subtitle: 'history.subtitle',
+            file: 'history.file'
+        };
+        return translate(keyByType[type] || 'history.file');
     }
 
     function getResolutionClass(resolution) {
@@ -1003,10 +1072,17 @@ $(function () {
     }
 
     function getStatusText(status) {
-        if (status === 'file_only') {
-            return 'Mounted';
-        }
-        return status || 'unknown';
+        const keyByStatus = {
+            file_only: 'history.mounted',
+            completed: 'history.completed',
+            failed: 'history.failed',
+            error: 'history.error',
+            pending: 'history.status_pending',
+            queued: 'activity.queued',
+            working: 'history.status_working',
+            extracting_info: 'history.status_extracting_info'
+        };
+        return translate(keyByStatus[status] || 'history.unknown');
     }
 
     function escapeHtml(value) {
@@ -1035,10 +1111,9 @@ $(function () {
 
         var displayText = Math.round(percentage) + '%';
         if (currentVideoTitle) {
-            displayText = Math.round(percentage) + '% - ' + currentVideoTitle;
-            if (currentChannel) {
-                displayText += ' by ' + currentChannel;
-            }
+            displayText = currentChannel ?
+                translate('activity.by_channel', { progress: Math.round(percentage), title: currentVideoTitle, channel: currentChannel }) :
+                Math.round(percentage) + '% - ' + currentVideoTitle;
         }
         $('#progress-text').text(displayText);
         updateActivityPanel(activeDownload);
@@ -1091,7 +1166,7 @@ $(function () {
             dataType: "json",
             success: applyStatusResponse,
             error: function() {
-                updateConnectionStatus('Status unavailable', 'failed');
+                updateConnectionStatus(translate('connection.unavailable'), 'failed');
             }
         });
     }
@@ -1111,7 +1186,7 @@ $(function () {
         const nextSignature = JSON.stringify(nextQueueItems.map(queueItemSignature));
         queueCount = nextQueueCount;
         queueItems = nextQueueItems;
-        $('#queue-count').text(`Queue ${queueCount}`);
+        $('#queue-count').text(translate('activity.queue_count', { count: queueCount }));
         if (currentSignature !== nextSignature) {
             renderQueueItems();
         }
@@ -1132,21 +1207,21 @@ $(function () {
         const container = $('#queue-items');
         const summary = $('#queue-summary');
         if (queueItems.length === 0) {
-            summary.text('Queue is empty');
-            container.html('<div class="queue-empty">New requests will appear here in order.</div>');
+            summary.text(translate('activity.queue_empty'));
+            container.html(`<div class="queue-empty">${escapeHtml(translate('activity.queue_hint'))}</div>`);
             return;
         }
 
-        summary.text(`${queueItems.length} waiting`);
+        summary.text(translate('queue.waiting', { count: queueItems.length }));
         container.html(queueItems.map(function(item, index) {
             const position = Number(item.position || index + 1);
-            const url = String(item.url || 'Queued request');
+            const url = String(item.url || translate('queue.request'));
             const resolution = String(item.resolution || 'best');
             const source = String(item.source || 'web');
             const jobId = String(item.id || '');
             const sourceLabel = item.restored ?
-                'Restored after restart' :
-                (source === 'api' ? 'API request' : 'Dashboard request');
+                translate('queue.restored') :
+                (source === 'api' ? translate('queue.api_request') : translate('queue.dashboard_request'));
             return `
                 <div class="queue-item">
                     <span class="queue-position">${position}</span>
@@ -1156,7 +1231,7 @@ $(function () {
                     </div>
                     <span class="resolution-tag ${getResolutionClass(resolution)}">${escapeHtml(resolution)}</span>
                     <button type="button" class="queue-remove" data-job-id="${escapeAttr(jobId)}"
-                            title="Remove from queue" aria-label="Remove queued download">
+                            title="${escapeAttr(translate('queue.remove_title'))}" aria-label="${escapeAttr(translate('queue.remove_label'))}">
                         <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
                     </button>
                 </div>
@@ -1188,13 +1263,13 @@ $(function () {
             success: function(response) {
                 if (response.success) {
                     fetchStatus();
-                    addMessage('Queued download removed', 'info');
+                    addMessage(translate('queue.removed'), 'info');
                 } else {
-                    addMessage(response.msg || 'Failed to remove queued download', 'error');
+                    addMessage(getResponseMessage(response, translate('queue.remove_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, 'Failed to remove queued download'), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('queue.remove_failed')), 'error');
                 fetchStatus();
             }
         });
@@ -1203,10 +1278,10 @@ $(function () {
     function updateActivityPanel(downloadData) {
         const data = downloadData || null;
         if (!data) {
-            $('#activity-title').text(queueCount > 0 ? 'Waiting in queue' : 'Idle');
-            $('#activity-summary').text(queueCount > 0 ? 'Requests are queued' : 'No active download');
-            $('#activity-channel').text(queueCount > 0 ? 'The worker will pick up the next request.' : 'Waiting for the next request.');
-            $('#activity-status').text(queueCount > 0 ? 'queued' : 'idle')
+            $('#activity-title').text(queueCount > 0 ? translate('activity.waiting_queue') : translate('activity.idle'));
+            $('#activity-summary').text(queueCount > 0 ? translate('activity.requests_queued') : translate('activity.no_active'));
+            $('#activity-channel').text(queueCount > 0 ? translate('activity.worker_hint') : translate('activity.waiting_next'));
+            $('#activity-status').text(queueCount > 0 ? translate('activity.queued') : translate('activity.idle'))
                 .removeClass('status-completed status-failed status-pending')
                 .addClass('status-pending');
             $('#activity-thumbnail-image').hide().attr('src', '');
@@ -1216,12 +1291,12 @@ $(function () {
         }
 
         const status = data.status || 'working';
-        const title = data.title || currentVideoTitle || 'Preparing download';
-        const channel = data.channel || currentChannel || 'Resolving media information';
+        const title = data.title || currentVideoTitle || translate('activity.preparing');
+        const channel = data.channel || currentChannel || translate('activity.resolving');
         $('#activity-title').text(title);
-        $('#activity-summary').text(status === 'extracting_info' ? 'Getting video information' : 'Download in progress');
+        $('#activity-summary').text(status === 'extracting_info' ? translate('activity.getting_info') : translate('activity.in_progress'));
         $('#activity-channel').text(channel);
-        $('#activity-status').text(status)
+        $('#activity-status').text(getStatusText(status))
             .removeClass('status-completed status-failed status-pending')
             .addClass(getStatusClass(status));
 
@@ -1236,7 +1311,7 @@ $(function () {
         const hasTransferStats = Boolean(data.speed || data.eta);
         $('#activity-transfer').prop('hidden', !hasTransferStats);
         $('#activity-speed').text(data.speed || '--');
-        $('#activity-eta').text(data.eta ? `ETA ${data.eta}` : 'ETA --');
+        $('#activity-eta').text(translate('activity.eta', { value: data.eta || '--' }));
     }
 
     function addMessage(message, type = 'info', autoHide = true) {
@@ -1251,7 +1326,7 @@ $(function () {
 
         const messageHtml = `
             <div id="${messageId}" class="alert ${alertClass} alert-dismissible" style="margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <button type="button" class="close" data-dismiss="alert" aria-label="${escapeAttr(translate('common.close'))}">
                     <span aria-hidden="true">&times;</span>
                 </button>
                 ${escapeHtml(message)}
@@ -1284,13 +1359,24 @@ $(function () {
         });
     }
 
+    function getResponseMessage(payload, fallback) {
+        if (payload && payload.code) {
+            const key = `server.${payload.code}`;
+            const localized = translate(key, payload.params || {});
+            if (localized !== key) {
+                return localized;
+            }
+        }
+        return (payload && payload.msg) || fallback;
+    }
+
     function getAjaxErrorMessage(jqXHR, fallback) {
-        if (jqXHR.responseJSON && jqXHR.responseJSON.msg) {
-            return jqXHR.responseJSON.msg;
+        if (jqXHR.responseJSON) {
+            return getResponseMessage(jqXHR.responseJSON, fallback);
         }
         try {
             const response = JSON.parse(jqXHR.responseText);
-            return response.msg || fallback;
+            return getResponseMessage(response, fallback);
         } catch (e) {
             return fallback;
         }
@@ -1343,7 +1429,7 @@ $(function () {
             saveLocalState();
             fetchHistory({ quiet: true });
             if (hadHistory) {
-                addMessage("History rows cleared. Mounted files were reloaded.", 'warning');
+                addMessage(translate('message.history_reloaded'), 'warning');
             }
 
         } else if (messageType === "[HISTORY_DELETED]") {
@@ -1355,7 +1441,7 @@ $(function () {
             renderHistory();
             saveLocalState();
             if (hadItem) {
-                addMessage("Download history item deleted", 'info');
+                addMessage(translate('message.history_deleted'), 'info');
             }
 
         } else if (messageType === "[COMPLETE]") {
@@ -1368,11 +1454,11 @@ $(function () {
                 saveLocalState();
                 fetchStatus();
 
-                const displayTitle = completeData.title && completeData.title.length > 50 ? completeData.title.substring(0, 50) + '...' : completeData.title || 'download';
-                addMessage(`Download completed: ${displayTitle}`, 'success');
+                const displayTitle = completeData.title && completeData.title.length > 50 ? completeData.title.substring(0, 50) + '...' : completeData.title || translate('common.untitled');
+                addMessage(translate('message.download_completed', { title: displayTitle }), 'success');
             } catch (e) {
                 console.error("Error parsing complete message:", e, "Raw content:", messageContent);
-                addMessage("Error processing download completion", 'error');
+                addMessage(translate('message.completion_error'), 'error');
             }
         } else if (messageType === "[RESTORE_ACTIVE]") {
             try {
@@ -1404,7 +1490,7 @@ $(function () {
                 if (activeData.progress > 0 && activeData.progress < 100) {
                     const displayTitle = activeData.title && activeData.title.length > 30 ?
                                        activeData.title.substring(0, 30) + '...' : activeData.title;
-                    addMessage(`Resuming download: ${displayTitle} (${Math.round(activeData.progress)}%)`, 'info');
+                    addMessage(translate('message.resuming', { title: displayTitle, progress: Math.round(activeData.progress) }), 'info');
                 }
             } catch (e) {
                 console.error("Error parsing active download data:", e);
@@ -1417,8 +1503,8 @@ $(function () {
             try {
                 const duplicateData = JSON.parse(messageContent);
                 const existing = duplicateData.existing || {};
-                const title = existing.title || existing.filename || 'This download';
-                addMessage(`Already on NAS: ${title}`, 'warning');
+                const title = existing.title || existing.filename || translate('common.untitled');
+                addMessage(translate('message.already_on_nas', { title: title }), 'warning');
                 activeDownload = null;
                 updateActivityPanel(null);
                 fetchStatus();
@@ -1448,7 +1534,11 @@ $(function () {
             }
 
         } else if (messageType === "[MSG]") {
-            const message = messageContent;
+            const localizedMessages = {
+                "Shared URL received. Added to the NAS queue.": translate('message.shared_queued'),
+                "Download error occurred": translate('message.download_error')
+            };
+            const message = localizedMessages[messageContent] || messageContent;
 
             const skipMessages = [
                 "WebSocket connection opened.",
@@ -1519,8 +1609,8 @@ $(function () {
                     <h4>${escapeHtml(title)}</h4>
                     <p>${escapeHtml(message)}</p>
                     <div class="confirm-buttons">
-                        <button class="btn btn-default confirm-cancel">Cancel</button>
-                        <button class="btn btn-danger confirm-ok">${escapeHtml(confirmText || 'Delete')}</button>
+                        <button class="btn btn-default confirm-cancel">${escapeHtml(translate('common.cancel'))}</button>
+                        <button class="btn btn-danger confirm-ok">${escapeHtml(confirmText || translate('common.delete'))}</button>
                     </div>
                 </div>
             </div>
@@ -1558,12 +1648,12 @@ $(function () {
 
     function showMediaPreview(item) {
         if (!item || !item.file_exists || (item.download_type !== 'video' && item.download_type !== 'audio')) {
-            addMessage('This file cannot be previewed in the browser', 'warning');
+            addMessage(translate('preview.unavailable'), 'warning');
             return;
         }
 
         closeMediaPreview();
-        const title = item.title || item.filename || 'Media preview';
+        const title = item.title || item.filename || translate('preview.media');
         const source = escapeAttr(getPreviewHref(item));
         const player = item.download_type === 'audio' ?
             `<div class="media-preview-audio-art"><span class="glyphicon glyphicon-music" aria-hidden="true"></span></div><audio controls autoplay preload="metadata" src="${source}"></audio>` :
@@ -1573,10 +1663,10 @@ $(function () {
                 <div class="media-preview-content">
                     <header class="media-preview-header">
                         <div>
-                            <span>Preview</span>
+                            <span>${escapeHtml(translate('preview.heading'))}</span>
                             <h2 id="media-preview-title">${escapeHtml(title)}</h2>
                         </div>
-                        <button type="button" class="media-preview-close" title="Close preview" aria-label="Close preview">
+                        <button type="button" class="media-preview-close" title="${escapeAttr(translate('preview.close'))}" aria-label="${escapeAttr(translate('preview.close'))}">
                             <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
                         </button>
                     </header>
@@ -1599,40 +1689,40 @@ $(function () {
 
     function showSubtitleQa(item) {
         if (!item || !item.file_exists || item.download_type !== 'subtitle') {
-            addMessage('Subtitle QA requires an available subtitle file', 'warning');
+            addMessage(translate('qa.unavailable'), 'warning');
             return;
         }
 
         closeSubtitleQa();
-        const title = item.title || item.filename || 'Subtitle QA';
+        const title = item.title || item.filename || translate('action.subtitle_qa');
         const modal = $(`
             <div class="subtitle-qa-modal" role="dialog" aria-modal="true" aria-labelledby="subtitle-qa-title">
                 <div class="subtitle-qa-content">
                     <header class="subtitle-qa-header">
                         <div>
-                            <span>Subtitle QA</span>
+                            <span>${escapeHtml(translate('action.subtitle_qa'))}</span>
                             <h2 id="subtitle-qa-title">${escapeHtml(title)}</h2>
-                            <p>${escapeHtml(item.filename || 'Subtitle file')}</p>
+                            <p>${escapeHtml(item.filename || translate('qa.subtitle_file'))}</p>
                         </div>
-                        <button type="button" class="subtitle-qa-close" title="Close Subtitle QA" aria-label="Close Subtitle QA">
+                        <button type="button" class="subtitle-qa-close" title="${escapeAttr(translate('qa.close'))}" aria-label="${escapeAttr(translate('qa.close'))}">
                             <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
                         </button>
                     </header>
                     <form class="subtitle-qa-form">
                         <label class="subtitle-qa-field">
-                            <span>Reference transcript</span>
-                            <textarea class="form-control" name="reference" rows="8" maxlength="100000" required placeholder="Paste the verified transcript to compare with this subtitle file."></textarea>
+                            <span>${escapeHtml(translate('qa.reference'))}</span>
+                            <textarea class="form-control" name="reference" rows="8" maxlength="100000" required placeholder="${escapeAttr(translate('qa.reference_placeholder'))}"></textarea>
                         </label>
                         <label class="subtitle-qa-field">
-                            <span>Keywords <small>optional, comma or line separated</small></span>
-                            <input class="form-control" name="keywords" type="text" placeholder="Azure AI, yt-dlp, Synology">
+                            <span>${escapeHtml(translate('qa.keywords'))} <small>${escapeHtml(translate('qa.keywords_hint'))}</small></span>
+                            <input class="form-control" name="keywords" type="text" placeholder="${escapeAttr(translate('qa.keywords_placeholder'))}">
                         </label>
                         <div class="subtitle-qa-error" role="alert" hidden></div>
                         <div class="subtitle-qa-actions">
-                            <button type="button" class="btn btn-default subtitle-qa-cancel">Cancel</button>
+                            <button type="button" class="btn btn-default subtitle-qa-cancel">${escapeHtml(translate('common.cancel'))}</button>
                             <button type="submit" class="btn btn-primary subtitle-qa-submit">
                                 <span class="glyphicon glyphicon-stats" aria-hidden="true"></span>
-                                Analyze
+                                ${escapeHtml(translate('qa.analyze'))}
                             </button>
                         </div>
                     </form>
@@ -1657,13 +1747,13 @@ $(function () {
         const keywords = String(form.find('[name="keywords"]').val() || '').trim();
 
         if (!reference) {
-            error.text('Paste a reference transcript before analyzing.').prop('hidden', false);
+            error.text(translate('qa.reference_required')).prop('hidden', false);
             form.find('[name="reference"]').focus();
             return;
         }
 
         error.prop('hidden', true).empty();
-        submit.prop('disabled', true).html('<span class="glyphicon glyphicon-refresh qa-spin" aria-hidden="true"></span> Analyzing');
+        submit.prop('disabled', true).html(`<span class="glyphicon glyphicon-refresh qa-spin" aria-hidden="true"></span> ${escapeHtml(translate('qa.analyzing'))}`);
         $.ajax({
             method: 'POST',
             url: `/youtube-dl/subtitle-qa/${encodeURIComponent(item.uuid)}`,
@@ -1672,16 +1762,16 @@ $(function () {
             dataType: 'json',
             success: function(response) {
                 if (!response.success) {
-                    error.text(response.msg || 'Subtitle QA failed').prop('hidden', false);
+                    error.text(getResponseMessage(response, translate('qa.failed'))).prop('hidden', false);
                     return;
                 }
                 renderSubtitleQaResults(modal, response);
             },
             error: function(jqXHR) {
-                error.text(getAjaxErrorMessage(jqXHR, 'Subtitle QA failed')).prop('hidden', false);
+                error.text(getAjaxErrorMessage(jqXHR, translate('qa.failed'))).prop('hidden', false);
             },
             complete: function() {
-                submit.prop('disabled', false).html('<span class="glyphicon glyphicon-stats" aria-hidden="true"></span> Analyze');
+                submit.prop('disabled', false).html(`<span class="glyphicon glyphicon-stats" aria-hidden="true"></span> ${escapeHtml(translate('qa.analyze'))}`);
             }
         });
     }
@@ -1693,7 +1783,7 @@ $(function () {
         const crr = result.crr || {};
         const keywords = Array.isArray(result.keywords) ? result.keywords : [];
         const keywordRows = keywords.length ? keywords.map(function(keyword) {
-            const rate = keyword.preservation_rate === null ? 'Not in reference' : formatQaPercent(keyword.preservation_rate);
+            const rate = keyword.preservation_rate === null ? translate('qa.not_in_reference') : formatQaPercent(keyword.preservation_rate);
             return `
                 <tr>
                     <td>${escapeHtml(keyword.keyword)}</td>
@@ -1705,10 +1795,10 @@ $(function () {
         }).join('') : '';
         const keywordSection = keywordRows ? `
             <div class="subtitle-qa-keywords">
-                <h3>Keyword preservation</h3>
+                <h3>${escapeHtml(translate('qa.keyword_preservation'))}</h3>
                 <div class="subtitle-qa-table-wrap">
                     <table>
-                        <thead><tr><th>Keyword</th><th>Reference</th><th>Subtitle</th><th>Preserved</th></tr></thead>
+                        <thead><tr><th>${escapeHtml(translate('qa.keyword'))}</th><th>${escapeHtml(translate('qa.reference_short'))}</th><th>${escapeHtml(translate('qa.subtitle_short'))}</th><th>${escapeHtml(translate('qa.preserved'))}</th></tr></thead>
                         <tbody>${keywordRows}</tbody>
                     </table>
                 </div>
@@ -1718,27 +1808,27 @@ $(function () {
         modal.find('.subtitle-qa-results').html(`
             <div class="subtitle-qa-result-heading">
                 <div>
-                    <span>Analysis complete</span>
-                    <h3>${escapeHtml((response.file && response.file.filename) || 'Subtitle file')}</h3>
+                    <span>${escapeHtml(translate('qa.analysis_complete'))}</span>
+                    <h3>${escapeHtml((response.file && response.file.filename) || translate('qa.subtitle_file'))}</h3>
                 </div>
                 <span class="subtitle-qa-engine">nlptutti ${escapeHtml(result.nlptutti_version || '')}</span>
             </div>
             <div class="subtitle-qa-metrics">
-                <div><span>Character accuracy</span><strong>${formatQaPercent(crr.crr)}</strong><small>Higher is better</small></div>
-                <div><span>Character error</span><strong>${formatQaPercent(cer.cer)}</strong><small>Lower is better</small></div>
-                <div><span>Word error</span><strong>${formatQaPercent(wer.wer)}</strong><small>Lower is better</small></div>
+                <div><span>${escapeHtml(translate('qa.character_accuracy'))}</span><strong>${formatQaPercent(crr.crr)}</strong><small>${escapeHtml(translate('qa.higher_better'))}</small></div>
+                <div><span>${escapeHtml(translate('qa.character_error'))}</span><strong>${formatQaPercent(cer.cer)}</strong><small>${escapeHtml(translate('qa.lower_better'))}</small></div>
+                <div><span>${escapeHtml(translate('qa.word_error'))}</span><strong>${formatQaPercent(wer.wer)}</strong><small>${escapeHtml(translate('qa.lower_better'))}</small></div>
             </div>
             <div class="subtitle-qa-breakdown">
-                <div><span>Characters</span><strong>${Number(result.subtitle_characters || 0)}</strong><small>Reference ${Number(result.reference_characters || 0)}</small></div>
-                <div><span>Words</span><strong>${Number(result.subtitle_words || 0)}</strong><small>Reference ${Number(result.reference_words || 0)}</small></div>
-                <div><span>Substitutions</span><strong>${Number(cer.substitutions || 0)}</strong><small>Character level</small></div>
-                <div><span>Deletions</span><strong>${Number(cer.deletions || 0)}</strong><small>Character level</small></div>
-                <div><span>Insertions</span><strong>${Number(cer.insertions || 0)}</strong><small>Character level</small></div>
+                <div><span>${escapeHtml(translate('qa.characters'))}</span><strong>${Number(result.subtitle_characters || 0)}</strong><small>${escapeHtml(translate('qa.reference_count', { count: Number(result.reference_characters || 0) }))}</small></div>
+                <div><span>${escapeHtml(translate('qa.words'))}</span><strong>${Number(result.subtitle_words || 0)}</strong><small>${escapeHtml(translate('qa.reference_count', { count: Number(result.reference_words || 0) }))}</small></div>
+                <div><span>${escapeHtml(translate('qa.substitutions'))}</span><strong>${Number(cer.substitutions || 0)}</strong><small>${escapeHtml(translate('qa.character_level'))}</small></div>
+                <div><span>${escapeHtml(translate('qa.deletions'))}</span><strong>${Number(cer.deletions || 0)}</strong><small>${escapeHtml(translate('qa.character_level'))}</small></div>
+                <div><span>${escapeHtml(translate('qa.insertions'))}</span><strong>${Number(cer.insertions || 0)}</strong><small>${escapeHtml(translate('qa.character_level'))}</small></div>
             </div>
             ${keywordSection}
             <div class="subtitle-qa-result-actions">
-                <button type="button" class="btn btn-default subtitle-qa-edit">Edit reference</button>
-                <button type="button" class="btn btn-primary subtitle-qa-done">Done</button>
+                <button type="button" class="btn btn-default subtitle-qa-edit">${escapeHtml(translate('qa.edit_reference'))}</button>
+                <button type="button" class="btn btn-primary subtitle-qa-done">${escapeHtml(translate('common.done'))}</button>
             </div>
         `).prop('hidden', false);
         modal.find('.subtitle-qa-form').prop('hidden', true);
@@ -1757,14 +1847,14 @@ $(function () {
                     renderHistory();
                     saveLocalState();
                     if (!settings.quiet) {
-                        addMessage("File list refreshed", 'success');
+                        addMessage(translate('message.file_list_refreshed'), 'success');
                     }
                 } else {
-                    addMessage(response.msg || "Failed to refresh history", 'error');
+                    addMessage(getResponseMessage(response, translate('message.refresh_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, "Failed to refresh history"), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.refresh_failed')), 'error');
             }
         });
     }
@@ -1782,14 +1872,14 @@ $(function () {
                     saveLocalState();
                     fetchHistory({ quiet: true });
                     if (hadHistory) {
-                        addMessage("History rows cleared. Downloaded files were kept and reloaded.", 'warning');
+                        addMessage(translate('message.history_cleared'), 'warning');
                     }
                 } else {
-                    addMessage(response.msg || "Failed to clear history", 'error');
+                    addMessage(getResponseMessage(response, translate('message.clear_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while clearing history"), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.clear_error')), 'error');
             }
         });
     }
@@ -1808,14 +1898,14 @@ $(function () {
                     renderHistory();
                     saveLocalState();
                     if (hadItem) {
-                        addMessage("History item deleted. File was kept.", 'info');
+                        addMessage(translate('message.history_item_deleted'), 'info');
                     }
                 } else {
-                    addMessage(response.msg || "Failed to delete history item", 'error');
+                    addMessage(getResponseMessage(response, translate('message.history_delete_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while deleting history"), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.history_delete_error')), 'error');
             }
         });
     }
@@ -1835,14 +1925,14 @@ $(function () {
                     renderHistory();
                     saveLocalState();
                     if (deletedCount > 0) {
-                        addMessage("File and related history deleted", 'warning');
+                        addMessage(translate('message.file_deleted'), 'warning');
                     }
                 } else {
-                    addMessage(response.msg || "Failed to delete file", 'error');
+                    addMessage(getResponseMessage(response, translate('message.file_delete_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while deleting file"), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.file_delete_error')), 'error');
             }
         });
     }
@@ -1856,13 +1946,13 @@ $(function () {
                     $('#progress-container').show();
                     updateProgress(0);
                     fetchStatus();
-                    addMessage("Retry request submitted successfully", 'success');
+                    addMessage(translate('message.retry_submitted'), 'success');
                 } else {
-                    addMessage(response.msg || "Failed to retry download", 'error');
+                    addMessage(getResponseMessage(response, translate('message.retry_failed')), 'error');
                 }
             },
             error: function(jqXHR) {
-                addMessage(getAjaxErrorMessage(jqXHR, "Error occurred while retrying download"), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.retry_error')), 'error');
             }
         });
     }
@@ -1911,7 +2001,7 @@ $(function () {
         console.log("Selected resolution:", data.resolution);
 
         if (!data.url) {
-            addMessage("Please enter a URL", 'warning');
+            addMessage(translate('message.enter_url'), 'warning');
             return false;
         }
 
@@ -1932,7 +2022,7 @@ $(function () {
                     const duplicate = response.existing || response.job || {};
                     const label = duplicate.title || duplicate.filename || formatQueueUrl(data.url);
                     fetchStatus();
-                    addMessage(`Already queued or on NAS: ${label}`, 'warning');
+                    addMessage(translate('message.already_queued', { title: label }), 'warning');
                     return;
                 }
                 $('#progress-container').show();
@@ -1940,12 +2030,12 @@ $(function () {
                 currentVideoTitle = '';
                 currentChannel = '';
                 fetchStatus();
-                addMessage("Download request submitted successfully", 'success');
+                addMessage(translate('message.request_submitted'), 'success');
             },
             error: function(jqXHR, textStatus, errorThrown) {
                 console.log("AJAX error - textStatus:", textStatus);
                 console.log("AJAX error - errorThrown:", errorThrown);
-                addMessage(getAjaxErrorMessage(jqXHR, "Request failed: " + textStatus), 'error');
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.request_failed', { status: textStatus })), 'error');
             }
         });
 
@@ -2048,10 +2138,10 @@ $(function () {
 
     $(document).on("click", "#clear-history", function() {
         showConfirmModal(
-            "Clear History Rows",
-            "Clear saved history rows? Files in /downfolder will be kept and shown again as mounted files.",
+            translate('confirm.clear_heading'),
+            translate('confirm.clear_message'),
             clearAllHistory,
-            "Clear Rows"
+            translate('history.clear_rows')
         );
     });
 
@@ -2059,15 +2149,15 @@ $(function () {
         event.stopPropagation();
         const uuid = $(this).data('uuid');
         const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
-        const title = item ? item.title : 'this item';
+        const title = item ? item.title : translate('common.untitled');
 
         showConfirmModal(
-            "Delete History Item",
-            `Delete the history row for "${title.substring(0, 50)}"? The file will be kept.`,
+            translate('confirm.delete_history_heading'),
+            translate('confirm.delete_history_message', { title: title.substring(0, 50) }),
             function() {
                 deleteHistoryItem(uuid);
             },
-            "Delete History"
+            translate('action.delete_history')
         );
     });
 
@@ -2075,19 +2165,19 @@ $(function () {
         event.stopPropagation();
         const uuid = $(this).data('uuid');
         const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
-        const title = item ? item.title : 'this file';
+        const title = item ? item.title : translate('history.file');
         const mountedFile = item && isMountedFile(item);
         const message = mountedFile ?
-            `Delete the physical file for "${title.substring(0, 50)}"? This mounted file has no saved history row.` :
-            `Delete the physical file for "${title.substring(0, 50)}" and remove related history rows?`;
+            translate('confirm.delete_mounted_message', { title: title.substring(0, 50) }) :
+            translate('confirm.delete_file_message', { title: title.substring(0, 50) });
 
         showConfirmModal(
-            "Delete File",
+            translate('confirm.delete_file_heading'),
             message,
             function() {
                 deleteHistoryFile(uuid);
             },
-            "Delete File"
+            translate('action.delete_file')
         );
     });
 
