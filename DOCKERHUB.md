@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0804` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0806` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -41,6 +41,9 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
 - Subtitle QA for SRT/VTT/ASS/SSA files with `nlptutti` CER/WER/CRR metrics and keyword preservation.
 - Android PWA sharing, Android local-HTTP Shortcuts, and an installable iOS Shortcut.
+- Per-device PWA share profiles, including Ask every time for review before queueing.
+- Playlist Guard with explicit Current video, First 10, and All items scopes.
+- Optional JPG thumbnail sidecars with local grid previews and sidecar-aware deletion.
 - REST API with normal ID/password authentication and an optional Bearer token.
 - `yt-dlp`, `yt-dlp-ejs`, and Deno updates at startup and every hour by default.
 - Current `nlptutti` installation or upgrade whenever a new container starts.
@@ -101,14 +104,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0804` | Current pinned release |
+| `26.0806` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0804` when reproducibility matters; use `latest` to follow the current stable branch.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0806` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0804
+docker pull modenaf360/youtube-dl-nas:26.0806
 ```
 
 ## Health Check

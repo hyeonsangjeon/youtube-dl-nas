@@ -1698,6 +1698,87 @@ a:hover {
   background: #0b6674;
 }
 
+.composer-options {
+  border-top: 1px solid #e7ecf2;
+  padding-top: 10px;
+}
+
+.composer-options [hidden] {
+  display: none !important;
+}
+
+.composer-options summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  color: #526173;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.composer-options summary::-webkit-details-marker {
+  display: none;
+}
+
+.composer-options summary:focus-visible {
+  outline: 2px solid #0f7a8a;
+  outline-offset: 3px;
+}
+
+.options-alert {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a4c00;
+  font-size: 11px;
+}
+
+.composer-options-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(210px, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding-top: 12px;
+}
+
+.composer-options-grid small {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.option-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  min-height: 58px;
+  margin: 0;
+  padding-top: 4px;
+  color: #344054;
+  cursor: pointer;
+}
+
+.option-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: #0f7a8a;
+}
+
+.option-toggle span {
+  display: grid;
+  gap: 5px;
+}
+
+.option-toggle strong {
+  font-size: 12px;
+}
+
 .download-preview {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -3117,6 +3198,7 @@ a.video-title {
   }
 
   .composer-grid,
+  .composer-options-grid,
   .history-controls {
     grid-template-columns: 1fr;
   }

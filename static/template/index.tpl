@@ -16,7 +16,7 @@
     <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}-i18n-1" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}-roadmap-1" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -259,6 +259,44 @@
                                     {{t('composer.submit')}}
                                 </button>
                             </div>
+                            <details id="download-options" class="composer-options">
+                                <summary>
+                                    <span class="glyphicon glyphicon-cog" aria-hidden="true"></span>
+                                    {{t('composer.options')}}
+                                    <span id="playlist-guard-badge" class="options-alert" hidden>{{t('composer.playlist_detected')}}</span>
+                                </summary>
+                                <div class="composer-options-grid">
+                                    <label id="playlist-scope-field" class="form-field" hidden>
+                                        <span>{{t('composer.playlist_scope')}}</span>
+                                        <select id="playlist-mode" class="form-control admin-control">
+                                            <option value="">{{t('composer.playlist_choose')}}</option>
+                                            <option value="single">{{t('composer.playlist_single')}}</option>
+                                            <option value="first10">{{t('composer.playlist_first10')}}</option>
+                                            <option value="all">{{t('composer.playlist_all')}}</option>
+                                        </select>
+                                        <small id="playlist-scope-hint">{{t('composer.playlist_hint')}}</small>
+                                    </label>
+                                    <label class="option-toggle">
+                                        <input id="write-thumbnail" type="checkbox">
+                                        <span>
+                                            <strong>{{t('composer.thumbnail_sidecar')}}</strong>
+                                            <small>{{t('composer.thumbnail_sidecar_hint')}}</small>
+                                        </span>
+                                    </label>
+                                    <label class="form-field">
+                                        <span>{{t('composer.mobile_share_default')}}</span>
+                                        <select id="share-default-profile" class="form-control admin-control">
+                                            <option value="best">{{t('composer.share_best')}}</option>
+                                            <option value="1080p">1080p</option>
+                                            <option value="720p">720p</option>
+                                            <option value="audio-mp3">MP3</option>
+                                            <option value="audio-m4a">M4A</option>
+                                            <option value="ask">{{t('composer.share_ask')}}</option>
+                                        </select>
+                                        <small>{{t('composer.mobile_share_hint')}}</small>
+                                    </label>
+                                </div>
+                            </details>
                         </form>
 
                         <div id="thumbnail-container" class="download-preview" style="display: none;">
@@ -442,8 +480,9 @@
 <script>
     window.YDLNAS_LOCALE = {{!locale_json}};
     window.YDLNAS_I18N = {{!translations_json}};
+    window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-i18n-1"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-roadmap-1"></script>
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {

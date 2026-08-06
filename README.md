@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0804` (`2026-08-04`)
+Current release: `26.0806` (`2026-08-06`)
 
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
@@ -31,7 +31,9 @@ Current release: `26.0804` (`2026-08-04`)
 - Queue video, audio, or subtitle downloads from a browser.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
-- Share a URL from an installed Android PWA, an Android HTTP Shortcut, or an iOS Shortcut workflow.
+- Share a URL from an installed Android PWA with a per-device default profile, an Android HTTP Shortcut, or an iOS Shortcut workflow.
+- Guard playlist and channel URLs with explicit Current video, First 10, or All items scope before they reach the queue.
+- Optionally save a JPG thumbnail beside each downloaded video or audio file.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
 - Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
@@ -57,13 +59,17 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 
 ## Dashboard Workflow
 
-1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue.
+1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue. Playlist and channel URLs open a scope selector before bulk work can start.
 2. Watch the Current Activity panel for progress, speed, ETA, and the ordered list of jobs waiting next.
    Waiting jobs can be removed before they start. Jobs restored after a container restart are labeled in the queue.
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
 6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
+
+Open **Options** to save thumbnail sidecars or choose the profile used when this device shares a URL to the installed PWA. **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The setting is stored in a signed, HTTP-only preference cookie on that device.
+
+Playlist Guard defaults a normal video URL containing a playlist parameter to **Current video only**. Pure playlist and channel URLs require an explicit **First 10** or **All items** choice. Every completed output receives its own Files & History row.
 
 ### Subtitle QA
 
@@ -81,7 +87,7 @@ Clearing history rows does not delete files. Kept files are reloaded from `/down
 
 The active request and waiting jobs are written atomically to `queue_state.json` in the metadata volume. After a container restart, the interrupted active request is restored first, followed by the remaining queue in its original order. `yt-dlp --continue` reuses compatible partial files from `/downfolder/.incomplete`; whether a remote source can resume the exact byte range depends on that source.
 
-Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. Failed history items remain retryable. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
+Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile and options. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. A repeated completion for the same physical file reuses its existing history row and original download timestamp. Failed history items remain retryable. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
 
 Mount `/usr/src/app/metadata` persistently to retain the safe queue across container replacement. The queue remains intentionally file-backed and does not require a database.
 
@@ -167,7 +173,7 @@ docker run -d \
 
 ## Mobile Sharing
 
-- Android over HTTPS: install the dashboard as a PWA, then select **youtube-dl NAS** from the Android share sheet.
+- Android over HTTPS: install the dashboard as a PWA, choose a **Mobile share default** under **Options**, then select **youtube-dl NAS** from the Android share sheet.
 - Android over local HTTP: import the provided HTTP Shortcuts template, run **1. Configure NAS** once, and enter the normal dashboard URL, ID, and password.
 - iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut), replace its endpoint and credential placeholders, then share URLs directly to the NAS.
 
@@ -183,6 +189,8 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
   -d '{
     "url": "https://www.youtube.com/watch?v=s9mO5q6GiAc",
     "resolution": "best",
+    "playlist_mode": "single",
+    "write_thumbnail": false,
     "id": "iamgroot",
     "pw": "1234"
   }'
@@ -209,7 +217,9 @@ curl -X POST http://localhost:8080/youtube-dl/rest \
   -d '{"url":"https://youtu.be/s9mO5q6GiAc","resolution":"best"}'
 ```
 
-The API returns `"duplicate": true` without adding another job when the same URL and profile are already queued or saved on the NAS. Add `"force": true` only when an intentional repeat download is required.
+The API returns `"duplicate": true` without adding another job when the same URL, profile, and options are already queued or saved on the NAS. Add `"force": true` only when an intentional repeat download is required.
+
+`playlist_mode` accepts `single`, `first10`, or `all`. It defaults to `single` for normal URLs and video URLs that also contain a playlist parameter. Pure playlist and channel URLs require an explicit value so an unbounded download cannot start accidentally. Set `write_thumbnail` to `true` to save a converted JPG beside each video or audio file.
 
 Error responses retain the English `msg` field for existing integrations and may also include a stable `code` plus interpolation `params`. The dashboard uses those fields to show the error in the selected language.
 
@@ -227,6 +237,7 @@ These endpoints are used by the web UI and require a valid login cookie:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/youtube-dl/status` | `GET` | Read the active download, live transfer details, ordered queue, and connected clients. |
+| `/youtube-dl/preferences` | `GET`, `POST` | Read or update the signed per-device PWA share profile. |
 | `/youtube-dl/q/<job_id>/remove` | `POST` | Remove a waiting job before it becomes active. |
 | `/youtube-dl/history` | `GET` | Read normalized download history plus mounted `/downfolder` files that are not in metadata yet. |
 | `/youtube-dl/history/retry/<uuid>` | `POST` | Queue a previous history item again. |
@@ -235,6 +246,7 @@ These endpoints are used by the web UI and require a valid login cookie:
 | `/youtube-dl/history/clear` | `POST` | Clear history rows while keeping downloaded files. |
 | `/youtube-dl/subtitle-qa/<uuid>` | `POST` | Compare a stored SRT/VTT/ASS/SSA file with a reference transcript using `nlptutti`. |
 | `/static/preview/<uuid>` | `GET` | Stream an existing video or audio file inline for the authenticated preview player. |
+| `/static/thumbnail/<uuid>` | `GET` | Serve a saved thumbnail sidecar to the authenticated dashboard. |
 
 ## Local Development
 
@@ -284,7 +296,7 @@ docker run --rm \
   youtube-dl-nas:local
 ```
 
-The GitHub Actions workflow builds the Docker image for pull requests without publishing. Pushes to the default branch or version tags publish multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`), including `latest` on the default branch plus branch/tag and `sha-` tags.
+The GitHub Actions workflow builds the Docker image for pull requests without publishing. A version tag publishes multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`). One tag build updates `latest`, the pinned release tag, and its immutable `sha-` tag together.
 
 Configure these repository secrets before publishing to Docker Hub:
 
@@ -293,7 +305,7 @@ Configure these repository secrets before publishing to Docker Hub:
 
 GHCR publishing uses the workflow's built-in `GITHUB_TOKEN`; no additional registry secret is required.
 
-That keeps every Git change build-verified without publishing unreviewed images.
+That keeps pull requests build-verified and avoids rebuilding the same release once for the merge and again for the tag.
 
 ## Architecture
 
@@ -328,3 +340,4 @@ This project does not encourage or support unauthorized use. The developer bears
 ## Release Notes
 
 Full release history lives in [CHANGELOG.md](CHANGELOG.md).
+Focused follow-up work is tracked in the public [youtube-dl-nas Roadmap](https://github.com/users/hyeonsangjeon/projects/2).

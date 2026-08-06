@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0806 - 2026-08-06
+
+### Added
+
+- Added a per-device mobile share default with Best, 1080p, 720p, MP3, M4A, and Ask every time profiles.
+- Added Playlist Guard with explicit Current video, First 10, and All items scopes for playlist and channel URLs.
+- Added optional JPG thumbnail sidecars for video and audio downloads, authenticated local thumbnail previews, and sidecar-aware file deletion.
+
+### Changed
+
+- Persist playlist scope and thumbnail choices through the file-backed queue, restart recovery, queue display, and failed-job retry.
+- Record each completed playlist output as its own history item using item-specific yt-dlp metadata.
+- Publish `latest` and the pinned version tag together from one release-tag Docker build instead of rebuilding on both merge and tag pushes.
+
+### Fixed
+
+- Refresh history and activity when a mobile browser returns to the foreground or reconnects its WebSocket, without resetting filters, paging, or the selected item.
+- Reuse an existing history row for the same physical file or extractor/media ID and preserve its original download timestamp.
+- Keep thumbnail sidecars out of mounted-file rows and remove them with their associated media file.
+
+### Documentation
+
+- Updated the README, Docker Hub overview, dashboard guide, mobile sharing guide, and REST examples for the `26.0806` workflow.
+
 ## 26.0804 - 2026-08-04
 
 ### Added
