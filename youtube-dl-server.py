@@ -34,7 +34,7 @@ AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0804")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0806")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -50,8 +50,21 @@ SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_
 SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
 SUBTITLE_QA_MAX_KEYWORDS = 20
 YTDLP_OUTPUT_TEMPLATE = "%(title)s__%(extractor_key)s_%(id)s.%(ext)s"
+YTDLP_ITEM_PREFIX = "__YDLNAS_ITEM__:"
+YTDLP_ITEM_TEMPLATE = (
+    '{"filepath":%(filepath|"")j,"title":%(title|"")j,'
+    '"uploader":%(uploader|"")j,"channel":%(channel|"")j,'
+    '"thumbnail":%(thumbnail|"")j,"duration":%(duration|0)j,'
+    '"id":%(id|"")j,"extractor_key":%(extractor_key|"")j,'
+    '"webpage_url":%(webpage_url|"")j,"original_url":%(original_url|"")j}'
+)
 GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
-QUEUE_STATE_VERSION = 1
+QUEUE_STATE_VERSION = 2
+PLAYLIST_MODES = {"single", "first10", "all"}
+SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
+SHARE_REVIEW_COOKIE = "share_review"
+SHARE_PROFILES = {"best", "1080p", "720p", "audio-mp3", "audio-m4a", "ask"}
+THUMBNAIL_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 TRACKING_QUERY_KEYS = {
     "fbclid",
     "feature",
@@ -75,6 +88,9 @@ ERROR_CODE_BY_MESSAGE = {
     "Resolution is required": "resolution_required",
     "Subtitle downloads require a language code, for example vtt|en or srt|ko": "subtitle_language_required",
     "Unsupported resolution": "unsupported_resolution",
+    "Unsupported playlist mode": "unsupported_playlist_mode",
+    "Playlist scope is required": "playlist_scope_required",
+    "Unsupported mobile share profile": "unsupported_share_profile",
     "Queued download not found or already active": "queue_not_found",
     "History item not found": "history_not_found",
     "Valid file path not found": "valid_path_not_found",
@@ -267,12 +283,62 @@ def set_pending_share_cookie(shared_url, data):
         max_age=600,
     )
 
-def queue_shared_url(shared_url):
-    validation_error = validate_download_request(shared_url, "best")
+
+def normalize_share_profile(value, default="best"):
+    profile = str(value or "").strip().lower()
+    return profile if profile in SHARE_PROFILES else default
+
+
+def get_share_profile(data=None):
+    data = data or load_auth_data()
+    profile = request.get_cookie(SHARE_PROFILE_COOKIE, secret=data.get("SECRET_KEY"))
+    return normalize_share_profile(profile)
+
+
+def set_share_profile_cookie(profile, data):
+    response.set_cookie(
+        SHARE_PROFILE_COOKIE,
+        normalize_share_profile(profile),
+        secret=data.get("SECRET_KEY"),
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure_enabled(),
+        max_age=365 * 24 * 60 * 60,
+    )
+
+
+def set_share_review_cookie(shared_url, data):
+    response.set_cookie(
+        SHARE_REVIEW_COOKIE,
+        shared_url,
+        secret=data.get("SECRET_KEY"),
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure_enabled(),
+        max_age=600,
+    )
+
+
+def consume_share_review(data):
+    shared_url = request.get_cookie(SHARE_REVIEW_COOKIE, secret=data.get("SECRET_KEY"))
+    response.delete_cookie(SHARE_REVIEW_COOKIE, path="/")
+    return shared_url or ""
+
+
+def queue_shared_url(shared_url, profile=None):
+    data = load_auth_data()
+    profile = normalize_share_profile(profile or get_share_profile(data))
+    if profile == "ask" or classify_playlist_url(shared_url) in ("playlist", "channel"):
+        set_share_review_cookie(shared_url, data)
+        redirect("/youtube-dl?shared=review")
+
+    validation_error = validate_download_request(shared_url, profile)
     if validation_error:
         redirect("/youtube-dl?shared=invalid")
 
-    result = enqueue_download(shared_url, "best", "web", ws_addr.wsClassVal)
+    result = enqueue_download(shared_url, profile, "web", ws_addr.wsClassVal)
     if result.get("duplicate"):
         redirect("/youtube-dl?shared=duplicate")
 
@@ -497,7 +563,8 @@ def build_mounted_file_item(filename):
         "filename": filename,
         "progress": 100,
         "source": "mounted_folder",
-        "metadata_status": "missing"
+        "metadata_status": "missing",
+        "thumbnail_file": find_thumbnail_sidecar(filename),
     })
 
 def list_mounted_file_items():
@@ -506,8 +573,17 @@ def list_mounted_file_items():
 
     items = []
     try:
-        for filename in os.listdir(DOWNFOLDER_DIR):
+        filenames = os.listdir(DOWNFOLDER_DIR)
+        media_stems = {
+            os.path.splitext(filename)[0].casefold()
+            for filename in filenames
+            if os.path.splitext(filename)[1].casefold() in VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
+        }
+        for filename in filenames:
             if filename in SKIPPED_DOWNFOLDER_NAMES or filename.startswith("."):
+                continue
+            stem, extension = os.path.splitext(filename)
+            if extension.casefold() in THUMBNAIL_EXTENSIONS and stem.casefold() in media_stems:
                 continue
             file_path = safe_downfolder_path(filename)
             if not file_path or not os.path.isfile(file_path):
@@ -544,6 +620,8 @@ def normalize_history_item(item):
     item.setdefault('title', '')
     item.setdefault('channel', '')
     item.setdefault('thumbnail', '')
+    if not item.get('thumbnail_file'):
+        item['thumbnail_file'] = find_thumbnail_sidecar(filename)
     item.setdefault('duration_seconds', 0)
     item.setdefault('media_id', '')
     item.setdefault('extractor', '')
@@ -554,6 +632,10 @@ def normalize_history_item(item):
     item['filename'] = filename
     item['file_exists'] = file_exists
     item['file_size_bytes'] = file_size_bytes
+    thumbnail_path = safe_downfolder_path(item.get('thumbnail_file'))
+    item['thumbnail_file_exists'] = bool(thumbnail_path and os.path.isfile(thumbnail_path))
+    item['thumbnail_file_size_bytes'] = os.path.getsize(thumbnail_path) if item['thumbnail_file_exists'] else 0
+    item['thumbnail_local_url'] = f"/static/thumbnail/{item['uuid']}" if item['thumbnail_file_exists'] else ""
     item['download_type'] = infer_download_type(item.get('resolution', ''), filename)
     item.setdefault('progress', 0)
     return item
@@ -563,6 +645,66 @@ def parse_boolean(value):
     if isinstance(value, bool):
         return value
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def classify_playlist_url(value):
+    """Classify URLs that can unexpectedly expand into multi-item downloads."""
+    try:
+        parsed = urlsplit(str(value or "").strip())
+    except ValueError:
+        return "single"
+
+    host = parsed.netloc.casefold()
+    path = parsed.path.casefold().rstrip("/")
+    query = {key.casefold(): item for key, item in parse_qsl(parsed.query, keep_blank_values=True)}
+
+    if "youtube.com" in host or "youtu.be" in host:
+        has_video = bool(query.get("v")) or "youtu.be" in host or path.startswith("/shorts/")
+        if query.get("list"):
+            return "video_playlist" if has_video else "playlist"
+        if path == "/playlist":
+            return "playlist"
+        if path.startswith(("/channel/", "/c/", "/user/", "/@")):
+            return "channel"
+
+    if any(query.get(key) for key in ("playlist", "album", "set")):
+        return "playlist"
+    if any(token in path.split("/") for token in ("playlist", "playlists", "channel", "channels")):
+        return "playlist"
+    return "single"
+
+
+def normalize_playlist_mode(value, url=""):
+    mode = str(value or "").strip().lower()
+    if mode in PLAYLIST_MODES:
+        return mode
+    if not mode:
+        return "single"
+    return None
+
+
+def validate_playlist_request(url, playlist_mode, explicit=False):
+    mode = normalize_playlist_mode(playlist_mode, url)
+    if not mode:
+        return "Unsupported playlist mode"
+    if explicit and classify_playlist_url(url) in ("playlist", "channel"):
+        if not str(playlist_mode or "").strip() or mode == "single":
+            return "Playlist scope is required"
+    return None
+
+
+def find_thumbnail_sidecar(filename):
+    file_path = safe_downfolder_path(filename)
+    if not file_path:
+        return ""
+    stem, extension = os.path.splitext(file_path)
+    if extension.casefold() in THUMBNAIL_EXTENSIONS:
+        return ""
+    for thumbnail_extension in THUMBNAIL_EXTENSIONS:
+        candidate = stem + thumbnail_extension
+        if os.path.isfile(candidate):
+            return os.path.basename(candidate)
+    return ""
 
 
 def normalize_queue_job(item, restored=False):
@@ -589,6 +731,9 @@ def normalize_queue_job(item, restored=False):
         attempts = max(0, int(job.get("attempts") or 0))
     except (TypeError, ValueError):
         attempts = 0
+    playlist_mode = normalize_playlist_mode(job.get("playlist_mode"), url)
+    if not playlist_mode:
+        return None
     return {
         "id": job_id,
         "url": url,
@@ -599,10 +744,12 @@ def normalize_queue_job(item, restored=False):
         "restored": bool(restored or job.get("restored")),
         "force": parse_boolean(job.get("force")),
         "attempts": attempts,
+        "playlist_mode": playlist_mode,
+        "write_thumbnail": parse_boolean(job.get("write_thumbnail")),
     }
 
 
-def create_queue_job(url, resolution, source, force=False):
+def create_queue_job(url, resolution, source, force=False, playlist_mode="single", write_thumbnail=False):
     return normalize_queue_job({
         "id": str(uuid.uuid4()),
         "url": url,
@@ -610,6 +757,8 @@ def create_queue_job(url, resolution, source, force=False):
         "source": source,
         "created_at": datetime.now().isoformat(),
         "force": force,
+        "playlist_mode": playlist_mode,
+        "write_thumbnail": write_thumbnail,
     })
 
 
@@ -625,6 +774,8 @@ def public_queue_job(job, position=None):
         "source": job["source"],
         "created_at": job["created_at"],
         "restored": job["restored"],
+        "playlist_mode": job["playlist_mode"],
+        "write_thumbnail": job["write_thumbnail"],
     }
     if position is not None:
         public_job["position"] = position
@@ -713,6 +864,8 @@ def same_queue_request(first, second):
     return (
         first["normalized_url"] == second["normalized_url"]
         and first["resolution"] == second["resolution"]
+        and first["playlist_mode"] == second["playlist_mode"]
+        and first["write_thumbnail"] == second["write_thumbnail"]
     )
 
 
@@ -753,7 +906,7 @@ def existing_download_summary(item):
     }
 
 
-def find_existing_download(url, resolution, media_id="", extractor=""):
+def find_existing_download(url, resolution, media_id="", extractor="", require_thumbnail=False):
     normalized_url = normalize_media_url(url)
     requested_type = get_download_type(resolution)
     items = download_manager.normalized_history() + list_mounted_file_items()
@@ -761,6 +914,8 @@ def find_existing_download(url, resolution, media_id="", extractor=""):
     for item in items:
         item = normalize_history_item(item)
         if not item.get("file_exists"):
+            continue
+        if require_thumbnail and not item.get("thumbnail_file_exists"):
             continue
 
         item_resolution = str(item.get("resolution") or "")
@@ -825,8 +980,23 @@ def start_download_thread_if_needed():
         download_thread.start()
 
 
-def enqueue_download(url, resolution, source, ws=None, force=False):
-    job = create_queue_job(url, resolution, source, force=force)
+def enqueue_download(
+    url,
+    resolution,
+    source,
+    ws=None,
+    force=False,
+    playlist_mode="single",
+    write_thumbnail=False,
+):
+    job = create_queue_job(
+        url,
+        resolution,
+        source,
+        force=force,
+        playlist_mode=playlist_mode,
+        write_thumbnail=write_thumbnail,
+    )
     if not job:
         raise ValueError("Invalid download request")
 
@@ -841,7 +1011,13 @@ def enqueue_download(url, resolution, source, ws=None, force=False):
                     "job": duplicate_job,
                 }
 
-            existing = find_existing_download(job["url"], job["resolution"])
+            existing = None
+            if job["playlist_mode"] == "single":
+                existing = find_existing_download(
+                    job["url"],
+                    job["resolution"],
+                    require_thumbnail=job["write_thumbnail"],
+                )
             if existing:
                 return {
                     "queued": False,
@@ -997,35 +1173,67 @@ class GlobalDownloadManager:
             self.current_download['thumbnail'] = thumbnail
         self.broadcast_to_all_clients(f"[THUMBNAIL], {thumbnail}")
     
-    def complete_download(self, completion_info):
-        """Handle download completion"""
-        if 'uuid' not in completion_info or not completion_info['uuid']:
-            completion_info['uuid'] = str(uuid.uuid4())
-            
-        # 히스토리에 추가
-        history_item = dict(completion_info)
-        if not history_item.get('timestamp'):
-            history_item['timestamp'] = datetime.now().isoformat()
-        history_item = normalize_history_item(history_item)
-        self.download_history.append(history_item)
+    def _matching_history_index(self, candidate):
+        candidate = normalize_history_item(candidate)
+        if not candidate.get("file_exists"):
+            return None
 
-        # Limit history size (max 100 items)
-        if len(self.download_history) > 100:
-            self.download_history = self.download_history[-100:]
+        candidate_filename = str(candidate.get("filename") or "").casefold()
+        candidate_media_id = str(candidate.get("media_id") or "")
+        candidate_extractor = str(candidate.get("extractor") or "").casefold()
+        for index, existing in enumerate(self.download_history):
+            existing = normalize_history_item(existing)
+            if not existing.get("file_exists"):
+                continue
 
-        # Save to file
+            same_file = bool(
+                candidate_filename
+                and candidate_filename == str(existing.get("filename") or "").casefold()
+            )
+            same_media = bool(
+                candidate_media_id
+                and candidate_extractor
+                and candidate_media_id == str(existing.get("media_id") or "")
+                and candidate_extractor == str(existing.get("extractor") or "").casefold()
+                and candidate.get("resolution") == existing.get("resolution")
+            )
+            if same_file or same_media:
+                return index
+        return None
+
+    def complete_downloads(self, completion_items):
+        """Persist one queue job's outputs while de-duplicating physical files."""
+        completed = []
+        for completion_info in completion_items:
+            history_item = dict(completion_info or {})
+            history_item.setdefault('uuid', str(uuid.uuid4()))
+            history_item.setdefault('timestamp', datetime.now().isoformat())
+            history_item = normalize_history_item(history_item)
+
+            existing_index = self._matching_history_index(history_item)
+            if existing_index is not None:
+                existing = normalize_history_item(self.download_history[existing_index])
+                history_item['uuid'] = existing['uuid']
+                history_item['timestamp'] = existing.get('timestamp') or history_item['timestamp']
+                self.download_history[existing_index] = history_item
+            else:
+                self.download_history.append(history_item)
+            completed.append(history_item)
+
         self.save_history()
-                
-        # Send completion message in JSON format
-        complete_data = normalize_history_item(history_item)
-        
-        # Serialize to JSON and send
-        message = f"[COMPLETE], {json.dumps(complete_data, ensure_ascii=False)}"
-        self.broadcast_to_all_clients(message)
+        for history_item in completed:
+            complete_data = normalize_history_item(history_item)
+            message = f"[COMPLETE], {json.dumps(complete_data, ensure_ascii=False)}"
+            self.broadcast_to_all_clients(message)
 
-        # Reset current download information
         self.current_download = None
         self.is_downloading = False
+        return completed
+
+    def complete_download(self, completion_info):
+        """Handle a single download completion."""
+        completed = self.complete_downloads([completion_info])
+        return completed[0] if completed else None
 
     def skip_duplicate(self, existing, job):
         """Finish an active queue item without downloading an existing NAS file again."""
@@ -1237,11 +1445,15 @@ def dl_queue_main():
         redirect('/terms')
 
     if is_cookie_authenticated(data):
+        shared_url = ""
+        if request.query.get("shared") == "review":
+            shared_url = consume_share_review(data)
         return render_localized_template(
             "./static/template/index.tpl",
             userNm=data["MY_ID"],
             app_version=APP_VERSION,
             locale_next="/youtube-dl",
+            shared_url_json=json.dumps(shared_url),
         )
 
     redirect("/")
@@ -1306,6 +1518,34 @@ def complete_pending_share():
 
     queue_shared_url(shared_url)
 
+
+@get('/youtube-dl/preferences')
+def get_preferences():
+    data, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    return {
+        "success": True,
+        "share_profile": get_share_profile(data),
+    }
+
+
+@post('/youtube-dl/preferences')
+def update_preferences():
+    data, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    payload = get_request_json()
+    requested_profile = str(payload.get("share_profile") or "").strip().lower()
+    if requested_profile not in SHARE_PROFILES:
+        return json_error("Unsupported mobile share profile", 400)
+    set_share_profile_cookie(requested_profile, data)
+    return {
+        "success": True,
+        "share_profile": requested_profile,
+    }
+
 @get('/youtube-dl/static/<filename:path>')
 def server_static(filename):
     return static_file(filename, root='./static')
@@ -1357,12 +1597,25 @@ def q_put():
     url = payload.get("url")
     resolution = payload.get("resolution")
     force = parse_boolean(payload.get("force"))
+    playlist_mode = payload.get("playlist_mode")
+    write_thumbnail = parse_boolean(payload.get("write_thumbnail"))
 
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
+    playlist_error = validate_playlist_request(url, playlist_mode, explicit=True)
+    if playlist_error:
+        return json_error(playlist_error, 400)
 
-    result = enqueue_download(url, resolution, "web", ws_addr.wsClassVal, force=force)
+    result = enqueue_download(
+        url,
+        resolution,
+        "web",
+        ws_addr.wsClassVal,
+        force=force,
+        playlist_mode=normalize_playlist_mode(playlist_mode, url),
+        write_thumbnail=write_thumbnail,
+    )
     if result.get("duplicate"):
         return {
             "success": True,
@@ -1389,6 +1642,8 @@ def q_put_rest():
     url = payload.get("url")
     resolution = payload.get("resolution")
     force = parse_boolean(payload.get("force"))
+    playlist_mode = payload.get("playlist_mode")
+    write_thumbnail = parse_boolean(payload.get("write_thumbnail"))
 
     data = load_auth_data()
     if not is_api_authenticated(payload, data):
@@ -1397,8 +1652,19 @@ def q_put_rest():
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
+    playlist_error = validate_playlist_request(url, playlist_mode, explicit=True)
+    if playlist_error:
+        return json_error(playlist_error, 400)
 
-    result = enqueue_download(url, resolution, "api", "", force=force)
+    result = enqueue_download(
+        url,
+        resolution,
+        "api",
+        "",
+        force=force,
+        playlist_mode=normalize_playlist_mode(playlist_mode, url),
+        write_thumbnail=write_thumbnail,
+    )
     if result.get("duplicate"):
         return {
             "success": True,
@@ -1490,6 +1756,16 @@ def delete_history_file(uuid):
         print(f"Failed to delete file: {e}")
         return json_error("Failed to delete physical file", 500)
 
+    deleted_sidecars = []
+    thumbnail_filename = normalized.get("thumbnail_file")
+    thumbnail_path = safe_downfolder_path(thumbnail_filename)
+    if thumbnail_path and os.path.isfile(thumbnail_path):
+        try:
+            os.remove(thumbnail_path)
+            deleted_sidecars.append(thumbnail_filename)
+        except OSError as error:
+            print(f"Failed to delete thumbnail sidecar: {error}")
+
     if is_mounted_file:
         related_uuids = [uuid]
         download_manager.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
@@ -1506,7 +1782,8 @@ def delete_history_file(uuid):
     return {
         "success": True,
         "msg": "File and related history items deleted",
-        "deleted_uuids": related_uuids
+        "deleted_uuids": related_uuids,
+        "deleted_sidecars": deleted_sidecars,
     }
 
 @get('/youtube-dl/history/retry/<uuid>', method='POST')
@@ -1527,7 +1804,14 @@ def retry_history_item(uuid):
         return json_error(validation_error, 400)
 
     download_manager.send_message('We received your retry request. Please wait.')
-    enqueue_download(url, resolution, "web", ws_addr.wsClassVal)
+    enqueue_download(
+        url,
+        resolution,
+        "web",
+        ws_addr.wsClassVal,
+        playlist_mode=normalize_playlist_mode(item.get("playlist_mode"), url),
+        write_thumbnail=parse_boolean(item.get("write_thumbnail")),
+    )
     return {"success": True, "msg": "Download queued again", "Remaining downloading count": json.dumps(dl_q.qsize())}
 
 @get('/youtube-dl/history', method='GET')
@@ -1673,6 +1957,12 @@ def build_youtube_dl_cmd(item):
     ]
     if job["force"]:
         cmd.append("--force-overwrites")
+    if job["playlist_mode"] == "single":
+        cmd.append("--no-playlist")
+    elif job["playlist_mode"] == "first10":
+        cmd.extend(["--yes-playlist", "--playlist-end", "10"])
+    else:
+        cmd.append("--yes-playlist")
     resolution = job["resolution"]
     if resolution == "best":
         cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
@@ -1688,10 +1978,69 @@ def build_youtube_dl_cmd(item):
         cmd.extend(["-f", "bestvideo[height<="+height+"][ext=mp4]+bestaudio[ext=m4a]"])
 
     if not re.match(r"(vtt|srt)", resolution):
-        cmd.extend(["--print", "after_move:__YDLNAS_FILE__:%(filepath)s"])
+        if job["write_thumbnail"]:
+            cmd.extend(["--write-thumbnail", "--convert-thumbnails", "jpg"])
+        cmd.extend(["--print", f"after_move:{YTDLP_ITEM_PREFIX}{YTDLP_ITEM_TEMPLATE}"])
     cmd.append(job["url"])
     print(" ".join(cmd))
     return cmd
+
+
+def file_download_timestamp(filepath):
+    try:
+        if filepath and os.path.isfile(filepath):
+            return datetime.fromtimestamp(os.path.getmtime(filepath)).isoformat()
+    except OSError:
+        pass
+    return datetime.now().isoformat()
+
+
+def parse_completed_output_line(line):
+    output_index = str(line or "").find(YTDLP_ITEM_PREFIX)
+    if output_index < 0:
+        return None
+    try:
+        output_info = json.loads(str(line)[output_index + len(YTDLP_ITEM_PREFIX):].strip())
+    except json.JSONDecodeError:
+        return None
+    return output_info if isinstance(output_info, dict) else None
+
+
+def build_completed_history_item(job, output_info, fallback, item_uuid=None):
+    output_info = output_info if isinstance(output_info, dict) else {}
+    fallback = fallback if isinstance(fallback, dict) else {}
+    filepath = str(output_info.get("filepath") or output_info.get("_filename") or fallback.get("filepath") or "")
+    filename = os.path.basename(filepath) if filepath else fallback.get("filename")
+    media_id, extractor = get_media_identity(output_info)
+    if not media_id:
+        media_id = fallback.get("media_id") or ""
+    if not extractor:
+        extractor = fallback.get("extractor") or ""
+    title = get_media_display_title(output_info, fallback.get("title") or job["url"])
+    channel = output_info.get("uploader") or output_info.get("channel") or fallback.get("channel") or ""
+    source_url = output_info.get("webpage_url") or output_info.get("original_url") or job["url"]
+    thumbnail_file = find_thumbnail_sidecar(filename)
+    return {
+        "uuid": item_uuid or str(uuid.uuid4()),
+        "timestamp": file_download_timestamp(filepath),
+        "url": source_url,
+        "resolution": job["resolution"],
+        "playlist_mode": job["playlist_mode"],
+        "write_thumbnail": job["write_thumbnail"],
+        "title": title,
+        "channel": channel,
+        "thumbnail": output_info.get("thumbnail") or fallback.get("thumbnail") or "",
+        "thumbnail_file": thumbnail_file,
+        "duration_seconds": output_info.get("duration") or fallback.get("duration_seconds") or 0,
+        "media_id": media_id,
+        "extractor": extractor,
+        "status": "completed",
+        "filepath": filepath or "unknown",
+        "filename": filename,
+        "progress": 100,
+        "source": job["source"],
+        "restored": job["restored"],
+    }
 
 
 def download(item):
@@ -1713,6 +2062,8 @@ def download(item):
         current_progress = 5  # Initialize current_progress here
         final_filepath = None
         filename = None  # Initialize filename here
+        completed_outputs = []
+        subtitle_paths = []
 
         # Download status setting
         download_info = {
@@ -1723,6 +2074,8 @@ def download(item):
             'source': job["source"],
             'restored': job["restored"],
             'attempts': job["attempts"],
+            'playlist_mode': job["playlist_mode"],
+            'write_thumbnail': job["write_thumbnail"],
             'status': 'extracting_info',
             'progress': 0,
             'title': video_title,
@@ -1763,12 +2116,13 @@ def download(item):
             download_manager.defer_current_download()
             return
 
-        if not job["force"]:
+        if not job["force"] and job["playlist_mode"] == "single":
             existing = find_existing_download(
                 request_url,
                 resolution,
                 media_id=media_id,
                 extractor=extractor,
+                require_thumbnail=job["write_thumbnail"],
             )
             if existing:
                 download_manager.skip_duplicate(existing, job)
@@ -1807,23 +2161,25 @@ def download(item):
                 if transfer_match:
                     download_manager.update_transfer_stats(transfer_match.group(1), transfer_match.group(2))
 
-                # Capture the final path emitted after post-processing.
+                # Capture every final output so playlist jobs create one history row per file.
                 if re.match(r"(vtt|srt)",dn_type):
-                    
                     exec_match = re.search(
                         r"\[(?:info|download)\] (?:Writing video subtitles to|Destination):\s+(.+?\.(?:srt|vtt))(?:\s|$)",
                         line,
                     )
-                    if exec_match and not final_filepath:                        
+                    if exec_match:
                         subtitle_path = exec_match.group(1)
+                        if subtitle_path not in subtitle_paths:
+                            subtitle_paths.append(subtitle_path)
                         filename = os.path.basename(subtitle_path)
                         final_filepath = subtitle_path
                         print(f"Extracted subtitle filename: {filename}")
                 else:
-                    final_path_match = re.search(r"__YDLNAS_FILE__:(.+)$", line.strip())
-                    if final_path_match:
-                        final_filepath = final_path_match.group(1).strip()
-                        filename = os.path.basename(final_filepath)
+                    output_info = parse_completed_output_line(line)
+                    if output_info:
+                        completed_outputs.append(output_info)
+                        final_filepath = output_info.get("filepath") or output_info.get("_filename") or final_filepath
+                        filename = os.path.basename(final_filepath) if final_filepath else filename
                         print(f"Final file: {filename}")
                 
 
@@ -1865,30 +2221,31 @@ def download(item):
             download_manager.update_status('completed')
             download_manager.send_message(f"[Finished] downloading {display_info} completed")
             download_manager.update_progress(100)
-            # Save download history
-            download_info = {  
-                'uuid': download_uuid,              
-                'timestamp': datetime.now().isoformat(),
-                'url': request_url,
-                'resolution': resolution,
-                'title': video_title,
-                'channel': channel_name,
-                'thumbnail': thumbnail_url,
-                'duration_seconds': duration_seconds,
-                'media_id': media_id,
-                'extractor': extractor,
-                'status': 'completed',
-                'filepath': final_filepath if final_filepath else "unknown",
-                'filename': filename,
-                'progress': 100,
-                'source': job["source"],
-                'restored': job["restored"],
-                
+            fallback = {
+                "filepath": final_filepath,
+                "filename": filename,
+                "title": video_title,
+                "channel": channel_name,
+                "thumbnail": thumbnail_url,
+                "duration_seconds": duration_seconds,
+                "media_id": media_id,
+                "extractor": extractor,
             }
+            if re.match(r"(vtt|srt)", resolution):
+                completed_outputs = [{"filepath": path} for path in subtitle_paths]
+            if not completed_outputs:
+                completed_outputs = [{}]
 
-
-            # Save download history
-            download_manager.complete_download(download_info)
+            completion_items = [
+                build_completed_history_item(
+                    job,
+                    output_info,
+                    fallback,
+                    item_uuid=download_uuid if index == 0 else None,
+                )
+                for index, output_info in enumerate(completed_outputs)
+            ]
+            download_manager.complete_downloads(completion_items)
         else:
             download_manager.send_message(f"[Finished] downloading failed {display_info}")
             download_manager.complete_download({
@@ -1905,6 +2262,8 @@ def download(item):
                 'progress': current_progress,
                 'source': job["source"],
                 'restored': job["restored"],
+                'playlist_mode': job["playlist_mode"],
+                'write_thumbnail': job["write_thumbnail"],
             })
             
         print(f"Download completed: {video_title}")
@@ -1929,6 +2288,8 @@ def download(item):
             'progress': 0,
             'source': job["source"],
             'restored': job["restored"],
+            'playlist_mode': job["playlist_mode"],
+            'write_thumbnail': job["write_thumbnail"],
         })
 
 import mimetypes
@@ -1995,6 +2356,27 @@ def serve_preview(uuid):
     except Exception as e:
         print(f"Error in serve_preview: {e}")
         abort(500, "Internal server error")
+
+
+@get('/static/thumbnail/<uuid>')
+def serve_thumbnail(uuid):
+    """Serve a saved thumbnail sidecar to an authenticated dashboard."""
+    data = load_auth_data()
+    if not is_cookie_authenticated(data):
+        abort(403, "Unauthorized")
+
+    download_manager.load_history()
+    file_info = download_manager.get_combined_history_item(uuid)
+    if not file_info:
+        abort(404, "Thumbnail not found")
+    normalized = normalize_history_item(file_info)
+    thumbnail_filename = normalized.get("thumbnail_file")
+    thumbnail_path = safe_downfolder_path(thumbnail_filename)
+    if not thumbnail_filename or not thumbnail_path or not os.path.isfile(thumbnail_path):
+        abort(404, "Thumbnail not found")
+    response.set_header("Content-Disposition", "inline")
+    response.set_header("X-Content-Type-Options", "nosniff")
+    return static_file(thumbnail_filename, root=DOWNFOLDER_DIR)
     
 
 # WebSocket handler

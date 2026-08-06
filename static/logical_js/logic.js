@@ -144,23 +144,6 @@ $(document).ready(function() {
         return;
     }
 
-    const pageParams = new URLSearchParams(window.location.search);
-    const sharedStatus = pageParams.get('shared');
-    if (sharedStatus === 'queued') {
-        addMessage(translate('message.shared_queued'), 'success');
-    } else if (sharedStatus === 'duplicate') {
-        addMessage(translate('message.shared_duplicate'), 'warning');
-    } else if (sharedStatus === 'missing') {
-        addMessage(translate('message.shared_missing'), 'warning');
-    } else if (sharedStatus === 'invalid') {
-        addMessage(translate('message.shared_invalid'), 'error');
-    }
-    if (sharedStatus && window.history.replaceState) {
-        pageParams.delete('shared');
-        const cleanQuery = pageParams.toString();
-        window.history.replaceState({}, document.title, window.location.pathname + (cleanQuery ? '?' + cleanQuery : ''));
-    }
-
     // resolution/subtitle format selection event
     $('#selResolution').on('change', function() {
         const selectedValue = $(this).val();
@@ -202,11 +185,38 @@ $(function () {
     let queueCount = 0;
     let queueItems = [];
     let statusPollTimer = null;
+    let historyFetchInFlight = false;
+    let pendingHistoryRefresh = false;
+    let dashboardRefreshTimer = null;
+    let hasOpenedWebSocket = false;
+    let lastPlaylistKind = 'single';
     const historyPageSize = 20;
     let currentHistoryPage = 1;
     const emptyColspan = 7;
 
     console.log("Document ready - initializing...");
+
+    const pageParams = new URLSearchParams(window.location.search);
+    const sharedStatus = pageParams.get('shared');
+    if (sharedStatus === 'queued') {
+        addMessage(translate('message.shared_queued'), 'success');
+    } else if (sharedStatus === 'duplicate') {
+        addMessage(translate('message.shared_duplicate'), 'warning');
+    } else if (sharedStatus === 'review') {
+        addMessage(translate('message.shared_review'), 'info');
+    } else if (sharedStatus === 'missing') {
+        addMessage(translate('message.shared_missing'), 'warning');
+    } else if (sharedStatus === 'invalid') {
+        addMessage(translate('message.shared_invalid'), 'error');
+    }
+    if (window.YDLNAS_SHARED_URL) {
+        $('#url').val(window.YDLNAS_SHARED_URL);
+    }
+    if (sharedStatus && window.history.replaceState) {
+        pageParams.delete('shared');
+        const cleanQuery = pageParams.toString();
+        window.history.replaceState({}, document.title, window.location.pathname + (cleanQuery ? '?' + cleanQuery : ''));
+    }
 
     function connectWebSocket() {
         if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
@@ -225,14 +235,20 @@ $(function () {
 
             wsEventBus.onopen = function(evt) {
                 console.log("WebSocket opened");
+                const isReconnect = hasOpenedWebSocket;
+                hasOpenedWebSocket = true;
                 reconnectAttempts = 0;
                 reconnectDelay = 1000;
                 updateConnectionStatus(translate('connection.online'), 'completed');
                 messagesTxt("[MSG], WebSocket connection opened.");
                 fetchStatus();
 
+                if (isReconnect) {
+                    scheduleDashboardRefresh(50);
+                }
+
                 setTimeout(() => {
-                    if (wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
+                    if (!isReconnect && wsEventBus && wsEventBus.readyState === WebSocket.OPEN) {
                         console.log("Requesting history...");
                         wsEventBus.send('[REQUEST_HISTORY]');
                     }
@@ -281,6 +297,93 @@ $(function () {
         }, reconnectDelay);
 
         reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+    }
+
+    function classifyPlaylistUrl(value) {
+        let parsed;
+        try {
+            parsed = new URL(String(value || '').trim());
+        } catch (error) {
+            return 'single';
+        }
+
+        const host = parsed.hostname.toLowerCase();
+        const path = parsed.pathname.toLowerCase().replace(/\/$/, '');
+        if (host.indexOf('youtube.com') >= 0 || host === 'youtu.be') {
+            const hasVideo = Boolean(parsed.searchParams.get('v')) || host === 'youtu.be' || path.indexOf('/shorts/') === 0;
+            if (parsed.searchParams.get('list')) {
+                return hasVideo ? 'video_playlist' : 'playlist';
+            }
+            if (path === '/playlist') {
+                return 'playlist';
+            }
+            if (/^\/(channel|c|user)\//.test(path) || path.indexOf('/@') === 0) {
+                return 'channel';
+            }
+        }
+        if (['playlist', 'album', 'set'].some((key) => parsed.searchParams.get(key))) {
+            return 'playlist';
+        }
+        if (/(^|\/)(playlist|playlists|channel|channels)(\/|$)/.test(path)) {
+            return 'playlist';
+        }
+        return 'single';
+    }
+
+    function updatePlaylistGuard() {
+        const kind = classifyPlaylistUrl($('#url').val());
+        const scopeField = $('#playlist-scope-field');
+        const badge = $('#playlist-guard-badge');
+        const select = $('#playlist-mode');
+        const needsScope = kind !== 'single';
+        const bulkOnly = kind === 'playlist' || kind === 'channel';
+
+        scopeField.prop('hidden', !needsScope);
+        badge.prop('hidden', !needsScope);
+        select.find('option[value="single"]').prop('disabled', bulkOnly);
+        if (!needsScope) {
+            select.val('single');
+        } else if (kind !== lastPlaylistKind) {
+            select.val(kind === 'video_playlist' ? 'single' : '');
+        }
+        if (needsScope) {
+            $('#download-options').prop('open', true);
+        }
+        lastPlaylistKind = kind;
+        return kind;
+    }
+
+    function loadPreferences() {
+        $.ajax({
+            method: 'GET',
+            url: '/youtube-dl/preferences',
+            dataType: 'json',
+            success: function(response) {
+                if (response && response.success) {
+                    $('#share-default-profile').val(response.share_profile || 'best');
+                }
+            }
+        });
+    }
+
+    function saveShareProfile(profile) {
+        $.ajax({
+            method: 'POST',
+            url: '/youtube-dl/preferences',
+            data: JSON.stringify({ share_profile: profile }),
+            dataType: 'json',
+            contentType: 'application/json',
+            success: function(response) {
+                if (response && response.success) {
+                    addMessage(translate('message.share_profile_saved'), 'success');
+                } else {
+                    addMessage(getResponseMessage(response, translate('message.preference_failed')), 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.preference_failed')), 'error');
+            }
+        });
     }
 
     function loadHistoryPrefs() {
@@ -388,6 +491,9 @@ $(function () {
             channel: '',
             title: '',
             thumbnail: '',
+            thumbnail_file: '',
+            thumbnail_file_exists: false,
+            thumbnail_local_url: '',
             duration_seconds: 0,
             status: 'unknown',
             filepath: '',
@@ -676,7 +782,7 @@ $(function () {
         const titleText = escapeHtml(item.title || item.filename || translate('common.untitled'));
         const channelText = escapeHtml(item.channel || (isMountedFile(item) ? translate('detail.mounted_folder') : translate('common.unknown')));
         const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
-        const thumbnailUrl = getSafeThumbnailUrl(item.thumbnail);
+        const thumbnailUrl = getSafeThumbnailUrl(item.thumbnail_local_url || item.thumbnail);
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
         const durationText = formatDuration(item.duration_seconds);
         const visual = `
@@ -717,7 +823,7 @@ $(function () {
 
     function getSafeThumbnailUrl(value) {
         const thumbnail = String(value || '').trim();
-        return /^https?:\/\//i.test(thumbnail) ? thumbnail : '';
+        return /^https?:\/\//i.test(thumbnail) || /^\/static\/thumbnail\//.test(thumbnail) ? thumbnail : '';
     }
 
     function bindHistoryGridImages() {
@@ -932,6 +1038,7 @@ $(function () {
                     ${renderDetailField(translate('detail.resolution'), item.resolution || translate('common.unknown'), 'resolution')}
                     ${renderDetailField(translate('detail.size'), formatFileSize(item), 'size')}
                     ${renderDetailField(translate('detail.filename'), item.filename || translate('detail.no_file'), 'filename')}
+                    ${item.thumbnail_file_exists ? renderDetailField(translate('detail.thumbnail_file'), item.thumbnail_file, 'thumbnail-file') : ''}
                     ${renderDetailField(translate('detail.source'), sourceText, 'source')}
                     ${renderDetailField(translate('detail.metadata'), metadataText, 'metadata')}
                     ${renderDetailField(translate('detail.uuid'), item.uuid || '', 'uuid')}
@@ -1199,7 +1306,9 @@ $(function () {
             item.url,
             item.resolution,
             item.source,
-            Boolean(item.restored)
+            Boolean(item.restored),
+            item.playlist_mode,
+            Boolean(item.write_thumbnail)
         ];
     }
 
@@ -1219,9 +1328,14 @@ $(function () {
             const resolution = String(item.resolution || 'best');
             const source = String(item.source || 'web');
             const jobId = String(item.id || '');
-            const sourceLabel = item.restored ?
+            let sourceLabel = item.restored ?
                 translate('queue.restored') :
                 (source === 'api' ? translate('queue.api_request') : translate('queue.dashboard_request'));
+            if (item.playlist_mode === 'first10') {
+                sourceLabel += ` · ${translate('queue.first10')}`;
+            } else if (item.playlist_mode === 'all') {
+                sourceLabel += ` · ${translate('queue.all_items')}`;
+            }
             return `
                 <div class="queue-item">
                     <span class="queue-position">${position}</span>
@@ -1837,6 +1951,11 @@ $(function () {
 
     function fetchHistory(options) {
         const settings = Object.assign({ quiet: false }, options || {});
+        if (historyFetchInFlight) {
+            pendingHistoryRefresh = true;
+            return;
+        }
+        historyFetchInFlight = true;
         $.ajax({
             method: "GET",
             url: "/youtube-dl/history",
@@ -1855,8 +1974,26 @@ $(function () {
             },
             error: function(jqXHR) {
                 addMessage(getAjaxErrorMessage(jqXHR, translate('message.refresh_failed')), 'error');
+            },
+            complete: function() {
+                historyFetchInFlight = false;
+                if (pendingHistoryRefresh) {
+                    pendingHistoryRefresh = false;
+                    scheduleDashboardRefresh(50);
+                }
             }
         });
+    }
+
+    function scheduleDashboardRefresh(delay) {
+        if (dashboardRefreshTimer) {
+            clearTimeout(dashboardRefreshTimer);
+        }
+        dashboardRefreshTimer = setTimeout(function() {
+            dashboardRefreshTimer = null;
+            fetchStatus();
+            fetchHistory({ quiet: true });
+        }, typeof delay === 'number' ? delay : 150);
     }
 
     function clearAllHistory() {
@@ -1967,6 +2104,7 @@ $(function () {
         }
         $('.mode-tab').removeClass('active');
         $(`.mode-tab[data-download-mode="${mode}"]`).addClass('active');
+        $('#write-thumbnail').prop('disabled', mode === 'subtitle');
     }
 
     function setDownloadMode(mode) {
@@ -1998,10 +2136,21 @@ $(function () {
         } else {
             data.resolution = $("#selResolution").val();
         }
+        const playlistKind = updatePlaylistGuard();
+        data.playlist_mode = $('#playlist-mode').val() || 'single';
+        data.write_thumbnail = $('#write-thumbnail').is(':checked') && !/^(srt|vtt)/.test(data.resolution);
         console.log("Selected resolution:", data.resolution);
 
         if (!data.url) {
             addMessage(translate('message.enter_url'), 'warning');
+            return false;
+        }
+        if (
+            (playlistKind === 'playlist' || playlistKind === 'channel')
+            && (!$('#playlist-mode').val() || $('#playlist-mode').val() === 'single')
+        ) {
+            addMessage(translate('message.playlist_scope_required'), 'warning');
+            $('#playlist-mode').focus();
             return false;
         }
 
@@ -2040,6 +2189,7 @@ $(function () {
         });
 
         $('#url').val('').focus();
+        updatePlaylistGuard();
         return false;
     });
 
@@ -2113,6 +2263,14 @@ $(function () {
 
     $(document).on("change", "#selResolution", function() {
         syncModeFromResolution();
+    });
+
+    $(document).on("input change", "#url", function() {
+        updatePlaylistGuard();
+    });
+
+    $(document).on("change", "#share-default-profile", function() {
+        saveShareProfile($(this).val());
     });
 
     $(document).on("click keydown", ".history-row, .history-card, .history-grid-card", function(event) {
@@ -2238,8 +2396,20 @@ $(function () {
         }
     });
 
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            scheduleDashboardRefresh(100);
+        }
+    });
+
+    window.addEventListener('pageshow', function() {
+        scheduleDashboardRefresh(100);
+    });
+
     applyHistoryPrefsToControls();
     syncModeFromResolution();
+    updatePlaylistGuard();
+    loadPreferences();
     restoreLocalState();
     renderHistory();
     startStatusPolling();

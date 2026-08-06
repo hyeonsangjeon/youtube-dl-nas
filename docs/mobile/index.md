@@ -16,7 +16,9 @@ Mobile sharing sends a URL directly from your phone to the `youtube-dl-nas` inst
 3. Choose **Install app** or **Add to Home screen** from Chrome's menu.
 4. In YouTube, tap **Share**, then choose **youtube-dl NAS**.
 
-The installed PWA receives the shared URL. If your login expired, it asks you to sign in before adding the URL to the queue.
+The installed PWA receives the shared URL. In dashboard **Options**, choose Best, 1080p, 720p, MP3, M4A, or **Ask every time** as this device's mobile share default. Ask mode opens the composer with the URL filled in; the other profiles queue it immediately. If your login expired, sign in and the same flow continues without exposing the shared URL in the redirect.
+
+Playlist and channel shares always open the composer so Playlist Guard can require an explicit First 10 or All items scope.
 
 ## Android On Local HTTP
 

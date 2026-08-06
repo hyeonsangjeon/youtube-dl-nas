@@ -1,4 +1,4 @@
-const CACHE_NAME = 'youtube-dl-nas-static-26.0804-i18n';
+const CACHE_NAME = 'youtube-dl-nas-static-26.0806-roadmap';
 
 self.addEventListener('install', function(event) {
   event.waitUntil(self.skipWaiting());

@@ -19,13 +19,17 @@ Use the language selector before sign-in or in the dashboard header to choose En
 2. Select the quality or subtitle language.
 3. Paste a supported URL and select **Submit**.
 
+Open **Options** to save a JPG thumbnail beside the media file or choose the profile used by PWA mobile sharing on this device. **Ask every time** prefills the shared URL in this form so you can review its output profile.
+
+When a URL points to a playlist or channel, Playlist Guard shows a scope selector. A video URL that also carries a playlist defaults to **Current video only**. Pure playlist and channel URLs require **First 10** or **All items** before they can be queued. Each completed item receives its own Files & History row.
+
 ## Current Activity
 
 The activity panel shows the active title, channel, thumbnail, progress, transfer speed, and ETA. **Up next** lists waiting requests in processing order with their source and selected quality. Use the remove icon to cancel a waiting request before it starts.
 
 The queue is saved in the persistent metadata volume without a database. If the container restarts, the interrupted active request returns first, followed by the remaining jobs. Restored jobs are labeled **Restored after restart**. Compatible partial files continue through `yt-dlp`; exact byte-range resume support depends on the source.
 
-The same normalized URL and download profile cannot be queued twice accidentally. A second check uses the extracted media ID to detect an existing NAS file. Failed history items remain retryable because no completed file is present.
+The same normalized URL, download profile, and options cannot be queued twice accidentally. A second check uses the extracted media ID to detect an existing NAS file. Repeated completion signals reuse the existing history row and its original download date. Failed history items remain retryable because no completed file is present.
 
 ## Files And History
 
@@ -35,7 +39,9 @@ The same normalized URL and download profile cannot be queued twice accidentally
 - Move through results in numbered pages of 20 items.
 - Select an item to inspect its source URL, duration, resolution, size, filename, metadata state, and UUID.
 
-Use **Preview** to play an existing video or audio file without downloading it again. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file.
+Use **Preview** to play an existing video or audio file without downloading it again. Saved thumbnail sidecars are used in the grid and listed in item details. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file and its thumbnail sidecar.
+
+When a mobile browser returns from the background, Files & History and Current Activity refresh automatically without resetting the selected view, filters, page, or detail item.
 
 ## Subtitle QA
 
@@ -56,6 +62,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0804` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0806` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).
