@@ -27,34 +27,41 @@ Use the open-source [HTTP Shortcuts](https://http-shortcuts.rmy.ch/) app because
 1. Install HTTP Shortcuts.
 2. [Import the youtube-dl-nas template](https://http-shortcuts.rmy.ch/import?url=https%3A%2F%2Fhyeonsangjeon.github.io%2Fyoutube-dl-nas%2Fmobile%2Fassets%2Fyoutube-dl-nas-http-shortcut.zip), or download the [ZIP file](assets/youtube-dl-nas-http-shortcut.zip) and import it manually.
 3. Open the imported **youtube-dl NAS** category and run **1. Configure NAS** once.
-4. Enter the full NAS address, normal dashboard ID, and password. For example, use `http://192.168.0.20:8080` for the address.
+4. Enter the full NAS address, normal dashboard ID, password, and default profile. For example, use `http://192.168.0.20:8080` and `best`.
 5. Share a URL and select **Download to NAS**. The saved settings are reused without asking again.
 
 The REST API token is optional. The default template uses the same ID and password as the dashboard.
 
-The shortcut checks both the Android share title and text. If the device omits the URL from that data, it opens a URL input as a fallback. Incomplete configuration stops before any network request is made.
+The shortcut accepts Best, 1080p, 720p, MP3, or M4A as a saved default. It checks both the Android share title and text. If the device omits the URL from that data, it opens a URL input as a fallback. Incomplete configuration stops before any network request is made.
 
 ## iPhone And iPad
 
-The signed iOS shortcut uses the normal dashboard ID and password by default. [Download **Download to NAS.shortcut**](assets/Download-to-NAS.shortcut), open it in Shortcuts, and choose **Add Shortcut**.
+The signed Smart Share v2 Shortcut uses the normal dashboard ID and password. [Download **Download to NAS.shortcut**](assets/Download-to-NAS.shortcut) and open it in Shortcuts.
 
-1. Edit the imported shortcut.
-2. Replace `http://NAS_ADDRESS:8080/youtube-dl/rest` with your NAS endpoint.
-3. Replace `YOUR_ID` and `YOUR_PASSWORD` with your normal dashboard credentials.
-4. In YouTube or Safari, tap **Share**, then choose **Download to NAS**.
+1. During import, enter the NAS base URL without a trailing slash, such as `http://192.168.0.20:8080`.
+2. Enter the normal dashboard ID and password.
+3. Enter `best`, `1080p`, `720p`, `audio-mp3`, `audio-m4a`, or `ask` as the default profile.
+4. Choose **Add Shortcut**. You do not need to edit any actions.
+5. In YouTube or Safari, tap **Share**, then choose **Download to NAS**.
 
-The included shortcut accepts Share Sheet input and sends this JSON request directly to the NAS:
+Routine shares use the saved profile without another prompt. `ask` opens a compact profile menu. Pure playlists and channels ask for First 10 or All items, and YouTube links with a timestamp ask whether to download the full video or start from that position. Running the Shortcut manually opens a URL field when no Share Sheet input exists.
+
+The Shortcut first asks your NAS to inspect the shared text, then sends the resolved request directly to the NAS:
 
 ```json
 {
-  "url": "Shortcut Input",
+  "url": "First URL in Shortcut Input",
   "resolution": "best",
+  "playlist_mode": "single",
+  "section_mode": "full",
   "id": "YOUR_ID",
-  "pw": "YOUR_PASSWORD"
+  "pw": "YOUR_PASSWORD",
+  "client": "ios-shortcut",
+  "client_version": "2.0"
 }
 ```
 
-The file is exported for installation by anyone and signed through Apple's Shortcuts tooling. It contains placeholders only; no real NAS address or credentials are included. You can also recreate it manually with **Get Contents of URL** (`POST`, JSON body) and **Show Content**.
+The result states whether the item was added, was already queued, or already exists on the NAS, and includes its queue position when available. The file is exported for installation by anyone and signed through Apple's Shortcuts tooling. It contains placeholders only; no real NAS address or credentials are included.
 
 ## Outside Your Home Network
 

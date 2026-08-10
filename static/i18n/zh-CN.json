@@ -289,6 +289,8 @@
   "server.unsupported_resolution": "不支持此分辨率或输出配置。",
   "server.unsupported_playlist_mode": "不支持此播放列表范围。",
   "server.playlist_scope_required": "将此播放列表或频道加入队列前请选择范围。",
+  "server.unsupported_timestamp_mode": "不支持此时间戳下载模式。",
+  "server.timestamp_not_found": "共享链接中没有可用的时间戳。",
   "server.unsupported_share_profile": "不支持此移动分享配置。",
   "server.queue_not_found": "未找到排队下载，或该任务已经开始。",
   "server.history_not_found": "未找到历史记录项。",

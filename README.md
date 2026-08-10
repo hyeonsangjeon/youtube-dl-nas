@@ -31,7 +31,7 @@ Current release: `26.0806` (`2026-08-06`)
 - Queue video, audio, or subtitle downloads from a browser.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
-- Share a URL from an installed Android PWA with a per-device default profile, an Android HTTP Shortcut, or an iOS Shortcut workflow.
+- Share a URL from an installed Android PWA, configurable Android HTTP Shortcut, or signed Smart Share v2 iOS Shortcut without a relay service.
 - Guard playlist and channel URLs with explicit Current video, First 10, or All items scope before they reach the queue.
 - Optionally save a JPG thumbnail beside each downloaded video or audio file.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
@@ -174,8 +174,8 @@ docker run -d \
 ## Mobile Sharing
 
 - Android over HTTPS: install the dashboard as a PWA, choose a **Mobile share default** under **Options**, then select **youtube-dl NAS** from the Android share sheet.
-- Android over local HTTP: import the provided HTTP Shortcuts template, run **1. Configure NAS** once, and enter the normal dashboard URL, ID, and password.
-- iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut), replace its endpoint and credential placeholders, then share URLs directly to the NAS.
+- Android over local HTTP: import the provided HTTP Shortcuts template, run **1. Configure NAS** once, and enter the normal dashboard URL, ID, password, and default profile.
+- iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut) and answer its one-time NAS URL, login, and default-profile questions. No action editing is required.
 
 See the [mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) or the source in [`docs/mobile`](docs/mobile/). No relay server is used; the phone sends URLs directly to the NAS. GitHub Pages only hosts the manual and import files.
 
@@ -203,8 +203,12 @@ Successful response:
   "success": true,
   "queued": true,
   "duplicate": false,
-  "msg": "download has started",
-  "Remaining downloading count": "7"
+  "code": "queued",
+  "profile": "best",
+  "queue_position": 2,
+  "queue_count": 2,
+  "msg": "Added best to the NAS queue at position 2.",
+  "Remaining downloading count": "2"
 }
 ```
 
@@ -221,7 +225,9 @@ The API returns `"duplicate": true` without adding another job when the same URL
 
 `playlist_mode` accepts `single`, `first10`, or `all`. It defaults to `single` for normal URLs and video URLs that also contain a playlist parameter. Pure playlist and channel URLs require an explicit value so an unbounded download cannot start accidentally. Set `write_thumbnail` to `true` to save a converted JPG beside each video or audio file.
 
-Error responses retain the English `msg` field for existing integrations and may also include a stable `code` plus interpolation `params`. The dashboard uses those fields to show the error in the selected language.
+For a YouTube URL containing `t`, `start`, or `time_continue`, set `section_mode` to `from_timestamp` to download from that shared position; omit it or use `full` for the whole item. Smart mobile clients can authenticate and POST shared text to `/youtube-dl/share/context` first. That endpoint extracts the first URL and reports whether profile, playlist-scope, or timestamp choices are relevant before the final queue request.
+
+Queue receipts and errors retain the English `msg` field for existing integrations and also include stable `code` values. Receipts expose the selected profile and queue position; errors may include interpolation or choice `params`. The dashboard uses those fields to show errors in the selected language.
 
 Supported `resolution` examples:
 

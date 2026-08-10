@@ -289,6 +289,8 @@
   "server.unsupported_resolution": "지원하지 않는 해상도 또는 출력 형식입니다.",
   "server.unsupported_playlist_mode": "지원하지 않는 재생목록 범위입니다.",
   "server.playlist_scope_required": "재생목록이나 채널을 대기열에 넣기 전에 범위를 선택하세요.",
+  "server.unsupported_timestamp_mode": "지원하지 않는 타임스탬프 다운로드 방식입니다.",
+  "server.timestamp_not_found": "공유 URL에서 사용할 수 있는 타임스탬프를 찾지 못했습니다.",
   "server.unsupported_share_profile": "지원하지 않는 모바일 공유 프로필입니다.",
   "server.queue_not_found": "대기 중인 다운로드를 찾을 수 없거나 이미 시작되었습니다.",
   "server.history_not_found": "기록 항목을 찾을 수 없습니다.",

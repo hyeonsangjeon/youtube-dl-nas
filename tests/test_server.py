@@ -137,6 +137,7 @@ def test_rest_api_keeps_id_password_auth(app):
         force=False,
         playlist_mode="single",
         write_thumbnail=False,
+        section_mode="full",
     )
 
 
@@ -150,6 +151,24 @@ def test_rest_api_accepts_optional_bearer_token(app):
         )
     assert response.json["success"] is True
     enqueue.assert_called_once()
+
+
+def test_rest_api_preserves_advanced_resolution_values(app):
+    with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
+        response = app.post_json(
+            "/youtube-dl/rest",
+            {
+                "url": "https://youtu.be/example",
+                "resolution": "2160p",
+                "id": "tester",
+                "pw": "secret",
+            },
+        )
+
+    assert response.json["success"] is True
+    assert response.json["profile"] == "2160p"
+    assert enqueue.call_args.args[1] == "2160p"
 
 
 def test_rest_api_rejects_empty_or_invalid_credentials(app):
@@ -213,6 +232,7 @@ def test_video_inside_playlist_defaults_to_current_video(app):
         force=False,
         playlist_mode="single",
         write_thumbnail=False,
+        section_mode="full",
     )
 
 
@@ -239,7 +259,143 @@ def test_explicit_playlist_options_reach_persistent_queue_contract(app):
         force=False,
         playlist_mode="first10",
         write_thumbnail=True,
+        section_mode="full",
     )
+
+
+def test_smart_share_context_extracts_url_profile_playlist_and_timestamp(app):
+    response = app.post_json(
+        "/youtube-dl/share/context",
+        {
+            "text": "Watch https://www.youtube.com/watch?v=abc&list=PL123&t=1m30s",
+            "profile": "MP3",
+            "id": "tester",
+            "pw": "secret",
+        },
+    )
+
+    assert response.json["code"] == "share_context"
+    assert response.json["url"].endswith("v=abc&list=PL123&t=1m30s")
+    assert response.json["profile"] == "audio-mp3"
+    assert response.json["playlist_kind"] == ""
+    assert response.json["timestamp_seconds"] == 90
+    assert response.json["timestamp_label"] == "1:30"
+    assert response.json["timestamp_options"] == ["full", "from_timestamp"]
+
+
+def test_smart_share_context_marks_pure_playlists_for_scope_prompt(app):
+    response = app.post_json(
+        "/youtube-dl/share/context",
+        {
+            "url": "https://www.youtube.com/playlist?list=PL123",
+            "resolution": "ask",
+            "id": "tester",
+            "pw": "secret",
+        },
+    )
+
+    assert response.json["profile_required"] is True
+    assert response.json["playlist_kind"] == "playlist"
+    assert response.json["playlist_options"] == ["first10", "all"]
+
+
+def test_smart_share_context_can_return_soft_missing_url_for_shortcut_fallback(app):
+    response = app.post_json(
+        "/youtube-dl/share/context",
+        {
+            "text": "A share payload without a link",
+            "profile": "best",
+            "soft_errors": True,
+            "id": "tester",
+            "pw": "secret",
+        },
+    )
+
+    assert response.json["success"] is False
+    assert response.json["code"] == "url_required"
+    assert response.json["url"] == ""
+
+
+def test_rest_smart_share_receipt_and_timestamp_options_reach_queue(app):
+    with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {
+            "queued": True,
+            "duplicate": False,
+            "job": {"position": 2},
+            "queue_count": 2,
+        }
+        response = app.post_json(
+            "/youtube-dl/rest",
+            {
+                "url": "https://youtu.be/example?t=75",
+                "resolution": "mp3",
+                "section_mode": "from_timestamp",
+                "client": "ios-shortcut",
+                "client_version": "2.0",
+                "id": "tester",
+                "pw": "secret",
+            },
+        )
+
+    assert response.json["code"] == "queued"
+    assert response.json["profile"] == "audio-mp3"
+    assert response.json["queue_position"] == 2
+    assert response.json["queue_count"] == 2
+    assert response.json["client"] == "ios-shortcut"
+    enqueue.assert_called_once_with(
+        "https://youtu.be/example?t=75",
+        "audio-mp3",
+        "api",
+        "",
+        force=False,
+        playlist_mode="single",
+        write_thumbnail=False,
+        section_mode="from_timestamp",
+    )
+
+
+def test_timestamp_mode_requires_a_timestamp(app):
+    response = app.post_json(
+        "/youtube-dl/rest",
+        {
+            "url": "https://youtu.be/example",
+            "resolution": "best",
+            "section_mode": "from_timestamp",
+            "id": "tester",
+            "pw": "secret",
+        },
+        status=400,
+    )
+
+    assert response.json["code"] == "timestamp_not_found"
+
+
+def test_queue_receipts_distinguish_waiting_and_downloaded_duplicates():
+    queued_duplicate = server.build_queue_receipt(
+        {
+            "duplicate": True,
+            "duplicate_type": "queue",
+            "job": {"position": 3},
+            "queue_count": 4,
+        },
+        "720p",
+        client="ios-shortcut",
+    )
+    downloaded_duplicate = server.build_queue_receipt(
+        {
+            "duplicate": True,
+            "duplicate_type": "history",
+            "existing": {"title": "Saved item"},
+            "queue_count": 0,
+        },
+        "720p",
+    )
+
+    assert queued_duplicate["code"] == "duplicate_queue"
+    assert queued_duplicate["queue_position"] == 3
+    assert "position 3" in queued_duplicate["msg"]
+    assert downloaded_duplicate["code"] == "duplicate_history"
+    assert downloaded_duplicate["existing"]["title"] == "Saved item"
 
 
 def test_json_errors_include_stable_localization_codes_and_parameters():
@@ -348,6 +504,9 @@ def test_safe_redirect_and_shared_url_helpers():
     assert server.classify_playlist_url("https://www.youtube.com/watch?v=abc&list=PL123") == "video_playlist"
     assert server.classify_playlist_url("https://www.youtube.com/playlist?list=PL123") == "playlist"
     assert server.classify_playlist_url("https://www.youtube.com/@creator/videos") == "channel"
+    assert server.extract_shared_timestamp("https://youtu.be/abc?t=1h2m3s") == 3723
+    assert server.extract_shared_timestamp("https://youtu.be/abc#t=01:30") == 90
+    assert server.extract_shared_timestamp("https://example.com/video?t=90") == 0
 
 
 def test_unresolved_auth_placeholders_are_ignored():
@@ -412,6 +571,21 @@ def test_playlist_and_thumbnail_options_map_to_bounded_ytdlp_flags():
     assert "--no-playlist" not in all_items
 
 
+def test_timestamp_section_maps_to_bounded_ytdlp_flags():
+    command = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example?t=90",
+        "resolution": "best",
+        "source": "api",
+        "section_mode": "from_timestamp",
+    })
+
+    assert command[command.index("--download-sections") + 1] == "*90-inf"
+    assert "--force-keyframes-at-cuts" in command
+    assert command[command.index("-o") + 1] == (
+        "%(title)s__from_90s__%(extractor_key)s_%(id)s.%(ext)s"
+    )
+
+
 def test_queue_job_normalization_preserves_download_options():
     job = server.create_queue_job(
         "https://www.youtube.com/playlist?list=PL123",
@@ -419,15 +593,19 @@ def test_queue_job_normalization_preserves_download_options():
         "web",
         playlist_mode="first10",
         write_thumbnail=True,
+        section_mode="full",
     )
     restored = server.normalize_queue_job(job, restored=True)
     public = server.public_queue_job(restored)
 
     assert restored["playlist_mode"] == "first10"
     assert restored["write_thumbnail"] is True
+    assert restored["section_mode"] == "full"
+    assert restored["section_start"] == 0
     assert restored["restored"] is True
     assert public["playlist_mode"] == "first10"
     assert public["write_thumbnail"] is True
+    assert public["section_mode"] == "full"
 
 
 def test_completed_output_json_supports_one_history_item_per_playlist_file(tmp_path):
@@ -767,6 +945,39 @@ def test_completed_history_keeps_different_media_with_same_title(tmp_path):
 
     assert len(manager.download_history) == 2
     assert {item["media_id"] for item in manager.download_history} == {"FIRST", "SECOND"}
+
+
+def test_completed_history_keeps_full_and_timestamped_versions_separate(tmp_path):
+    full_filename = "same__Youtube_ABC123.mp4"
+    clip_filename = "same__from_90s__Youtube_ABC123.mp4"
+    (tmp_path / full_filename).write_bytes(b"full")
+    (tmp_path / clip_filename).write_bytes(b"clip")
+    manager = server.GlobalDownloadManager()
+    manager.download_history = [{
+        "uuid": "full",
+        "resolution": "best",
+        "filename": full_filename,
+        "media_id": "ABC123",
+        "extractor": "Youtube",
+        "section_mode": "full",
+        "section_start": 0,
+        "status": "completed",
+    }]
+
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), patch.object(manager, "save_history"):
+        manager.complete_download({
+            "uuid": "clip",
+            "resolution": "best",
+            "filename": clip_filename,
+            "media_id": "ABC123",
+            "extractor": "Youtube",
+            "section_mode": "from_timestamp",
+            "section_start": 90,
+            "status": "completed",
+        })
+
+    assert len(manager.download_history) == 2
+    assert {item["uuid"] for item in manager.download_history} == {"full", "clip"}
 
 
 def test_deleted_physical_file_allows_new_history_for_same_media(tmp_path):

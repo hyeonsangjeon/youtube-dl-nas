@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- Added Smart Share context discovery for mobile clients, including first-URL extraction, profile aliases, playlist or channel scope, and YouTube timestamp detection.
+- Added a signed Smart Share v2 iOS Shortcut with one-time import questions, manual URL fallback, optional per-share profile selection, Playlist Guard choices, timestamp choices, and concise queue receipts.
+- Added `section_mode=from_timestamp` support with persistent queue, restart, duplicate, history, and yt-dlp download-section handling.
+
+### Changed
+
+- Return stable queued and duplicate receipt codes with the selected profile, queue position, and queue count from REST downloads.
+- Let the Android HTTP Shortcuts setup save Best, 1080p, 720p, MP3, or M4A as its default profile and identify the client in REST requests.
+- Keep an editable deterministic Apple Shortcut plist and builder beside the signed installable artifacts.
+
+### Documentation
+
+- Reworked the English and Korean mobile guides so iPhone and iPad setup no longer requires editing Shortcut actions.
+
 ## 26.0806 - 2026-08-06
 
 ### Added
