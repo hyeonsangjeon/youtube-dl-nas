@@ -59,11 +59,25 @@ YTDLP_ITEM_TEMPLATE = (
     '"webpage_url":%(webpage_url|"")j,"original_url":%(original_url|"")j}'
 )
 GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
-QUEUE_STATE_VERSION = 2
+QUEUE_STATE_VERSION = 3
 PLAYLIST_MODES = {"single", "first10", "all"}
+SECTION_MODES = {"full", "from_timestamp"}
 SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
 SHARE_REVIEW_COOKIE = "share_review"
 SHARE_PROFILES = {"best", "1080p", "720p", "audio-mp3", "audio-m4a", "ask"}
+SHARE_PROFILE_ALIASES = {
+    "best": "best",
+    "1080": "1080p",
+    "1080p": "1080p",
+    "720": "720p",
+    "720p": "720p",
+    "mp3": "audio-mp3",
+    "audio": "audio-m4a",
+    "m4a": "audio-m4a",
+    "audio-mp3": "audio-mp3",
+    "audio-m4a": "audio-m4a",
+    "ask": "ask",
+}
 THUMBNAIL_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 TRACKING_QUERY_KEYS = {
     "fbclid",
@@ -90,6 +104,8 @@ ERROR_CODE_BY_MESSAGE = {
     "Unsupported resolution": "unsupported_resolution",
     "Unsupported playlist mode": "unsupported_playlist_mode",
     "Playlist scope is required": "playlist_scope_required",
+    "Unsupported timestamp mode": "unsupported_timestamp_mode",
+    "Timestamp was not found in the shared URL": "timestamp_not_found",
     "Unsupported mobile share profile": "unsupported_share_profile",
     "Queued download not found or already active": "queue_not_found",
     "History item not found": "history_not_found",
@@ -121,14 +137,17 @@ def get_error_details(msg):
 
     return None, {}
 
-def json_error(msg, status=400):
+def json_error(msg, status=400, params=None):
     response.status = status
     payload = {"success": False, "msg": msg}
-    code, params = get_error_details(msg)
+    code, error_params = get_error_details(msg)
     if code:
         payload["code"] = code
-    if params:
-        payload["params"] = params
+    combined_params = dict(error_params)
+    if isinstance(params, dict):
+        combined_params.update(params)
+    if combined_params:
+        payload["params"] = combined_params
     return payload
 
 def get_request_json():
@@ -217,6 +236,83 @@ def extract_shared_url(*values):
         if match:
             return match.group(0).rstrip(".,);]")
     return ""
+
+
+def normalize_api_share_profile(value, default="best", allow_ask=False):
+    profile = SHARE_PROFILE_ALIASES.get(str(value or "").strip().lower())
+    if profile == "ask" and not allow_ask:
+        return None
+    return profile or default
+
+
+def parse_timestamp_seconds(value):
+    value = str(value or "").strip().lower()
+    if not value:
+        return 0
+    if value.isdigit():
+        return max(0, int(value))
+
+    if re.fullmatch(r"\d{1,3}(?::\d{1,2}){1,2}", value):
+        parts = [int(part) for part in value.split(":")]
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+
+    matches = re.findall(r"(\d+)(h|m|s)", value)
+    if matches and "".join(f"{amount}{unit}" for amount, unit in matches) == value:
+        multipliers = {"h": 3600, "m": 60, "s": 1}
+        return sum(int(amount) * multipliers[unit] for amount, unit in matches)
+    return 0
+
+
+def extract_shared_timestamp(value):
+    try:
+        parsed = urlsplit(str(value or "").strip())
+    except ValueError:
+        return 0
+
+    host = parsed.netloc.casefold()
+    is_youtube = host == "youtube.com" or host.endswith(".youtube.com")
+    is_short_url = host == "youtu.be" or host.endswith(".youtu.be")
+    if not is_youtube and not is_short_url:
+        return 0
+
+    values = {key.casefold(): item for key, item in parse_qsl(parsed.query, keep_blank_values=True)}
+    if parsed.fragment:
+        fragment_values = {
+            key.casefold(): item
+            for key, item in parse_qsl(parsed.fragment, keep_blank_values=True)
+        }
+        values.update(fragment_values)
+    for key in ("t", "start", "time_continue"):
+        seconds = parse_timestamp_seconds(values.get(key))
+        if seconds > 0:
+            return seconds
+    return 0
+
+
+def format_timestamp(seconds):
+    seconds = max(0, int(seconds or 0))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, remaining_seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{remaining_seconds:02d}"
+    return f"{minutes}:{remaining_seconds:02d}"
+
+
+def build_share_context(*values, profile="best"):
+    shared_url = extract_shared_url(*values)
+    playlist_kind = classify_playlist_url(shared_url) if shared_url else "single"
+    timestamp_seconds = extract_shared_timestamp(shared_url)
+    normalized_profile = normalize_api_share_profile(profile, allow_ask=True)
+    return {
+        "url": shared_url,
+        "profile": normalized_profile,
+        "profile_required": normalized_profile == "ask",
+        "playlist_kind": playlist_kind if playlist_kind in ("playlist", "channel") else "",
+        "timestamp_seconds": timestamp_seconds or None,
+        "timestamp_label": format_timestamp(timestamp_seconds) if timestamp_seconds else "",
+    }
 
 
 def normalize_media_url(value):
@@ -625,6 +721,8 @@ def normalize_history_item(item):
     item.setdefault('duration_seconds', 0)
     item.setdefault('media_id', '')
     item.setdefault('extractor', '')
+    item.setdefault('section_mode', 'full')
+    item.setdefault('section_start', 0)
     item.setdefault('status', 'unknown')
     item.setdefault('filepath', '')
     item.setdefault('source', 'history')
@@ -693,6 +791,22 @@ def validate_playlist_request(url, playlist_mode, explicit=False):
     return None
 
 
+def normalize_section_mode(value):
+    mode = str(value or "").strip().lower()
+    if not mode:
+        return "full"
+    return mode if mode in SECTION_MODES else None
+
+
+def validate_section_request(url, section_mode):
+    mode = normalize_section_mode(section_mode)
+    if not mode:
+        return "Unsupported timestamp mode"
+    if mode == "from_timestamp" and not extract_shared_timestamp(url):
+        return "Timestamp was not found in the shared URL"
+    return None
+
+
 def find_thumbnail_sidecar(filename):
     file_path = safe_downfolder_path(filename)
     if not file_path:
@@ -734,6 +848,12 @@ def normalize_queue_job(item, restored=False):
     playlist_mode = normalize_playlist_mode(job.get("playlist_mode"), url)
     if not playlist_mode:
         return None
+    section_mode = normalize_section_mode(job.get("section_mode"))
+    if not section_mode:
+        return None
+    section_start = extract_shared_timestamp(url) if section_mode == "from_timestamp" else 0
+    if section_mode == "from_timestamp" and not section_start:
+        return None
     return {
         "id": job_id,
         "url": url,
@@ -746,10 +866,20 @@ def normalize_queue_job(item, restored=False):
         "attempts": attempts,
         "playlist_mode": playlist_mode,
         "write_thumbnail": parse_boolean(job.get("write_thumbnail")),
+        "section_mode": section_mode,
+        "section_start": section_start,
     }
 
 
-def create_queue_job(url, resolution, source, force=False, playlist_mode="single", write_thumbnail=False):
+def create_queue_job(
+    url,
+    resolution,
+    source,
+    force=False,
+    playlist_mode="single",
+    write_thumbnail=False,
+    section_mode="full",
+):
     return normalize_queue_job({
         "id": str(uuid.uuid4()),
         "url": url,
@@ -759,6 +889,7 @@ def create_queue_job(url, resolution, source, force=False, playlist_mode="single
         "force": force,
         "playlist_mode": playlist_mode,
         "write_thumbnail": write_thumbnail,
+        "section_mode": section_mode,
     })
 
 
@@ -776,6 +907,8 @@ def public_queue_job(job, position=None):
         "restored": job["restored"],
         "playlist_mode": job["playlist_mode"],
         "write_thumbnail": job["write_thumbnail"],
+        "section_mode": job["section_mode"],
+        "section_start": job["section_start"],
     }
     if position is not None:
         public_job["position"] = position
@@ -866,6 +999,8 @@ def same_queue_request(first, second):
         and first["resolution"] == second["resolution"]
         and first["playlist_mode"] == second["playlist_mode"]
         and first["write_thumbnail"] == second["write_thumbnail"]
+        and first["section_mode"] == second["section_mode"]
+        and first["section_start"] == second["section_start"]
     )
 
 
@@ -875,9 +1010,9 @@ def find_queued_duplicate(job):
     if active and same_queue_request(active, job):
         return public_queue_job(active)
 
-    for queued_job in pending_queue_jobs():
+    for position, queued_job in enumerate(pending_queue_jobs(), start=1):
         if same_queue_request(queued_job, job):
-            return public_queue_job(queued_job)
+            return public_queue_job(queued_job, position=position)
     return None
 
 
@@ -903,12 +1038,23 @@ def existing_download_summary(item):
         "timestamp": item.get("timestamp"),
         "status": item.get("status"),
         "source": item.get("source"),
+        "section_mode": item.get("section_mode"),
+        "section_start": item.get("section_start"),
     }
 
 
-def find_existing_download(url, resolution, media_id="", extractor="", require_thumbnail=False):
+def find_existing_download(
+    url,
+    resolution,
+    media_id="",
+    extractor="",
+    require_thumbnail=False,
+    section_mode="full",
+):
     normalized_url = normalize_media_url(url)
     requested_type = get_download_type(resolution)
+    requested_section_mode = normalize_section_mode(section_mode) or "full"
+    requested_section_start = extract_shared_timestamp(url) if requested_section_mode == "from_timestamp" else 0
     items = download_manager.normalized_history() + list_mounted_file_items()
 
     for item in items:
@@ -916,6 +1062,10 @@ def find_existing_download(url, resolution, media_id="", extractor="", require_t
         if not item.get("file_exists"):
             continue
         if require_thumbnail and not item.get("thumbnail_file_exists"):
+            continue
+        if item.get("section_mode") != requested_section_mode:
+            continue
+        if int(item.get("section_start") or 0) != requested_section_start:
             continue
 
         item_resolution = str(item.get("resolution") or "")
@@ -988,6 +1138,7 @@ def enqueue_download(
     force=False,
     playlist_mode="single",
     write_thumbnail=False,
+    section_mode="full",
 ):
     job = create_queue_job(
         url,
@@ -996,6 +1147,7 @@ def enqueue_download(
         force=force,
         playlist_mode=playlist_mode,
         write_thumbnail=write_thumbnail,
+        section_mode=section_mode,
     )
     if not job:
         raise ValueError("Invalid download request")
@@ -1017,6 +1169,7 @@ def enqueue_download(
                     job["url"],
                     job["resolution"],
                     require_thumbnail=job["write_thumbnail"],
+                    section_mode=job["section_mode"],
                 )
             if existing:
                 return {
@@ -1026,6 +1179,7 @@ def enqueue_download(
                     "existing": existing,
                 }
 
+        queue_position = dl_q.qsize() + 1
         dl_q.put(job)
         persist_queue_state()
 
@@ -1036,7 +1190,8 @@ def enqueue_download(
     return {
         "queued": True,
         "duplicate": False,
-        "job": public_queue_job(job),
+        "job": public_queue_job(job, position=queue_position),
+        "queue_count": queue_position,
     }
 
 def get_queued_downloads():
@@ -1044,6 +1199,56 @@ def get_queued_downloads():
     for position, job in enumerate(pending_queue_jobs(), start=1):
         queued_items.append(public_queue_job(job, position=position))
     return queued_items
+
+
+def build_queue_receipt(result, profile, client=""):
+    result = result if isinstance(result, dict) else {}
+    job = result.get("job") if isinstance(result.get("job"), dict) else None
+    queue_position = job.get("position") if job else None
+    queue_count = result.get("queue_count")
+    if queue_count is None:
+        queue_count = dl_q.qsize()
+
+    if result.get("duplicate"):
+        duplicate_type = result.get("duplicate_type")
+        if duplicate_type == "queue":
+            code = "duplicate_queue"
+            msg = "Already in the NAS queue."
+            if queue_position:
+                msg = f"Already in the NAS queue at position {queue_position}."
+        else:
+            code = "duplicate_history"
+            msg = "Already downloaded on this NAS."
+        return {
+            "success": True,
+            "queued": False,
+            "duplicate": True,
+            "duplicate_type": duplicate_type,
+            "code": code,
+            "profile": profile,
+            "queue_position": queue_position,
+            "queue_count": queue_count,
+            "existing": result.get("existing"),
+            "job": job,
+            "client": client or None,
+            "msg": msg,
+        }
+
+    msg = f"Added {profile} to the NAS queue."
+    if queue_position:
+        msg = f"Added {profile} to the NAS queue at position {queue_position}."
+    return {
+        "success": True,
+        "queued": True,
+        "duplicate": False,
+        "code": "queued",
+        "profile": profile,
+        "queue_position": queue_position,
+        "queue_count": queue_count,
+        "job": job,
+        "client": client or None,
+        "msg": msg,
+    }
 
 # single use global download manager
 class GlobalDownloadManager:
@@ -1196,6 +1401,8 @@ class GlobalDownloadManager:
                 and candidate_media_id == str(existing.get("media_id") or "")
                 and candidate_extractor == str(existing.get("extractor") or "").casefold()
                 and candidate.get("resolution") == existing.get("resolution")
+                and candidate.get("section_mode") == existing.get("section_mode")
+                and int(candidate.get("section_start") or 0) == int(existing.get("section_start") or 0)
             )
             if same_file or same_media:
                 return index
@@ -1599,13 +1806,20 @@ def q_put():
     force = parse_boolean(payload.get("force"))
     playlist_mode = payload.get("playlist_mode")
     write_thumbnail = parse_boolean(payload.get("write_thumbnail"))
+    section_mode = payload.get("section_mode")
 
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
     playlist_error = validate_playlist_request(url, playlist_mode, explicit=True)
     if playlist_error:
-        return json_error(playlist_error, 400)
+        return json_error(playlist_error, 400, {
+            "playlist_kind": classify_playlist_url(url),
+            "options": ["first10", "all"],
+        })
+    section_error = validate_section_request(url, section_mode)
+    if section_error:
+        return json_error(section_error, 400)
 
     result = enqueue_download(
         url,
@@ -1615,46 +1829,95 @@ def q_put():
         force=force,
         playlist_mode=normalize_playlist_mode(playlist_mode, url),
         write_thumbnail=write_thumbnail,
+        section_mode=normalize_section_mode(section_mode),
     )
-    if result.get("duplicate"):
-        return {
-            "success": True,
-            "queued": False,
-            "duplicate": True,
-            "duplicate_type": result.get("duplicate_type"),
-            "existing": result.get("existing"),
-            "job": result.get("job"),
-            "msg": "This download is already queued or available on the NAS.",
-        }
+    receipt = build_queue_receipt(result, resolution, client="web")
+    if receipt["queued"]:
+        download_manager.send_message('We received your download. Please wait.')
+    return receipt
 
-    download_manager.send_message('We received your download. Please wait.')
+
+@post('/youtube-dl/share/context')
+def share_context():
+    payload = get_request_json()
+    data = load_auth_data()
+    if not is_api_authenticated(payload, data):
+        return json_error("Invalid password, account, or API token.", 403)
+
+    requested_profile = payload.get("profile") or payload.get("resolution") or "best"
+    normalized_profile = normalize_api_share_profile(requested_profile, default=None, allow_ask=True)
+    if not normalized_profile:
+        return json_error("Unsupported mobile share profile", 400, {
+            "profiles": sorted(SHARE_PROFILES),
+        })
+
+    context = build_share_context(
+        payload.get("url"),
+        payload.get("text"),
+        payload.get("title"),
+        profile=normalized_profile,
+    )
+    if not context["url"]:
+        if parse_boolean(payload.get("soft_errors")):
+            return {
+                "success": False,
+                "code": "url_required",
+                "msg": "URL is required",
+                **context,
+            }
+        return json_error("URL is required", 400)
+
     return {
         "success": True,
-        "queued": True,
-        "duplicate": False,
-        "job": result.get("job"),
-        "msg": 'We received your download. Please wait.',
+        "code": "share_context",
+        **context,
+        "profiles": ["best", "1080p", "720p", "audio-mp3", "audio-m4a"],
+        "playlist_options": ["first10", "all"] if context["playlist_kind"] else [],
+        "timestamp_options": ["full", "from_timestamp"] if context["timestamp_seconds"] else ["full"],
     }
 
 @get('/youtube-dl/rest', method='POST')
 def q_put_rest():
     payload = get_request_json()
     url = payload.get("url")
-    resolution = payload.get("resolution")
+    requested_resolution = payload.get("resolution")
     force = parse_boolean(payload.get("force"))
     playlist_mode = payload.get("playlist_mode")
     write_thumbnail = parse_boolean(payload.get("write_thumbnail"))
+    section_mode = payload.get("section_mode")
+    client = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("client") or ""))[:64]
+    client_version = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("client_version") or ""))[:32]
 
     data = load_auth_data()
     if not is_api_authenticated(payload, data):
         return json_error("Invalid password, account, or API token.", 403)
+
+    if not isinstance(requested_resolution, str) or not requested_resolution.strip():
+        return json_error("Resolution is required", 400)
+    resolution = SHARE_PROFILE_ALIASES.get(
+        requested_resolution.strip().lower(),
+        requested_resolution.strip(),
+    )
+    if resolution == "ask":
+        return json_error("Unsupported mobile share profile", 400, {
+            "profiles": ["best", "1080p", "720p", "audio-mp3", "audio-m4a"],
+        })
 
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
     playlist_error = validate_playlist_request(url, playlist_mode, explicit=True)
     if playlist_error:
-        return json_error(playlist_error, 400)
+        return json_error(playlist_error, 400, {
+            "playlist_kind": classify_playlist_url(url),
+            "options": ["first10", "all"],
+        })
+    section_error = validate_section_request(url, section_mode)
+    if section_error:
+        return json_error(section_error, 400, {
+            "timestamp_seconds": extract_shared_timestamp(url) or None,
+            "options": ["full", "from_timestamp"],
+        })
 
     result = enqueue_download(
         url,
@@ -1664,25 +1927,12 @@ def q_put_rest():
         force=force,
         playlist_mode=normalize_playlist_mode(playlist_mode, url),
         write_thumbnail=write_thumbnail,
+        section_mode=normalize_section_mode(section_mode),
     )
-    if result.get("duplicate"):
-        return {
-            "success": True,
-            "queued": False,
-            "duplicate": True,
-            "duplicate_type": result.get("duplicate_type"),
-            "existing": result.get("existing"),
-            "job": result.get("job"),
-            "msg": "This download is already queued or available on the NAS.",
-        }
-    return {
-        "success": True,
-        "queued": True,
-        "duplicate": False,
-        "job": result.get("job"),
-        "msg": 'download has started',
-        "Remaining downloading count": json.dumps(dl_q.qsize()),
-    }
+    receipt = build_queue_receipt(result, resolution, client=client)
+    receipt["client_version"] = client_version or None
+    receipt["Remaining downloading count"] = json.dumps(receipt["queue_count"])
+    return receipt
 
 @post('/youtube-dl/q/<job_id>/remove')
 def remove_queue_item(job_id):
@@ -1811,6 +2061,7 @@ def retry_history_item(uuid):
         ws_addr.wsClassVal,
         playlist_mode=normalize_playlist_mode(item.get("playlist_mode"), url),
         write_thumbnail=parse_boolean(item.get("write_thumbnail")),
+        section_mode=normalize_section_mode(item.get("section_mode")),
     )
     return {"success": True, "msg": "Download queued again", "Remaining downloading count": json.dumps(dl_q.qsize())}
 
@@ -1948,12 +2199,17 @@ def build_youtube_dl_cmd(item):
         raise ValueError("Invalid download request")
 
     unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~=;,^#(){}\\[\\] ]"
+    output_template = YTDLP_OUTPUT_TEMPLATE
+    if job["section_mode"] == "from_timestamp":
+        output_template = (
+            f"%(title)s__from_{job['section_start']}s__%(extractor_key)s_%(id)s.%(ext)s"
+        )
     cmd = build_ytdlp_common_args() + [
         "--continue",
         "--replace-in-metadata", "title", unsafe_chars_pattern, "_",
         "--paths", f"home:{DOWNFOLDER_DIR}",
         "--paths", f"temp:{os.path.join(DOWNFOLDER_DIR, '.incomplete')}",
-        "-o", YTDLP_OUTPUT_TEMPLATE,
+        "-o", output_template,
     ]
     if job["force"]:
         cmd.append("--force-overwrites")
@@ -1963,6 +2219,12 @@ def build_youtube_dl_cmd(item):
         cmd.extend(["--yes-playlist", "--playlist-end", "10"])
     else:
         cmd.append("--yes-playlist")
+    if job["section_mode"] == "from_timestamp":
+        cmd.extend([
+            "--download-sections",
+            f"*{job['section_start']}-inf",
+            "--force-keyframes-at-cuts",
+        ])
     resolution = job["resolution"]
     if resolution == "best":
         cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
@@ -2027,6 +2289,8 @@ def build_completed_history_item(job, output_info, fallback, item_uuid=None):
         "resolution": job["resolution"],
         "playlist_mode": job["playlist_mode"],
         "write_thumbnail": job["write_thumbnail"],
+        "section_mode": job["section_mode"],
+        "section_start": job["section_start"],
         "title": title,
         "channel": channel,
         "thumbnail": output_info.get("thumbnail") or fallback.get("thumbnail") or "",
@@ -2076,6 +2340,8 @@ def download(item):
             'attempts': job["attempts"],
             'playlist_mode': job["playlist_mode"],
             'write_thumbnail': job["write_thumbnail"],
+            'section_mode': job["section_mode"],
+            'section_start': job["section_start"],
             'status': 'extracting_info',
             'progress': 0,
             'title': video_title,
@@ -2123,6 +2389,7 @@ def download(item):
                 media_id=media_id,
                 extractor=extractor,
                 require_thumbnail=job["write_thumbnail"],
+                section_mode=job["section_mode"],
             )
             if existing:
                 download_manager.skip_duplicate(existing, job)
@@ -2264,6 +2531,8 @@ def download(item):
                 'restored': job["restored"],
                 'playlist_mode': job["playlist_mode"],
                 'write_thumbnail': job["write_thumbnail"],
+                'section_mode': job["section_mode"],
+                'section_start': job["section_start"],
             })
             
         print(f"Download completed: {video_title}")
@@ -2290,6 +2559,8 @@ def download(item):
             'restored': job["restored"],
             'playlist_mode': job["playlist_mode"],
             'write_thumbnail': job["write_thumbnail"],
+            'section_mode': job["section_mode"],
+            'section_start': job["section_start"],
         })
 
 import mimetypes

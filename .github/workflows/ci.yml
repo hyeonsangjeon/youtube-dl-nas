@@ -30,6 +30,7 @@ jobs:
           bash -n run.sh
           python -m json.tool static/pwa/manifest.webmanifest >/dev/null
           python -m json.tool integrations/http-shortcuts/shortcuts.json >/dev/null
+          python integrations/apple-shortcuts/build_shortcut.py --check
           unzip -t integrations/http-shortcuts/youtube-dl-nas-http-shortcut.zip
       - name: HTTP regression tests
         run: pytest -q

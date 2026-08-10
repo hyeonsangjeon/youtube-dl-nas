@@ -289,6 +289,8 @@
   "server.unsupported_resolution": "Ta rozdzielczość lub profil wyjściowy nie są obsługiwane.",
   "server.unsupported_playlist_mode": "Ten zakres playlisty nie jest obsługiwany.",
   "server.playlist_scope_required": "Przed dodaniem playlisty lub kanału wybierz zakres.",
+  "server.unsupported_timestamp_mode": "Ten tryb pobierania od znacznika czasu nie jest obsługiwany.",
+  "server.timestamp_not_found": "Udostępniony adres nie zawiera prawidłowego znacznika czasu.",
   "server.unsupported_share_profile": "Ten profil udostępniania mobilnego nie jest obsługiwany.",
   "server.queue_not_found": "Nie znaleziono pobierania w kolejce lub zadanie jest już aktywne.",
   "server.history_not_found": "Nie znaleziono wpisu historii.",

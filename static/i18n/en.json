@@ -289,6 +289,8 @@
   "server.unsupported_resolution": "This resolution or output profile is not supported.",
   "server.unsupported_playlist_mode": "This playlist scope is not supported.",
   "server.playlist_scope_required": "Choose a playlist scope before queueing this playlist or channel.",
+  "server.unsupported_timestamp_mode": "This timestamp download mode is not supported.",
+  "server.timestamp_not_found": "No usable timestamp was found in the shared URL.",
   "server.unsupported_share_profile": "This mobile share profile is not supported.",
   "server.queue_not_found": "The queued download was not found or is already active.",
   "server.history_not_found": "The history item was not found.",
