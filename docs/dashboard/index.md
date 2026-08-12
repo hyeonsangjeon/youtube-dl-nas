@@ -25,7 +25,9 @@ When a URL points to a playlist or channel, Playlist Guard shows a scope selecto
 
 ## Current Activity
 
-The activity panel shows the active title, channel, thumbnail, progress, transfer speed, and ETA. **Up next** lists waiting requests in processing order with their source and selected quality. Use the remove icon to cancel a waiting request before it starts.
+The activity panel shows the active title, channel, thumbnail, progress, transfer speed, ETA, and free space on the download volume. **Up next** lists waiting requests in processing order with their source and selected quality. Use the square stop control to cancel the active download while retaining compatible partial data, or use the remove icon to cancel a waiting request before it starts.
+
+The storage indicator warns at 10 GiB free and pauses new queue additions at 2 GiB free by default. Failed items show a safe reason and a concrete next action in the detail panel without saving credentials, cookie contents, private URLs, or mounted paths as diagnostics.
 
 The queue is saved in the persistent metadata volume without a database. If the container restarts, the interrupted active request returns first, followed by the remaining jobs. Restored jobs are labeled **Restored after restart**. Compatible partial files continue through `yt-dlp`; exact byte-range resume support depends on the source.
 

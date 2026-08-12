@@ -16,7 +16,7 @@
     <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}-roadmap-1" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}-runtime-resilience" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -314,7 +314,10 @@
                                 <h2>{{t('activity.heading')}}</h2>
                                 <p id="activity-summary">{{t('activity.no_active')}}</p>
                             </div>
-                            <span id="queue-count" class="metric-pill">{{t('activity.queue_count', count=0)}}</span>
+                            <div class="activity-metrics">
+                                <span id="storage-status" class="metric-pill storage-pill" hidden></span>
+                                <span id="queue-count" class="metric-pill">{{t('activity.queue_count', count=0)}}</span>
+                            </div>
                         </div>
                         <div class="activity-content">
                             <div class="activity-thumbnail">
@@ -324,7 +327,13 @@
                             <div class="activity-main">
                                 <div class="activity-title-row">
                                     <strong id="activity-title">{{t('activity.idle')}}</strong>
-                                    <span id="activity-status" class="status-tag status-pending">{{t('activity.idle')}}</span>
+                                    <div class="activity-title-actions">
+                                        <span id="activity-status" class="status-tag status-pending">{{t('activity.idle')}}</span>
+                                        <button id="cancel-active" type="button" class="activity-stop" hidden
+                                                title="{{t('activity.cancel_title')}}" aria-label="{{t('activity.cancel_title')}}">
+                                            <span class="glyphicon glyphicon-stop" aria-hidden="true"></span>
+                                        </button>
+                                    </div>
                                 </div>
                                 <p id="activity-channel">{{t('activity.waiting_next')}}</p>
                                 <div id="activity-transfer" class="activity-transfer" hidden>
@@ -482,7 +491,7 @@
     window.YDLNAS_I18N = {{!translations_json}};
     window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-roadmap-1"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-runtime-resilience"></script>
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {

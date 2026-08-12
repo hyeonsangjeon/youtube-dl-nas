@@ -46,6 +46,7 @@ Current release: `26.0806` (`2026-08-06`)
 - Guard playlist and channel URLs with explicit Current video, First 10, or All items scope before they reach the queue.
 - Optionally save a JPG thumbnail beside each downloaded video or audio file.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
+- See free download-volume capacity, stop an active job without deleting compatible partial data, and get a concrete recovery action when a download fails.
 - Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Preview saved video and audio in the dashboard, retry failed items, download files, delete history rows, or delete physical files.
@@ -71,8 +72,8 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 ## Dashboard Workflow
 
 1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue. Playlist and channel URLs open a scope selector before bulk work can start.
-2. Watch the Current Activity panel for progress, speed, ETA, and the ordered list of jobs waiting next.
-   Waiting jobs can be removed before they start. Jobs restored after a container restart are labeled in the queue.
+2. Watch the Current Activity panel for progress, speed, ETA, free storage, and the ordered list of jobs waiting next.
+   Stop an active job with the square stop control or remove a waiting job before it starts. Compatible partial data is retained for retry, and jobs restored after a container restart are labeled in the queue.
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
@@ -98,7 +99,9 @@ Clearing history rows does not delete files. Kept files are reloaded from `/down
 
 The active request and waiting jobs are written atomically to `queue_state.json` in the metadata volume. After a container restart, the interrupted active request is restored first, followed by the remaining queue in its original order. `yt-dlp --continue` reuses compatible partial files from `/downfolder/.incomplete`; whether a remote source can resume the exact byte range depends on that source.
 
-Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile and options. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. A repeated completion for the same physical file reuses its existing history row and original download timestamp. Failed history items remain retryable. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
+Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile and options. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. A repeated completion for the same physical file reuses its existing history row and original download timestamp. Failed and canceled history items remain retryable. Safe failure categories appear only in item details; private URLs, credentials, cookie contents, and mounted paths are not persisted as diagnostics. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
+
+The dashboard warns when the download volume has 10 GiB or less free and pauses new queue additions at 2 GiB or less by default. Existing and active jobs are not deleted. Adjust these thresholds with `YDLNAS_STORAGE_WARNING_GB` and `YDLNAS_STORAGE_CRITICAL_GB`, or set either value to `0` to disable that threshold.
 
 Mount `/usr/src/app/metadata` persistently to retain the safe queue across container replacement. The queue remains intentionally file-backed and does not require a database.
 
@@ -179,6 +182,8 @@ docker run -d \
 | `-e NLPTUTTI_UPDATE_TIMEOUT` | Maximum runtime package-update duration in seconds. Defaults to `180`. |
 | `-e YTDLP_COOKIES_FILE` | Optional path to a mounted Netscape-format cookies file. |
 | `-e YTDLP_EXTRA_ARGS` | Optional administrator-controlled extra arguments parsed with shell-style quoting. |
+| `-e YDLNAS_STORAGE_WARNING_GB` | Free-space warning threshold in GiB. Defaults to `10`; set `0` to disable. |
+| `-e YDLNAS_STORAGE_CRITICAL_GB` | Free-space threshold that pauses new queue additions. Defaults to `2`; set `0` to disable. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
 
@@ -253,9 +258,10 @@ These endpoints are used by the web UI and require a valid login cookie:
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/youtube-dl/status` | `GET` | Read the active download, live transfer details, ordered queue, and connected clients. |
+| `/youtube-dl/status` | `GET` | Read the active download, live transfer details, ordered queue, connected clients, and safe storage-capacity status. |
 | `/youtube-dl/preferences` | `GET`, `POST` | Read or update the signed per-device PWA share profile. |
 | `/youtube-dl/q/<job_id>/remove` | `POST` | Remove a waiting job before it becomes active. |
+| `/youtube-dl/q/active/cancel` | `POST` | Stop the active job, retain compatible partial data, and continue with the next queued job. |
 | `/youtube-dl/history` | `GET` | Read normalized download history plus mounted `/downfolder` files that are not in metadata yet. |
 | `/youtube-dl/history/retry/<uuid>` | `POST` | Queue a previous history item again. |
 | `/youtube-dl/history/delete/<uuid>` | `POST` | Delete the history row only. |
@@ -313,7 +319,7 @@ docker run --rm \
   youtube-dl-nas:local
 ```
 
-The GitHub Actions workflow builds the Docker image for pull requests without publishing. A version tag publishes multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`). One tag build updates `latest`, the pinned release tag, and its immutable `sha-` tag together.
+The GitHub Actions workflow builds and starts the Docker image for pull requests, verifies the live `/health` response and sign-in page, and publishes nothing. A version tag repeats that runtime smoke test before publishing multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`). One tag build updates `latest`, the pinned release tag, and its immutable `sha-` tag together.
 
 Configure these repository secrets before publishing to Docker Hub:
 

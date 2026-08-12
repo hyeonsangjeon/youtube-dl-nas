@@ -35,6 +35,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Video up to 2160p, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
 - English, Korean, Simplified Chinese, and Polish UI with automatic browser-language detection and a saved preference.
 - Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
+- Download-volume capacity status, a safe active-job stop control, retained partial data, and actionable failure guidance.
 - Database-free queue recovery across container restarts, compatible partial-download continuation, duplicate guards, and removable waiting jobs.
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, and 20-item pages.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
@@ -74,6 +75,8 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 | `PROXY` | No | Empty | Proxy passed to `yt-dlp` |
 | `YTDLP_COOKIES_FILE` | No | Empty | Mounted Netscape-format cookie file |
 | `YTDLP_EXTRA_ARGS` | No | Empty | Administrator-controlled extra `yt-dlp` arguments |
+| `YDLNAS_STORAGE_WARNING_GB` | No | `10` | Free-space warning threshold in GiB; `0` disables it |
+| `YDLNAS_STORAGE_CRITICAL_GB` | No | `2` | Pause new queue additions below this free space; `0` disables it |
 | `NLPTUTTI_AUTO_UPDATE` | No | `true` | Install or upgrade `nlptutti` at new-container startup for Subtitle QA |
 | `NLPTUTTI_UPDATE_TIMEOUT` | No | `180` | Runtime package-update timeout in seconds |
 | `YDLNAS_API_TOKEN` | No | Empty | Optional Bearer token; ID/password remains supported |
@@ -120,7 +123,7 @@ docker pull modenaf360/youtube-dl-nas:26.0806
 curl http://YOUR_NAS:8080/health
 ```
 
-A healthy container returns HTTP `200`. The image also includes a Docker `HEALTHCHECK`.
+A healthy container returns HTTP `200` with queue, updater, and path-free storage-capacity status. The image also includes a Docker `HEALTHCHECK`, and every published build must first pass a live container smoke test.
 
 ## Project Links
 

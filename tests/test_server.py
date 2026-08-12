@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from bottle import default_app
@@ -38,6 +38,7 @@ def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
     assert health.json["version"] == "26.0806"
+    assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")
     assert manifest.json["share_target"]["action"] == "/youtube-dl/share-target"
@@ -151,6 +152,36 @@ def test_rest_api_accepts_optional_bearer_token(app):
         )
     assert response.json["success"] is True
     enqueue.assert_called_once()
+
+
+def test_rest_api_reports_critical_storage_with_http_507(app):
+    blocked = {
+        "queued": False,
+        "duplicate": False,
+        "blocked": True,
+        "code": "storage_critical",
+        "queue_count": 0,
+        "storage": {
+            "state": "critical",
+            "free_bytes": 512,
+            "critical_bytes": 1024,
+        },
+    }
+    with patch.object(server, "enqueue_download", return_value=blocked):
+        response = app.post_json(
+            "/youtube-dl/rest",
+            {
+                "url": "https://youtu.be/example",
+                "resolution": "best",
+                "id": "tester",
+                "pw": "secret",
+            },
+            status=507,
+        )
+
+    assert response.json["success"] is False
+    assert response.json["blocked"] is True
+    assert response.json["code"] == "storage_critical"
 
 
 def test_rest_api_preserves_advanced_resolution_values(app):
@@ -398,6 +429,63 @@ def test_queue_receipts_distinguish_waiting_and_downloaded_duplicates():
     assert downloaded_duplicate["existing"]["title"] == "Saved item"
 
 
+def test_storage_receipt_is_stable_and_actionable():
+    receipt = server.build_queue_receipt(
+        {
+            "blocked": True,
+            "code": "storage_critical",
+            "queue_count": 2,
+            "storage": {
+                "state": "critical",
+                "free_bytes": 512,
+                "critical_bytes": 1024,
+            },
+        },
+        "best",
+        client="android-shortcut",
+    )
+
+    assert receipt["success"] is False
+    assert receipt["queued"] is False
+    assert receipt["code"] == "storage_critical"
+    assert receipt["queue_count"] == 2
+    assert receipt["params"] == {"free_bytes": 512, "critical_bytes": 1024}
+
+
+@pytest.mark.parametrize(
+    ("free_gb", "expected_state", "expected_blocking"),
+    [
+        (20, "ok", False),
+        (5, "warning", False),
+        (1, "critical", True),
+    ],
+)
+def test_storage_status_uses_warning_and_critical_thresholds(free_gb, expected_state, expected_blocking):
+    class Usage:
+        total = 100 * (1024 ** 3)
+        free = free_gb * (1024 ** 3)
+        used = total - free
+
+    with patch.object(server.shutil, "disk_usage", return_value=Usage()), \
+         patch.object(server, "STORAGE_WARNING_GB", 10), \
+         patch.object(server, "STORAGE_CRITICAL_GB", 2):
+        storage = server.get_storage_status()
+
+    assert storage["state"] == expected_state
+    assert storage["blocking"] is expected_blocking
+    assert storage["free_percent"] == float(free_gb)
+
+
+def test_storage_status_fails_open_when_capacity_is_unavailable():
+    with patch.object(server.shutil, "disk_usage", side_effect=OSError("not mounted")):
+        storage = server.get_storage_status()
+
+    assert storage["available"] is False
+    assert storage["state"] == "unavailable"
+    assert storage["blocking"] is False
+    assert storage["free_bytes"] is None
+
+
 def test_json_errors_include_stable_localization_codes_and_parameters():
     assert server.get_error_details("URL is required") == ("url_required", {})
     assert server.get_error_details("Unsupported resolution") == ("unsupported_resolution", {})
@@ -535,6 +623,97 @@ def test_download_command_uses_temp_path_and_final_path_marker():
     assert "--continue" in command
     assert "--no-playlist" in command
     assert "--exec" not in command
+
+
+def test_download_profiles_have_bounded_format_fallbacks():
+    best = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "best",
+        "source": "web",
+    })
+    capped = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "720p",
+        "source": "web",
+    })
+    m4a = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "audio-m4a",
+        "source": "web",
+    })
+
+    assert "/bestvideo+bestaudio/best" in best[best.index("-f") + 1]
+    assert "best[height<=720]" in capped[capped.index("-f") + 1]
+    assert capped[capped.index("--merge-output-format") + 1] == "mp4"
+    assert "bestaudio/best" in m4a[m4a.index("-f") + 1]
+    assert m4a[m4a.index("--audio-format") + 1] == "m4a"
+
+
+def test_metadata_process_is_attached_to_active_job_for_cancellation():
+    class FakeProcess:
+        returncode = 0
+
+        def communicate(self, timeout):
+            assert timeout == 30
+            return ('{"title": "Metadata title"}', None)
+
+    process = FakeProcess()
+    with patch.object(server.subprocess, "Popen", return_value=process), \
+         patch.object(server.download_manager, "attach_process") as attach, \
+         patch.object(server.download_manager, "detach_process") as detach:
+        metadata = server.fetch_media_metadata("https://example.com/media", "metadata-job")
+
+    assert metadata["title"] == "Metadata title"
+    attach.assert_called_once_with("metadata-job", process)
+    detach.assert_called_once_with("metadata-job", process)
+
+
+def test_metadata_timeout_terminates_and_detaches_process():
+    class FakeProcess:
+        returncode = None
+        calls = 0
+
+        def communicate(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise server.subprocess.TimeoutExpired(["yt-dlp", "private-value"], timeout)
+            assert timeout == 6
+            return ("", None)
+
+    process = FakeProcess()
+    with patch.object(server.subprocess, "Popen", return_value=process), \
+         patch.object(server.download_manager, "attach_process"), \
+         patch.object(server.download_manager, "detach_process") as detach, \
+         patch.object(server, "terminate_process_group") as terminate:
+        with pytest.raises(server.subprocess.TimeoutExpired):
+            server.fetch_media_metadata("https://example.com/slow", "metadata-job")
+
+    terminate.assert_called_once_with(process)
+    detach.assert_called_once_with("metadata-job", process)
+
+
+def test_failure_classification_and_diagnostics_are_safe(tmp_path):
+    with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)):
+        diagnostic = server.sanitize_diagnostic_text(
+            f"ERROR: https://private.example/watch?token=secret failed in {tmp_path}/clip.part password=hunter2"
+        )
+
+    assert "private.example" not in diagnostic
+    assert str(tmp_path) not in diagnostic
+    assert "hunter2" not in diagnostic
+    assert server.classify_download_failure(["ERROR: HTTP Error 429: Too Many Requests"]) == "rate_limited"
+    assert server.classify_download_failure(["ERROR: No space left on device"]) == "storage_full"
+    assert server.classify_download_failure(["ERROR: Requested format is not available"]) == "format_unavailable"
+    assert server.classify_download_failure(["unmapped failure"]) == "unknown"
+
+    timeout = server.subprocess.TimeoutExpired(
+        ["yt-dlp", "--password", "private-password", "https://private.example/media"],
+        30,
+    )
+    timeout_diagnostic = server.sanitize_diagnostic_text(timeout)
+    assert timeout_diagnostic == "process timed out"
+    assert "private-password" not in timeout_diagnostic
+    assert "private.example" not in timeout_diagnostic
 
 
 def test_forced_download_command_overwrites_existing_output():
@@ -832,6 +1011,216 @@ def test_duplicate_queue_guard_ignores_share_tracking_parameters(tmp_path):
         server.active_queue_job = original_active
 
 
+def test_critical_storage_blocks_new_queue_items_without_starting_worker(tmp_path):
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    try:
+        with patch.object(server, "QUEUE_STATE_FILE", str(tmp_path / "queue.json")), \
+             patch.object(server, "find_existing_download", return_value=None), \
+             patch.object(server, "get_storage_status", return_value={
+                 "available": True,
+                 "state": "critical",
+                 "blocking": True,
+                 "free_bytes": 1024,
+                 "critical_bytes": 2048,
+             }), \
+             patch.object(server, "start_download_thread_if_needed") as start_worker:
+            result = server.enqueue_download("https://youtu.be/no-space", "best", "web")
+
+        assert result["blocked"] is True
+        assert result["code"] == "storage_critical"
+        assert server.pending_queue_jobs() == []
+        start_worker.assert_not_called()
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+
+
+def test_active_download_cancel_targets_the_attached_process():
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    manager = server.GlobalDownloadManager()
+    process = FakeProcess()
+    manager.set_current_download({"job_id": "active-job", "status": "downloading"})
+    manager.attach_process("active-job", process)
+
+    with patch.object(server, "terminate_process_group") as terminate:
+        result = manager.request_active_cancel()
+        repeated = manager.request_active_cancel()
+
+    assert result == {"job_id": "active-job", "already_requested": False}
+    assert repeated == {"job_id": "active-job", "already_requested": True}
+    assert manager.current_download["status"] == "canceling"
+    assert manager.cancellation_requested("active-job") is True
+    terminate.assert_called_once_with(process)
+    assert manager.consume_cancellation("active-job") is True
+    assert manager.cancellation_requested("active-job") is False
+
+
+def test_process_group_cancel_escalates_after_grace_period():
+    class FakeProcess:
+        pid = 123
+
+        def poll(self):
+            return None
+
+    process = FakeProcess()
+    with patch.object(server.os, "name", "posix"), \
+         patch.object(server.os, "getpgid", return_value=456), \
+         patch.object(server.os, "killpg") as killpg, \
+         patch.object(server.time, "sleep"), \
+         patch.object(server, "Thread") as thread:
+        server.terminate_process_group(process)
+        watchdog = thread.call_args.kwargs["target"]
+        watchdog()
+
+    assert [entry.args for entry in killpg.call_args_list] == [
+        (456, server.signal.SIGTERM),
+        (456, server.signal.SIGKILL),
+    ]
+    thread.return_value.start.assert_called_once()
+
+
+def test_download_canceled_during_metadata_does_not_start_process():
+    manager = MagicMock()
+    manager.current_download = {}
+    manager.consume_cancellation.return_value = True
+    job = server.create_queue_job("https://example.com/cancel-during-metadata", "best", "web")
+
+    with patch.object(server, "download_manager", manager), \
+         patch.object(server, "fetch_media_metadata", return_value={"title": "Canceled early"}) as metadata, \
+         patch.object(server.subprocess, "Popen") as popen:
+        server.download(job)
+
+    metadata.assert_called_once_with(job["url"], job["id"])
+    popen.assert_not_called()
+    manager.complete_download.assert_called_once()
+    assert manager.complete_download.call_args.args[0]["status"] == "canceled"
+
+
+def test_completed_process_wins_over_late_cancel_request():
+    class FakeStdout:
+        def readline(self):
+            return ""
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+        def poll(self):
+            return 0
+
+    manager = MagicMock()
+    manager.current_download = {}
+    manager.set_current_download.side_effect = lambda info: setattr(manager, "current_download", info)
+    manager.consume_cancellation.side_effect = [False, True]
+    job = server.create_queue_job("https://example.com/completed-before-cancel", "best", "web")
+
+    with patch.object(server, "download_manager", manager), \
+         patch.object(server, "fetch_media_metadata", return_value={"title": "Completed item"}), \
+         patch.object(server, "find_existing_download", return_value=None), \
+         patch.object(server, "build_youtube_dl_cmd", return_value=["yt-dlp"]), \
+         patch.object(server, "build_completed_history_item", return_value={"status": "completed"}), \
+         patch.object(server.subprocess, "Popen", return_value=FakeProcess()):
+        server.download(job)
+
+    manager.complete_download.assert_not_called()
+    manager.complete_downloads.assert_called_once_with([{"status": "completed"}])
+
+
+def test_failed_history_uses_non_success_websocket_event():
+    manager = server.GlobalDownloadManager()
+    manager.set_current_download({"job_id": "failed-job", "status": "downloading"})
+    observed_runtime = []
+
+    def capture_event(_message):
+        observed_runtime.append((manager.current_download, manager.is_downloading))
+
+    with patch.object(manager, "save_history"), \
+         patch.object(manager, "broadcast_to_all_clients", side_effect=capture_event) as broadcast:
+        manager.complete_download({
+            "uuid": "failed-job",
+            "url": "https://youtu.be/failed",
+            "resolution": "best",
+            "status": "failed",
+            "failure_code": "network",
+        })
+
+    payload = broadcast.call_args.args[0]
+    assert payload.startswith("[HISTORY_UPDATED], ")
+    assert '"failure_code": "network"' in payload
+    assert observed_runtime == [(None, False)]
+
+
+def test_history_restore_logs_do_not_include_private_titles(capsys):
+    manager = server.GlobalDownloadManager()
+    private_item = {
+        "uuid": "private-history",
+        "title": "https://private.example/media?token=secret",
+        "url": "https://private.example/media?token=secret",
+        "resolution": "best",
+    }
+    client = object()
+    with patch.object(manager, "load_history"), \
+         patch.object(manager, "combined_history", return_value=[private_item]), \
+         patch.object(server, "safe_websocket_send", return_value=True):
+        manager.add_client(client)
+
+    output = capsys.readouterr().out
+    assert "Sent history item 0" in output
+    assert "private.example" not in output
+    assert "secret" not in output
+
+
+def test_cancel_endpoint_requires_an_active_download(app):
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    with patch.object(server.download_manager, "request_active_cancel", return_value=None):
+        response = app.post("/youtube-dl/q/active/cancel", status=409)
+
+    assert response.json["code"] == "active_download_not_found"
+
+
+def test_canceled_history_item_can_be_queued_for_retry(app):
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    canceled = {
+        "uuid": "canceled-job",
+        "url": "https://youtu.be/retry-canceled",
+        "resolution": "720p",
+        "status": "canceled",
+        "playlist_mode": "single",
+        "write_thumbnail": True,
+        "section_mode": "full",
+    }
+    queued = {
+        "queued": True,
+        "duplicate": False,
+        "job": {"position": 1},
+        "queue_count": 1,
+    }
+    with patch.object(server.download_manager, "get_history_item", return_value=canceled), \
+         patch.object(server, "enqueue_download", return_value=queued) as enqueue:
+        response = app.post("/youtube-dl/history/retry/canceled-job")
+
+    assert response.json["success"] is True
+    assert response.json["code"] == "queued"
+    enqueue.assert_called_once_with(
+        canceled["url"],
+        "720p",
+        "web",
+        server.ws_addr.wsClassVal,
+        playlist_mode="single",
+        write_thumbnail=True,
+        section_mode="full",
+    )
+
+
 def test_remove_queued_download_endpoint(app, tmp_path):
     app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
     job = server.create_queue_job("https://youtu.be/remove-me", "best", "web")
@@ -1033,6 +1422,40 @@ def test_worker_shutdown_preserves_active_and_pending_queue_state(tmp_path):
 
         assert saved["active"]["id"] == active["id"]
         assert [job["id"] for job in saved["pending"]] == [pending["id"]]
+    finally:
+        with server.dl_q.mutex:
+            server.dl_q.queue.clear()
+            server.dl_q.queue.extend(original_queue)
+            server.dl_q.unfinished_tasks = original_unfinished
+        server.active_queue_job = original_active
+        if original_shutdown:
+            server.shutdown_event.set()
+        else:
+            server.shutdown_event.clear()
+
+
+def test_worker_continues_to_next_job_after_a_terminal_result(tmp_path):
+    first = server.create_queue_job("https://youtu.be/first", "best", "web")
+    second = server.create_queue_job("https://youtu.be/second", "audio-mp3", "web")
+    original_active = server.active_queue_job
+    original_shutdown = server.shutdown_event.is_set()
+    with server.dl_q.mutex:
+        original_queue = list(server.dl_q.queue)
+        original_unfinished = server.dl_q.unfinished_tasks
+        server.dl_q.queue.clear()
+        server.dl_q.unfinished_tasks = 0
+
+    try:
+        server.shutdown_event.clear()
+        server.dl_q.put(first)
+        server.dl_q.put(second)
+        server.dl_q.put(None)
+        with patch.object(server, "QUEUE_STATE_FILE", str(tmp_path / "queue.json")), \
+             patch.object(server, "download") as download:
+            server.dl_worker()
+
+        assert [entry.args[0]["id"] for entry in download.call_args_list] == [first["id"], second["id"]]
+        assert server.active_queue_job is None
     finally:
         with server.dl_q.mutex:
             server.dl_q.queue.clear()

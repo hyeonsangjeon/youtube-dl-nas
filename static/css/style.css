@@ -1813,6 +1813,32 @@ a:hover {
   padding-bottom: 18px;
 }
 
+.activity-metrics,
+.activity-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.storage-pill.storage-ok {
+  border-color: #a6f4c5;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.storage-pill.storage-warning,
+.storage-pill.storage-unavailable {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.storage-pill.storage-critical {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
 .activity-content {
   display: grid;
   grid-template-columns: 118px minmax(0, 1fr);
@@ -1862,6 +1888,35 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.activity-stop {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 1px solid #fecdca;
+  border-radius: 6px;
+  background: #fff;
+  color: #b42318;
+}
+
+.activity-stop:hover,
+.activity-stop:focus {
+  border-color: #b42318;
+  background: #fef3f2;
+  outline: 0;
+}
+
+.activity-stop:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.activity-stop[hidden] {
+  display: none;
 }
 
 #activity-title {
@@ -2252,6 +2307,11 @@ a.video-title {
 .status-failed {
   background: #fee4e2;
   color: #b42318;
+}
+
+.status-canceled {
+  background: #fff4e5;
+  color: #b54708;
 }
 
 .status-pending {
@@ -2727,6 +2787,42 @@ a.video-title {
 .metadata-notice p {
   margin: 4px 0 0;
   color: #5f4b8b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.failure-guidance {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  background: #fef3f2;
+  color: #912018;
+}
+
+.failure-guidance .glyphicon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.failure-guidance strong {
+  display: block;
+  color: #7a271a;
+  font-size: 13px;
+}
+
+.failure-guidance p {
+  margin: 4px 0 0;
+  color: #912018;
   font-size: 12px;
   line-height: 1.45;
 }
