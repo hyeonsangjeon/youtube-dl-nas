@@ -1,3 +1,0 @@
-bottle
-gevent
-gevent-websocket
