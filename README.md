@@ -16,6 +16,17 @@ Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
 Current release: `26.0806` (`2026-08-06`)
 
+## Start Here
+
+| Goal | Go to |
+| --- | --- |
+| Install the app for the first time | [Docker Compose Quick Start](#quick-start) |
+| Choose a NAS or Docker deployment path | [Deployment paths](examples/) |
+| Upgrade an existing container or diagnose a problem | [Operations guide](https://hyeonsangjeon.github.io/youtube-dl-nas/operations/) |
+| Send links from Android, iPhone, or iPad | [Mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) |
+| Review the newest changes | [Latest release](https://github.com/hyeonsangjeon/youtube-dl-nas/releases/latest) |
+| Report a reproducible problem | [Issue form](https://github.com/hyeonsangjeon/youtube-dl-nas/issues/new/choose) |
+
 > **Need automatic full-channel backups instead?** `youtube-dl-nas` remains the
 > small URL download queue. For scheduled channel backups, existing
 > `archive.txt` and NAS-folder import, missing-only downloads, and disk-first

@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: App version or image tag
-      placeholder: 26.0710 or sha-...
+      placeholder: latest, a release tag, or sha-...
     validations:
       required: true
   - type: dropdown
