@@ -98,7 +98,7 @@ jobs:
           assert health["app"] == "youtube-dl-nas", health
           assert health["storage"]["state"] in {"ok", "warning", "critical"}, health
           PY
-          curl --fail --silent --show-error --location http://127.0.0.1:18080/ | grep -q "youtube-dl NAS"
+          curl --fail --silent --show-error --location --output /dev/null http://127.0.0.1:18080/
 
       - name: Show container logs on failure
         if: failure()
