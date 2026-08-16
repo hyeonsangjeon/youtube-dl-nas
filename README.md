@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0816` (`2026-08-16`)
+Current release: `26.0817` (`2026-08-17`)
 
 ## Start Here
 

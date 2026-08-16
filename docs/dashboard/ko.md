@@ -62,6 +62,6 @@ docker compose pull
 docker compose up -d
 ```
 
-`latest`와 `26.0816` 이미지는 `linux/amd64`, `linux/arm64`를 지원합니다.
+`latest`와 `26.0817` 이미지는 `linux/amd64`, `linux/arm64`를 지원합니다.
 
 휴대폰 공유 설정은 [모바일 공유 설정](../mobile/ko.html)을 참고하세요.

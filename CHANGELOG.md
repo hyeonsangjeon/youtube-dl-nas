@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
-## 26.0816 - 2026-08-16
+## 26.0817 - 2026-08-17
 
 ### Added
 

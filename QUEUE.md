@@ -12,7 +12,7 @@ The project board is the source of truth for priority, status, and target releas
 - Guard playlist and channel downloads with explicit bounded or full scope.
 - Save optional thumbnail sidecars and manage them with their media files.
 
-## Completed For 26.0816
+## Completed For 26.0817
 
 - Build Smart Share v2 with one-time iOS import setup, contextual profile, playlist, and timestamp choices, stable REST receipts, and Android profile parity.
 - Show download-volume capacity and stop accepting new work at a configurable critical threshold.
