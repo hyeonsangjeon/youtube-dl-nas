@@ -16,7 +16,7 @@
     <title>youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}-runtime-resilience" rel="stylesheet">
+    <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
@@ -491,7 +491,7 @@
     window.YDLNAS_I18N = {{!translations_json}};
     window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}-runtime-resilience"></script>
+<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
