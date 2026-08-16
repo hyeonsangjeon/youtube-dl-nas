@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0816 - 2026-08-16
+
 ### Added
 
 - Added download-volume capacity status with configurable warning and critical thresholds; new queue requests pause before the mounted volume is exhausted.
@@ -24,6 +26,7 @@ All notable changes to this project are documented here.
 ### Documentation
 
 - Reworked the English and Korean mobile guides so iPhone and iPad setup no longer requires editing Shortcut actions.
+- Added direct installation, operations, mobile-sharing, and issue-reporting paths for search and publisher visitors, and removed stale sample applications.
 
 ## 26.0806 - 2026-08-06
 

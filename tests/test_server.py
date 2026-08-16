@@ -37,7 +37,7 @@ def app():
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0806"
+    assert health.json["version"] == "26.0816"
     assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")
