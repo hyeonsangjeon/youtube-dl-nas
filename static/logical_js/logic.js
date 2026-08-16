@@ -208,6 +208,8 @@ $(function () {
         addMessage(translate('message.shared_missing'), 'warning');
     } else if (sharedStatus === 'invalid') {
         addMessage(translate('message.shared_invalid'), 'error');
+    } else if (sharedStatus === 'storage') {
+        addMessage(translate('server.storage_critical'), 'error');
     }
     if (window.YDLNAS_SHARED_URL) {
         $('#url').val(window.YDLNAS_SHARED_URL);
@@ -496,6 +498,7 @@ $(function () {
             thumbnail_local_url: '',
             duration_seconds: 0,
             status: 'unknown',
+            failure_code: '',
             filepath: '',
             filename: '',
             file_exists: false,
@@ -667,7 +670,10 @@ $(function () {
     function getFilteredHistoryItems() {
         const searchText = (historyPrefs.search || '').toLowerCase().trim();
         const filtered = historyItems.filter((item) => {
-            const statusMatches = historyPrefs.status === 'all' || item.status === historyPrefs.status;
+            const failedStatuses = ['failed', 'error', 'canceled'];
+            const statusMatches = historyPrefs.status === 'all'
+                || item.status === historyPrefs.status
+                || (historyPrefs.status === 'failed' && failedStatuses.indexOf(item.status) >= 0);
             const typeMatches = historyPrefs.type === 'all' || item.download_type === historyPrefs.type;
             const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''} ${getMetadataStatusText(item)}`.toLowerCase();
             const searchMatches = !searchText || searchTarget.indexOf(searchText) >= 0;
@@ -923,11 +929,32 @@ $(function () {
         return `<div class="history-meta-line history-card-meta-line"><span>${escapeHtml(translate('history.scanned_from'))}</span></div>`;
     }
 
+    function renderFailureGuidance(item) {
+        if (!item || (item.status !== 'failed' && item.status !== 'error')) {
+            return '';
+        }
+        const supportedCodes = [
+            'storage_full', 'storage_permission', 'auth_required', 'rate_limited',
+            'format_unavailable', 'unsupported_url', 'network', 'postprocessing',
+            'extractor', 'unknown'
+        ];
+        const code = supportedCodes.indexOf(item.failure_code) >= 0 ? item.failure_code : 'unknown';
+        return `
+            <div class="failure-guidance">
+                <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+                <div>
+                    <strong>${escapeHtml(translate(`failure.${code}.reason`))}</strong>
+                    <p>${escapeHtml(translate(`failure.${code}.action`))}</p>
+                </div>
+            </div>
+        `;
+    }
+
     function renderActionButtons(item, context) {
         const safeUuid = escapeAttr(item.uuid);
         const isDetail = context === 'detail';
         const mountedFile = isMountedFile(item);
-        const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error');
+        const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error' || item.status === 'canceled');
         const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
         const canAnalyzeSubtitle = item.file_exists && item.download_type === 'subtitle';
         const previewButton = canPreview ? `
@@ -1017,6 +1044,7 @@ $(function () {
                 </div>
             </div>
         ` : '';
+        const failureGuidance = renderFailureGuidance(item);
 
         drawer.html(`
             <article class="detail-panel ${mountedFile ? 'detail-panel-mounted' : ''}" data-uuid="${escapeAttr(item.uuid)}">
@@ -1032,6 +1060,7 @@ $(function () {
                     <p>${escapeHtml(item.channel || translate('common.unknown_channel'))}</p>
                 </div>
                 ${metadataNotice}
+                ${failureGuidance}
                 <dl class="detail-list">
                     ${renderDetailField(translate('detail.downloaded'), formatTimestamp(item.timestamp), 'downloaded')}
                     ${renderDetailField(translate('detail.duration'), formatDuration(item.duration_seconds) || translate('common.unknown'), 'duration')}
@@ -1175,6 +1204,9 @@ $(function () {
         if (status === 'failed' || status === 'error') {
             return 'status-failed';
         }
+        if (status === 'canceled') {
+            return 'status-canceled';
+        }
         return 'status-pending';
     }
 
@@ -1184,10 +1216,15 @@ $(function () {
             completed: 'history.completed',
             failed: 'history.failed',
             error: 'history.error',
+            canceled: 'history.canceled',
+            canceling: 'history.status_canceling',
             pending: 'history.status_pending',
             queued: 'activity.queued',
             working: 'history.status_working',
-            extracting_info: 'history.status_extracting_info'
+            extracting_info: 'history.status_extracting_info',
+            downloading: 'history.status_downloading',
+            downloading_file: 'history.status_downloading',
+            merging: 'history.status_merging'
         };
         return translate(keyByStatus[status] || 'history.unknown');
     }
@@ -1254,6 +1291,7 @@ $(function () {
             return;
         }
 
+        updateStorageStatus(response.storage || null);
         updateQueueCount(Number(response.queue_count || 0), response.queue || []);
         if (response.current_download) {
             applyCurrentDownload(response.current_download);
@@ -1284,6 +1322,25 @@ $(function () {
         }
         fetchStatus();
         statusPollTimer = setInterval(fetchStatus, 5000);
+    }
+
+    function updateStorageStatus(storage) {
+        const chip = $('#storage-status');
+        chip.removeClass('storage-ok storage-warning storage-critical storage-unavailable');
+        if (!storage || !storage.available || storage.free_bytes === null || storage.free_bytes === undefined) {
+            chip.text(translate('activity.storage_unavailable'))
+                .addClass('storage-unavailable')
+                .attr('title', translate('activity.storage_unavailable_title'))
+                .prop('hidden', false);
+            return;
+        }
+
+        const state = ['warning', 'critical'].indexOf(storage.state) >= 0 ? storage.state : 'ok';
+        const free = formatFileSize({ file_exists: true, file_size_bytes: storage.free_bytes });
+        chip.text(translate('activity.storage_free', { free: free }))
+            .addClass(`storage-${state}`)
+            .attr('title', translate(`activity.storage_${state}_title`))
+            .prop('hidden', false);
     }
 
     function updateQueueCount(count, items) {
@@ -1389,6 +1446,30 @@ $(function () {
         });
     }
 
+    function requestActiveCancellation() {
+        const button = $('#cancel-active');
+        button.prop('disabled', true);
+        $.ajax({
+            method: 'POST',
+            url: '/youtube-dl/q/active/cancel',
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    addMessage(translate('message.cancel_requested'), 'info');
+                    fetchStatus();
+                } else {
+                    button.prop('disabled', false);
+                    addMessage(getResponseMessage(response, translate('message.cancel_failed')), 'error');
+                }
+            },
+            error: function(jqXHR) {
+                button.prop('disabled', false);
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.cancel_failed')), 'error');
+                fetchStatus();
+            }
+        });
+    }
+
     function updateActivityPanel(downloadData) {
         const data = downloadData || null;
         if (!data) {
@@ -1396,11 +1477,15 @@ $(function () {
             $('#activity-summary').text(queueCount > 0 ? translate('activity.requests_queued') : translate('activity.no_active'));
             $('#activity-channel').text(queueCount > 0 ? translate('activity.worker_hint') : translate('activity.waiting_next'));
             $('#activity-status').text(queueCount > 0 ? translate('activity.queued') : translate('activity.idle'))
-                .removeClass('status-completed status-failed status-pending')
+                .removeClass('status-completed status-failed status-pending status-canceled')
                 .addClass('status-pending');
+            $('#cancel-active').prop('hidden', true).prop('disabled', false);
             $('#activity-thumbnail-image').hide().attr('src', '');
             $('#activity-thumbnail-placeholder').show();
             $('#activity-transfer').prop('hidden', true);
+            $('#progress-container').hide();
+            $('#progress-bar').css('width', '0%').attr('aria-valuenow', 0);
+            $('#progress-text').text('0%');
             return;
         }
 
@@ -1411,8 +1496,9 @@ $(function () {
         $('#activity-summary').text(status === 'extracting_info' ? translate('activity.getting_info') : translate('activity.in_progress'));
         $('#activity-channel').text(channel);
         $('#activity-status').text(getStatusText(status))
-            .removeClass('status-completed status-failed status-pending')
+            .removeClass('status-completed status-failed status-pending status-canceled')
             .addClass(getStatusClass(status));
+        $('#cancel-active').prop('hidden', false).prop('disabled', status === 'canceling');
 
         if (data.thumbnail) {
             $('#activity-thumbnail-image').attr('src', data.thumbnail).show();
@@ -1574,6 +1660,24 @@ $(function () {
                 console.error("Error parsing complete message:", e, "Raw content:", messageContent);
                 addMessage(translate('message.completion_error'), 'error');
             }
+        } else if (messageType === "[HISTORY_UPDATED]") {
+            try {
+                const historyData = JSON.parse(messageContent);
+                upsertHistoryItem(historyData, false);
+                renderHistory();
+                saveLocalState();
+                activeDownload = null;
+                updateActivityPanel(null);
+                fetchStatus();
+                if (historyData.status === 'canceled') {
+                    addMessage(translate('message.download_canceled'), 'info');
+                } else {
+                    addMessage(translate('message.download_error'), 'error');
+                }
+            } catch (error) {
+                console.error("Error parsing history update:", error);
+                fetchHistory({ quiet: true });
+            }
         } else if (messageType === "[RESTORE_ACTIVE]") {
             try {
                 const activeData = JSON.parse(messageContent);
@@ -1716,15 +1820,18 @@ $(function () {
 
     function showConfirmModal(title, message, onConfirm, confirmText) {
         $('.confirm-modal').remove();
+        $(document).off('keydown.confirmModal');
+        const returnFocus = document.activeElement;
 
         const modal = $(`
-            <div class="confirm-modal">
+            <div class="confirm-modal" role="dialog" aria-modal="true"
+                 aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
                 <div class="confirm-content">
-                    <h4>${escapeHtml(title)}</h4>
-                    <p>${escapeHtml(message)}</p>
+                    <h4 id="confirm-modal-title">${escapeHtml(title)}</h4>
+                    <p id="confirm-modal-message">${escapeHtml(message)}</p>
                     <div class="confirm-buttons">
-                        <button class="btn btn-default confirm-cancel">${escapeHtml(translate('common.cancel'))}</button>
-                        <button class="btn btn-danger confirm-ok">${escapeHtml(confirmText || translate('common.delete'))}</button>
+                        <button type="button" class="btn btn-default confirm-cancel">${escapeHtml(translate('common.cancel'))}</button>
+                        <button type="button" class="btn btn-danger confirm-ok">${escapeHtml(confirmText || translate('common.delete'))}</button>
                     </div>
                 </div>
             </div>
@@ -1732,22 +1839,37 @@ $(function () {
 
         $('body').append(modal);
 
-        modal.find('.confirm-ok').on('click', function() {
+        function closeConfirmModal(restoreFocus) {
+            $(document).off('keydown.confirmModal');
             modal.remove();
+            if (restoreFocus && returnFocus && document.contains(returnFocus)) {
+                returnFocus.focus();
+            }
+        }
+
+        modal.find('.confirm-ok').on('click', function() {
+            closeConfirmModal(false);
             if (typeof onConfirm === 'function') {
                 onConfirm();
             }
         });
 
         modal.find('.confirm-cancel').on('click', function() {
-            modal.remove();
+            closeConfirmModal(true);
         });
 
         modal.on('click', function(e) {
             if (e.target === modal[0]) {
-                modal.remove();
+                closeConfirmModal(true);
             }
         });
+
+        $(document).on('keydown.confirmModal', function(event) {
+            if (event.key === 'Escape') {
+                closeConfirmModal(true);
+            }
+        });
+        modal.find('.confirm-cancel').focus();
     }
 
     function closeMediaPreview() {
@@ -2259,6 +2381,15 @@ $(function () {
 
     $(document).on("click", ".mode-tab", function() {
         setDownloadMode($(this).data('download-mode'));
+    });
+
+    $(document).on("click", "#cancel-active", function() {
+        showConfirmModal(
+            translate('confirm.cancel_download_heading'),
+            translate('confirm.cancel_download_message'),
+            requestActiveCancellation,
+            translate('activity.cancel')
+        );
     });
 
     $(document).on("change", "#selResolution", function() {

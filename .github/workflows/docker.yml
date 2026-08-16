@@ -10,7 +10,9 @@ on:
       - "run.sh"
       - "subber"
       - "upd_schedule.py"
+      - "i18n.py"
       - "youtube-dl-server.py"
+      - "compose.yaml"
       - "bottle_websocket/**"
       - "static/**"
       - ".github/workflows/docker.yml"
@@ -27,6 +29,7 @@ on:
       - "run.sh"
       - "subber"
       - "upd_schedule.py"
+      - "i18n.py"
       - "youtube-dl-server.py"
       - "compose.yaml"
       - "bottle_websocket/**"
@@ -39,9 +42,77 @@ env:
   GHCR_IMAGE: ghcr.io/hyeonsangjeon/youtube-dl-nas
 
 jobs:
+  smoke:
+    name: Run Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: youtube-dl-nas:smoke
+          cache-from: type=gha,scope=runtime-smoke
+          cache-to: type=gha,mode=max,scope=runtime-smoke
+
+      - name: Start container and verify runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/ydlnas-downloads" "$RUNNER_TEMP/ydlnas-state"
+          docker run -d --name youtube-dl-nas-smoke \
+            -p 127.0.0.1:18080:8080 \
+            -e MY_ID=smoke \
+            -e MY_PW=smoke-password \
+            -e TERMS_ACCEPTED=Y \
+            -e YTDLP_AUTO_UPDATE=false \
+            -e NLPTUTTI_AUTO_UPDATE=false \
+            -v "$RUNNER_TEMP/ydlnas-downloads:/downfolder" \
+            -v "$RUNNER_TEMP/ydlnas-state:/usr/src/app/metadata" \
+            youtube-dl-nas:smoke
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18080/health > "$RUNNER_TEMP/health.json"; then
+              break
+            fi
+            sleep 2
+          done
+
+          python - <<'PY'
+          import json
+          import os
+
+          path = os.path.join(os.environ["RUNNER_TEMP"], "health.json")
+          with open(path, encoding="utf-8") as health_file:
+              health = json.load(health_file)
+          assert health["status"] == "ok", health
+          assert health["app"] == "youtube-dl-nas", health
+          assert health["storage"]["state"] in {"ok", "warning", "critical"}, health
+          PY
+          curl --fail --silent --show-error --location --output /dev/null http://127.0.0.1:18080/
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs youtube-dl-nas-smoke || true
+
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f youtube-dl-nas-smoke >/dev/null 2>&1 || true
+
   docker:
     name: Build Docker image
+    needs: smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write

@@ -3,13 +3,15 @@ import subprocess
 import html
 from queue import Queue
 import re
+import shutil
+import signal
 import time
 import uuid
 import hmac
 import shlex
 from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime, timedelta
-from collections import defaultdict
+from collections import defaultdict, deque
 from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort, HTTPError
 from threading import Event, Lock, Thread
 from bottle_websocket import GeventWebSocketServer
@@ -38,6 +40,17 @@ APP_VERSION = os.environ.get("APP_VERSION", "26.0806")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
+
+
+def nonnegative_float_env(name, default):
+    try:
+        return max(0.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+STORAGE_WARNING_GB = nonnegative_float_env("YDLNAS_STORAGE_WARNING_GB", "10")
+STORAGE_CRITICAL_GB = nonnegative_float_env("YDLNAS_STORAGE_CRITICAL_GB", "2")
 VALID_RESOLUTIONS = {"best", "audio", "audio-m4a", "audio-mp3"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
 SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
@@ -94,6 +107,28 @@ TRACKING_QUERY_KEYS = {
     "utm_source",
     "utm_term",
 }
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+DIAGNOSTIC_URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+FAILURE_PATTERNS = (
+    ("storage_full", ("no space left on device", "disk quota exceeded", "errno 28")),
+    ("storage_permission", ("permission denied", "read-only file system", "operation not permitted")),
+    ("auth_required", (
+        "sign in to confirm", "login required", "authentication required", "cookies are required",
+        "use --cookies", "members-only", "private video", "age-restricted",
+    )),
+    ("rate_limited", ("http error 429", "too many requests", "rate limit")),
+    ("format_unavailable", ("requested format is not available", "no video formats found")),
+    ("unsupported_url", ("unsupported url", "no suitable extractor")),
+    ("network", (
+        "timed out", "timeout", "unable to download webpage", "connection refused",
+        "connection reset", "temporary failure in name resolution", "name or service not known",
+    )),
+    ("postprocessing", ("postprocessing", "post-processing", "ffmpeg", "merger error")),
+    ("extractor", (
+        "unable to extract", "signature extraction failed", "nsig extraction failed",
+        "please report this issue", "update to a nightly version",
+    )),
+)
 
 ERROR_CODE_BY_MESSAGE = {
     "Unauthorized": "unauthorized",
@@ -108,6 +143,8 @@ ERROR_CODE_BY_MESSAGE = {
     "Timestamp was not found in the shared URL": "timestamp_not_found",
     "Unsupported mobile share profile": "unsupported_share_profile",
     "Queued download not found or already active": "queue_not_found",
+    "No active download to cancel": "active_download_not_found",
+    "Download storage is critically low": "storage_critical",
     "History item not found": "history_not_found",
     "Valid file path not found": "valid_path_not_found",
     "Physical file not found": "physical_file_not_found",
@@ -149,6 +186,106 @@ def json_error(msg, status=400, params=None):
     if combined_params:
         payload["params"] = combined_params
     return payload
+
+
+def get_storage_status():
+    """Return bounded, path-free capacity information for the download volume."""
+    critical_bytes = int(STORAGE_CRITICAL_GB * (1024 ** 3))
+    warning_bytes = max(critical_bytes, int(STORAGE_WARNING_GB * (1024 ** 3)))
+    try:
+        usage = shutil.disk_usage(DOWNFOLDER_DIR)
+    except OSError:
+        return {
+            "available": False,
+            "state": "unavailable",
+            "blocking": False,
+            "free_bytes": None,
+            "total_bytes": None,
+            "used_bytes": None,
+            "free_percent": None,
+            "warning_bytes": warning_bytes,
+            "critical_bytes": critical_bytes,
+        }
+
+    state = "ok"
+    if critical_bytes and usage.free <= critical_bytes:
+        state = "critical"
+    elif warning_bytes and usage.free <= warning_bytes:
+        state = "warning"
+    free_percent = round((usage.free / usage.total) * 100, 1) if usage.total else 0
+    return {
+        "available": True,
+        "state": state,
+        "blocking": state == "critical",
+        "free_bytes": usage.free,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_percent": free_percent,
+        "warning_bytes": warning_bytes,
+        "critical_bytes": critical_bytes,
+    }
+
+
+def sanitize_diagnostic_text(value):
+    """Keep process diagnostics useful without logging URLs or mounted paths."""
+    if isinstance(value, subprocess.TimeoutExpired):
+        return "process timed out"
+    text = ANSI_ESCAPE_PATTERN.sub("", str(value or "")).strip()
+    text = DIAGNOSTIC_URL_PATTERN.sub("[url]", text)
+    known_paths = {
+        AUTH_FILE,
+        DOWNFOLDER_DIR,
+        STATE_DIR,
+        YTDLP_COOKIES_FILE,
+        os.path.abspath(AUTH_FILE),
+        os.path.abspath(DOWNFOLDER_DIR),
+        os.path.abspath(STATE_DIR),
+    }
+    for known_path in sorted((path for path in known_paths if path), key=len, reverse=True):
+        text = text.replace(known_path, "[path]")
+    text = re.sub(
+        r"(?i)\b(authorization|password|token|cookie)(\s*[:=]\s*)\S+",
+        r"\1\2[redacted]",
+        text,
+    )
+    return text[:1000]
+
+
+def classify_download_failure(lines=None, exception=None):
+    diagnostics = [sanitize_diagnostic_text(line).casefold() for line in (lines or [])]
+    if exception is not None:
+        diagnostics.append(sanitize_diagnostic_text(exception).casefold())
+    combined = "\n".join(diagnostics)
+    for code, patterns in FAILURE_PATTERNS:
+        if any(pattern in combined for pattern in patterns):
+            return code
+    return "unknown"
+
+
+def terminate_process_group(process):
+    if not process or process.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        else:
+            process.terminate()
+    except (OSError, ProcessLookupError):
+        return
+
+    def force_kill_after_grace_period():
+        time.sleep(5)
+        if process.poll() is not None:
+            return
+        try:
+            if os.name == "posix":
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            else:
+                process.kill()
+        except (OSError, ProcessLookupError):
+            pass
+
+    Thread(target=force_kill_after_grace_period, name="download-cancel-watchdog", daemon=True).start()
 
 def get_request_json():
     return request.json if isinstance(request.json, dict) else {}
@@ -437,6 +574,8 @@ def queue_shared_url(shared_url, profile=None):
     result = enqueue_download(shared_url, profile, "web", ws_addr.wsClassVal)
     if result.get("duplicate"):
         redirect("/youtube-dl?shared=duplicate")
+    if result.get("blocked"):
+        redirect("/youtube-dl?shared=storage")
 
     download_manager.send_message("Shared URL received. Added to the NAS queue.")
     redirect("/youtube-dl?shared=queued")
@@ -688,7 +827,7 @@ def list_mounted_file_items():
             if item:
                 items.append(item)
     except Exception as e:
-        print(f"Failed to scan mounted folder files: {e}")
+        print(f"Failed to scan mounted folder files: {sanitize_diagnostic_text(e)}")
         return []
 
     return sorted(items, key=lambda item: item.get("timestamp", ""), reverse=True)
@@ -724,6 +863,7 @@ def normalize_history_item(item):
     item.setdefault('section_mode', 'full')
     item.setdefault('section_start', 0)
     item.setdefault('status', 'unknown')
+    item.setdefault('failure_code', '')
     item.setdefault('filepath', '')
     item.setdefault('source', 'history')
     item.setdefault('metadata_status', 'saved' if item.get('source') != 'mounted_folder' else 'missing')
@@ -936,7 +1076,7 @@ def persist_queue_state():
                 "pending": pending,
             })
     except Exception as error:
-        print(f"Failed to save queue state: {error}")
+        print(f"Failed to save queue state: {sanitize_diagnostic_text(error)}")
 
 
 def load_persisted_queue():
@@ -1179,6 +1319,17 @@ def enqueue_download(
                     "existing": existing,
                 }
 
+        storage = get_storage_status()
+        if storage["blocking"]:
+            return {
+                "queued": False,
+                "duplicate": False,
+                "blocked": True,
+                "code": "storage_critical",
+                "storage": storage,
+                "queue_count": dl_q.qsize(),
+            }
+
         queue_position = dl_q.qsize() + 1
         dl_q.put(job)
         persist_queue_state()
@@ -1208,6 +1359,26 @@ def build_queue_receipt(result, profile, client=""):
     queue_count = result.get("queue_count")
     if queue_count is None:
         queue_count = dl_q.qsize()
+
+    if result.get("blocked"):
+        storage = result.get("storage") if isinstance(result.get("storage"), dict) else {}
+        return {
+            "success": False,
+            "queued": False,
+            "duplicate": False,
+            "blocked": True,
+            "code": "storage_critical",
+            "profile": profile,
+            "queue_position": None,
+            "queue_count": queue_count,
+            "storage": storage,
+            "params": {
+                "free_bytes": storage.get("free_bytes"),
+                "critical_bytes": storage.get("critical_bytes"),
+            },
+            "client": client or None,
+            "msg": "Download storage is critically low",
+        }
 
     if result.get("duplicate"):
         duplicate_type = result.get("duplicate_type")
@@ -1257,6 +1428,10 @@ class GlobalDownloadManager:
         self.download_history = []  # history of download info
         self.connected_clients = set() #every websocket clients
         self.is_downloading = False
+        self.process_lock = Lock()
+        self.active_process = None
+        self.active_process_job_id = None
+        self.cancel_requested_job_id = None
         self.history_file = HISTORY_FILE
         self.load_history()
     
@@ -1270,7 +1445,7 @@ class GlobalDownloadManager:
                     self.download_history = []
                 print(f"Loaded {len(self.download_history)} history items")
             except Exception as e:
-                print(f"Failed to load history: {e}")
+                print(f"Failed to load history: {sanitize_diagnostic_text(e)}")
                 self.download_history = []
     
     def save_history(self):        
@@ -1278,7 +1453,7 @@ class GlobalDownloadManager:
         try:
             atomic_write_json(self.history_file, self.download_history)
         except Exception as e:
-            print(f"Failed to save history: {e}")
+            print(f"Failed to save history: {sanitize_diagnostic_text(e)}")
     
     def clear_all_history(self):
         """Clear all history"""
@@ -1298,7 +1473,7 @@ class GlobalDownloadManager:
             self.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
             return True
         except Exception as e:
-            print(f"Failed to delete history item: {e}")
+            print(f"Failed to delete history item: {sanitize_diagnostic_text(e)}")
             return False
 
     def get_history_item(self, uuid):
@@ -1332,9 +1507,60 @@ class GlobalDownloadManager:
     
     def set_current_download(self, download_info):
         """Set the current download information"""
-        self.current_download = download_info
-        self.is_downloading = True
+        with self.process_lock:
+            self.active_process = None
+            self.active_process_job_id = None
+            self.cancel_requested_job_id = None
+            self.current_download = download_info
+            self.is_downloading = True
         self.broadcast_to_all_clients(f"[RESTORE_ACTIVE], {json.dumps(download_info)}")
+
+    def attach_process(self, job_id, process):
+        with self.process_lock:
+            self.active_process = process
+            self.active_process_job_id = job_id
+            should_cancel = self.cancel_requested_job_id == job_id
+        if should_cancel:
+            terminate_process_group(process)
+
+    def detach_process(self, job_id, process):
+        with self.process_lock:
+            if self.active_process is process and self.active_process_job_id == job_id:
+                self.active_process = None
+                self.active_process_job_id = None
+
+    def request_active_cancel(self):
+        with self.process_lock:
+            current = self.current_download if isinstance(self.current_download, dict) else None
+            job_id = str((current or {}).get("job_id") or (current or {}).get("uuid") or "")
+            if not self.is_downloading or not job_id:
+                return None
+            already_requested = self.cancel_requested_job_id == job_id
+            self.cancel_requested_job_id = job_id
+            process = self.active_process if self.active_process_job_id == job_id else None
+            current["status"] = "canceling"
+        if process and not already_requested:
+            terminate_process_group(process)
+        return {"job_id": job_id, "already_requested": already_requested}
+
+    def cancellation_requested(self, job_id):
+        with self.process_lock:
+            return self.cancel_requested_job_id == job_id
+
+    def consume_cancellation(self, job_id):
+        with self.process_lock:
+            if self.cancel_requested_job_id != job_id:
+                return False
+            self.cancel_requested_job_id = None
+            return True
+
+    def reset_active_runtime(self):
+        with self.process_lock:
+            self.active_process = None
+            self.active_process_job_id = None
+            self.cancel_requested_job_id = None
+            self.current_download = None
+            self.is_downloading = False
     
     def update_progress(self, progress):
         """Update progress and broadcast to all clients"""
@@ -1428,13 +1654,13 @@ class GlobalDownloadManager:
             completed.append(history_item)
 
         self.save_history()
+        self.reset_active_runtime()
         for history_item in completed:
             complete_data = normalize_history_item(history_item)
-            message = f"[COMPLETE], {json.dumps(complete_data, ensure_ascii=False)}"
+            event = "[COMPLETE]" if complete_data.get("status") == "completed" else "[HISTORY_UPDATED]"
+            message = f"{event}, {json.dumps(complete_data, ensure_ascii=False)}"
             self.broadcast_to_all_clients(message)
 
-        self.current_download = None
-        self.is_downloading = False
         return completed
 
     def complete_download(self, completion_info):
@@ -1450,14 +1676,12 @@ class GlobalDownloadManager:
         }
         if self.current_download:
             self.current_download["status"] = "duplicate"
+        self.reset_active_runtime()
         self.broadcast_to_all_clients(f"[DUPLICATE], {json.dumps(payload, ensure_ascii=False)}")
-        self.current_download = None
-        self.is_downloading = False
 
     def defer_current_download(self):
         """Release transient UI state while queue persistence retains the job for restart."""
-        self.current_download = None
-        self.is_downloading = False
+        self.reset_active_runtime()
     
     def add_client(self, ws):
         """Add a new client connection"""
@@ -1477,9 +1701,9 @@ class GlobalDownloadManager:
         for idx, history_item in enumerate(combined_history):
             try:
                 safe_websocket_send(ws, f"[RESTORE_HISTORY], {json.dumps(history_item)}")
-                print(f"Sent history item {idx}: {history_item.get('title', 'Unknown')}")
+                print(f"Sent history item {idx}")
             except Exception as e:
-                print(f"Error sending history item {idx}: {e}")
+                print(f"Error sending history item {idx}: {sanitize_diagnostic_text(e)}")
 
         # Send history restore complete signal
         safe_websocket_send(ws, "[HISTORY_RESTORE_COMPLETE], done")
@@ -1569,7 +1793,7 @@ def dl_queue_list():
         if data.get("TERMS_ACCEPTED") != "Y":
             redirect("/terms?next=" + quote(next_path, safe=""))
     except Exception as e:
-        print(f"Error checking terms acceptance: {e}")
+        print(f"Error checking terms acceptance: {sanitize_diagnostic_text(e)}")
         redirect("/terms?next=" + quote(next_path, safe=""))
         
     locale_next = "/?next=" + quote(next_path, safe="")
@@ -1637,7 +1861,7 @@ def accept_terms():
         save_app_state({"TERMS_ACCEPTED": "Y", "SECRET_KEY": data["SECRET_KEY"]})
         return {'success': True}
     except Exception as e:
-        print(f"Error accepting terms: {e}")
+        print(f"Error accepting terms: {sanitize_diagnostic_text(e)}")
         return {'success': False}
     
 
@@ -1648,7 +1872,7 @@ def dl_queue_main():
         if data.get("TERMS_ACCEPTED") != "Y":
             redirect('/terms')
     except Exception as e:
-        print(f"Error checking terms acceptance: {e}")
+        print(f"Error checking terms acceptance: {sanitize_diagnostic_text(e)}")
         redirect('/terms')
 
     if is_cookie_authenticated(data):
@@ -1668,6 +1892,7 @@ def dl_queue_main():
 @get('/health')
 def health_check():
     response.content_type = "application/json"
+    storage = get_storage_status()
     return {
         "status": "ok",
         "app": "youtube-dl-nas",
@@ -1678,6 +1903,7 @@ def health_check():
             "restored_count": queue_restore_count,
             "state_file": os.path.basename(QUEUE_STATE_FILE),
         },
+        "storage": storage,
         "subtitle_qa": {
             "available": get_nlptutti_version() != "unavailable",
             "nlptutti_version": get_nlptutti_version(),
@@ -1791,7 +2017,8 @@ def get_download_status():
         "current_download": current_download,
         "queue_count": len(queued_items),
         "queue": queued_items,
-        "connected_clients": len(download_manager.connected_clients)
+        "connected_clients": len(download_manager.connected_clients),
+        "storage": get_storage_status(),
     }
 
 @get('/youtube-dl/q', method='POST')
@@ -1832,6 +2059,8 @@ def q_put():
         section_mode=normalize_section_mode(section_mode),
     )
     receipt = build_queue_receipt(result, resolution, client="web")
+    if receipt.get("blocked"):
+        response.status = 507
     if receipt["queued"]:
         download_manager.send_message('We received your download. Please wait.')
     return receipt
@@ -1930,9 +2159,29 @@ def q_put_rest():
         section_mode=normalize_section_mode(section_mode),
     )
     receipt = build_queue_receipt(result, resolution, client=client)
+    if receipt.get("blocked"):
+        response.status = 507
     receipt["client_version"] = client_version or None
     receipt["Remaining downloading count"] = json.dumps(receipt["queue_count"])
     return receipt
+
+
+@post('/youtube-dl/q/active/cancel')
+def cancel_active_download():
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+
+    cancellation = download_manager.request_active_cancel()
+    if not cancellation:
+        return json_error("No active download to cancel", 409)
+    return {
+        "success": True,
+        "code": "cancellation_requested",
+        "job_id": cancellation["job_id"],
+        "already_requested": cancellation["already_requested"],
+        "msg": "Active download cancellation requested",
+    }
 
 @post('/youtube-dl/q/<job_id>/remove')
 def remove_queue_item(job_id):
@@ -2003,7 +2252,7 @@ def delete_history_file(uuid):
     try:
         os.remove(file_path)
     except Exception as e:
-        print(f"Failed to delete file: {e}")
+        print(f"Failed to delete file: {sanitize_diagnostic_text(e)}")
         return json_error("Failed to delete physical file", 500)
 
     deleted_sidecars = []
@@ -2014,7 +2263,7 @@ def delete_history_file(uuid):
             os.remove(thumbnail_path)
             deleted_sidecars.append(thumbnail_filename)
         except OSError as error:
-            print(f"Failed to delete thumbnail sidecar: {error}")
+            print(f"Failed to delete thumbnail sidecar: {sanitize_diagnostic_text(error)}")
 
     if is_mounted_file:
         related_uuids = [uuid]
@@ -2053,8 +2302,7 @@ def retry_history_item(uuid):
     if validation_error:
         return json_error(validation_error, 400)
 
-    download_manager.send_message('We received your retry request. Please wait.')
-    enqueue_download(
+    result = enqueue_download(
         url,
         resolution,
         "web",
@@ -2063,7 +2311,14 @@ def retry_history_item(uuid):
         write_thumbnail=parse_boolean(item.get("write_thumbnail")),
         section_mode=normalize_section_mode(item.get("section_mode")),
     )
-    return {"success": True, "msg": "Download queued again", "Remaining downloading count": json.dumps(dl_q.qsize())}
+    receipt = build_queue_receipt(result, resolution, client="web")
+    if receipt.get("blocked"):
+        response.status = 507
+    elif receipt.get("queued"):
+        download_manager.send_message('We received your retry request. Please wait.')
+        receipt["msg"] = "Download queued again"
+    receipt["Remaining downloading count"] = json.dumps(receipt["queue_count"])
+    return receipt
 
 @get('/youtube-dl/history', method='GET')
 def get_history():
@@ -2116,7 +2371,7 @@ def subtitle_qa(uuid):
         with open(file_path, "r", encoding="utf-8-sig", errors="replace") as subtitle_file:
             transcription = extract_subtitle_text(subtitle_file.read(), extension)
     except OSError as error:
-        print(f"Failed to read subtitle file for QA: {error}")
+        print(f"Failed to read subtitle file for QA: {sanitize_diagnostic_text(error)}")
         return json_error("Subtitle file could not be read", 500)
 
     if not transcription:
@@ -2127,7 +2382,7 @@ def subtitle_qa(uuid):
     except RuntimeError:
         return json_error("Subtitle QA is unavailable because nlptutti is not installed", 503)
     except (TypeError, ValueError) as error:
-        print(f"Subtitle QA input error: {error}")
+        print(f"Subtitle QA input error: {sanitize_diagnostic_text(error)}")
         return json_error("Subtitle QA could not analyze this transcript", 422)
 
     return {
@@ -2154,7 +2409,7 @@ def dl_worker():
             set_active_queue_job(job)
             download(job)
         except Exception as e:
-            print(f"Download worker error: {e}")
+            print(f"Download worker error: {sanitize_diagnostic_text(e)}")
         finally:
             if job is not None and not shutdown_event.is_set():
                 clear_active_queue_job()
@@ -2174,17 +2429,38 @@ def build_ytdlp_common_args(data=None):
     return args
 
 
-def fetch_media_metadata(media_url):
+def fetch_media_metadata(media_url, job_id=None):
     command = build_ytdlp_common_args() + [
         "--dump-single-json",
         "--playlist-items", "1",
         "--no-warnings",
         media_url,
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
-    if result.returncode != 0 or not result.stdout.strip():
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=os.name == "posix",
+    )
+    if job_id:
+        download_manager.attach_process(job_id, process)
+    try:
+        stdout, _ = process.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        terminate_process_group(process)
+        try:
+            process.communicate(timeout=6)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+    finally:
+        if job_id:
+            download_manager.detach_process(job_id, process)
+
+    if process.returncode != 0 or not stdout.strip():
         return {}
-    metadata = json.loads(result.stdout)
+    metadata = json.loads(stdout)
     entries = metadata.get("entries") if isinstance(metadata, dict) else None
     if isinstance(entries, list):
         first_entry = next((entry for entry in entries if isinstance(entry, dict)), None)
@@ -2227,24 +2503,32 @@ def build_youtube_dl_cmd(item):
         ])
     resolution = job["resolution"]
     if resolution == "best":
-        cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", "--merge-output-format", "mp4"])
+        cmd.extend([
+            "-f",
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+        ])
     elif resolution in ("audio-m4a", "audio"):
-        cmd.extend(["-f", "bestaudio[ext=m4a]"])
+        cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x", "--audio-format", "m4a"])
     elif resolution == "audio-mp3":
-        cmd.extend(["-f", "bestaudio[ext=m4a]", "-x", "--audio-format", "mp3"])
+        cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x", "--audio-format", "mp3"])
     elif re.match(r"(vtt|srt)", resolution):
         sub_format, sub_lang = resolution.split('|', 1)
         cmd.extend(["--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download"])
     else:
         height = resolution[:-1]
-        cmd.extend(["-f", "bestvideo[height<="+height+"][ext=mp4]+bestaudio[ext=m4a]"])
+        format_selector = (
+            f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/"
+            f"best[height<={height}][ext=mp4]/"
+            f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+        )
+        cmd.extend(["-f", format_selector, "--merge-output-format", "mp4"])
 
     if not re.match(r"(vtt|srt)", resolution):
         if job["write_thumbnail"]:
             cmd.extend(["--write-thumbnail", "--convert-thumbnails", "jpg"])
         cmd.extend(["--print", f"after_move:{YTDLP_ITEM_PREFIX}{YTDLP_ITEM_TEMPLATE}"])
     cmd.append(job["url"])
-    print(" ".join(cmd))
     return cmd
 
 
@@ -2315,20 +2599,46 @@ def download(item):
     request_url = job["url"]
     resolution = job["resolution"]
     download_uuid = job["id"]
-    try:
-        # Download information initialization
-        video_title = request_url
-        channel_name = ""
-        thumbnail_url = ""
-        duration_seconds = 0
-        media_id = ""
-        extractor = ""
-        current_progress = 5  # Initialize current_progress here
-        final_filepath = None
-        filename = None  # Initialize filename here
-        completed_outputs = []
-        subtitle_paths = []
+    video_title = request_url
+    channel_name = ""
+    thumbnail_url = ""
+    duration_seconds = 0
+    media_id = ""
+    extractor = ""
+    current_progress = 5
+    final_filepath = None
+    filename = None
+    completed_outputs = []
+    subtitle_paths = []
+    process = None
+    failure_diagnostics = deque(maxlen=80)
 
+    def terminal_history_item(status, failure_code=""):
+        return {
+            'uuid': download_uuid,
+            'url': request_url,
+            'resolution': resolution,
+            'title': video_title,
+            'channel': channel_name,
+            'thumbnail': thumbnail_url,
+            'duration_seconds': duration_seconds,
+            'media_id': media_id,
+            'extractor': extractor,
+            'status': status,
+            'failure_code': failure_code,
+            'progress': current_progress,
+            'source': job["source"],
+            'restored': job["restored"],
+            'playlist_mode': job["playlist_mode"],
+            'write_thumbnail': job["write_thumbnail"],
+            'section_mode': job["section_mode"],
+            'section_start': job["section_start"],
+        }
+
+    def complete_cancellation():
+        download_manager.complete_download(terminal_history_item("canceled"))
+
+    try:
         # Download status setting
         download_info = {
             'uuid': download_uuid,
@@ -2360,7 +2670,7 @@ def download(item):
         download_manager.update_progress(0)
 
         try:
-            metadata = fetch_media_metadata(request_url)
+            metadata = fetch_media_metadata(request_url, download_uuid)
             video_title = get_media_display_title(metadata, video_title)
             channel_name = metadata.get("uploader") or metadata.get("channel") or ""
             thumbnail_url = metadata.get("thumbnail") or ""
@@ -2376,10 +2686,14 @@ def download(item):
             if thumbnail_url:
                 download_manager.send_thumbnail(thumbnail_url)
         except Exception as e:
-            print(f"Info extraction error: {e}")
+            failure_diagnostics.append(e)
+            print(f"Info extraction error: {sanitize_diagnostic_text(e)}")
 
         if shutdown_event.is_set():
             download_manager.defer_current_download()
+            return
+        if download_manager.consume_cancellation(download_uuid):
+            complete_cancellation()
             return
 
         if not job["force"] and job["playlist_mode"] == "single":
@@ -2405,13 +2719,16 @@ def download(item):
         download_manager.update_progress(5)
         
         cmd = build_youtube_dl_cmd(job)
-        print(f"Executing command: {' '.join(cmd)}")
+        print(
+            f"Starting yt-dlp job {download_uuid} "
+            f"profile={resolution} playlist={job['playlist_mode']}"
+        )
         
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1
+            text=True, bufsize=1, start_new_session=os.name == "posix"
         )
-        
+        download_manager.attach_process(download_uuid, process)
 
         dn_type = download_info.get('resolution')
         
@@ -2421,9 +2738,12 @@ def download(item):
             if not line and process.poll() is not None:
                 break
             if line:
-                print(f"yt-dlp output: {line.strip()}")
+                safe_line = sanitize_diagnostic_text(line)
+                if safe_line:
+                    failure_diagnostics.append(safe_line)
+                    print(f"yt-dlp output: {safe_line}")
 
-                plain_line = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                plain_line = ANSI_ESCAPE_PATTERN.sub('', line)
                 transfer_match = re.search(r'\bat\s+([^\s]+/s)\s+ETA\s+([0-9:]+)', plain_line)
                 if transfer_match:
                     download_manager.update_transfer_stats(transfer_match.group(1), transfer_match.group(2))
@@ -2440,14 +2760,14 @@ def download(item):
                             subtitle_paths.append(subtitle_path)
                         filename = os.path.basename(subtitle_path)
                         final_filepath = subtitle_path
-                        print(f"Extracted subtitle filename: {filename}")
+                        print("Captured subtitle output marker")
                 else:
                     output_info = parse_completed_output_line(line)
                     if output_info:
                         completed_outputs.append(output_info)
                         final_filepath = output_info.get("filepath") or output_info.get("_filename") or final_filepath
                         filename = os.path.basename(final_filepath) if final_filepath else filename
-                        print(f"Final file: {filename}")
+                        print("Captured completed output marker")
                 
 
                 # Download start detection
@@ -2465,9 +2785,8 @@ def download(item):
                         if abs(adjusted_progress - current_progress) >= 1:
                             current_progress = adjusted_progress
                             download_manager.update_progress(adjusted_progress)
-                            print(f"Progress: {adjusted_progress}%")
                     except Exception as e:
-                        print(f"Progress parsing error: {e}")
+                        print(f"Progress parsing error: {sanitize_diagnostic_text(e)}")
 
                 # Merge process detection
                 if "[Merger] Merging formats" in line:
@@ -2476,11 +2795,15 @@ def download(item):
                     download_manager.update_progress(95)
         
         return_code = process.poll()
+        download_manager.detach_process(download_uuid, process)
         print(f"Process finished with return code: {return_code}")
-        print("-------------------------------------------------")
         if shutdown_event.is_set():
-            print(f"Download deferred for restart: {request_url}")
+            print(f"Download deferred for restart: job {download_uuid}")
             download_manager.defer_current_download()
+            return
+        was_canceled = download_manager.consume_cancellation(download_uuid)
+        if was_canceled and return_code != 0:
+            complete_cancellation()
             return
 
         # Completion handling
@@ -2514,54 +2837,25 @@ def download(item):
             ]
             download_manager.complete_downloads(completion_items)
         else:
+            failure_code = classify_download_failure(failure_diagnostics)
             download_manager.send_message(f"[Finished] downloading failed {display_info}")
-            download_manager.complete_download({
-                'uuid': download_uuid,
-                'url': request_url,
-                'resolution': resolution,
-                'title': video_title,
-                'channel': channel_name,
-                'thumbnail': thumbnail_url,
-                'duration_seconds': duration_seconds,
-                'media_id': media_id,
-                'extractor': extractor,
-                'status': 'failed',
-                'progress': current_progress,
-                'source': job["source"],
-                'restored': job["restored"],
-                'playlist_mode': job["playlist_mode"],
-                'write_thumbnail': job["write_thumbnail"],
-                'section_mode': job["section_mode"],
-                'section_start': job["section_start"],
-            })
+            download_manager.complete_download(terminal_history_item("failed", failure_code))
             
-        print(f"Download completed: {video_title}")
+        print(f"Download job finished: {download_uuid}")
             
     except Exception as e:
-        print(f"Download error: {e}")
+        if process is not None:
+            download_manager.detach_process(download_uuid, process)
+        print(f"Download error: {sanitize_diagnostic_text(e)}")
         if shutdown_event.is_set():
             download_manager.defer_current_download()
             return
+        if download_manager.consume_cancellation(download_uuid):
+            complete_cancellation()
+            return
+        failure_code = classify_download_failure(failure_diagnostics, e)
         download_manager.send_message("Download error occurred")
-        download_manager.complete_download({
-            'uuid': download_uuid,
-            'url': request_url,
-            'resolution': resolution,
-            'title': video_title if 'video_title' in locals() else 'unknown',
-            'channel': channel_name if 'channel_name' in locals() else '',
-            'thumbnail': thumbnail_url if 'thumbnail_url' in locals() else '',
-            'duration_seconds': duration_seconds if 'duration_seconds' in locals() else 0,
-            'media_id': media_id if 'media_id' in locals() else '',
-            'extractor': extractor if 'extractor' in locals() else '',
-            'status': 'error',
-            'progress': 0,
-            'source': job["source"],
-            'restored': job["restored"],
-            'playlist_mode': job["playlist_mode"],
-            'write_thumbnail': job["write_thumbnail"],
-            'section_mode': job["section_mode"],
-            'section_start': job["section_start"],
-        })
+        download_manager.complete_download(terminal_history_item("error", failure_code))
 
 import mimetypes
 
@@ -2590,7 +2884,7 @@ def serve_download(uuid):
         _, actual_filename = resolve_history_file(uuid)
         
         # Organize file names to allow safe downloads from your browser
-        print(f"Serving file: {actual_filename}")
+        print(f"Serving history file {uuid}")
         safe_download_name = re.sub(r'[\\/:*?"<>|⧸]', '-', actual_filename)
         safe_download_name = safe_download_name.replace("'\"'\"'", "'")  # 이스케이핑된 따옴표 처리
         # Check to preserve file extensions
@@ -2598,7 +2892,7 @@ def serve_download(uuid):
         if original_ext and not safe_download_name.endswith(original_ext):
             safe_download_name += original_ext
         
-        print(f"Serving file: {actual_filename} as {safe_download_name}")
+        print(f"Serving history file {uuid} as an attachment")
         
         # Find the original file with actual_filename and use safe_download_name for the download name.
         return static_file(actual_filename, root=DOWNFOLDER_DIR, download=safe_download_name)
@@ -2607,7 +2901,7 @@ def serve_download(uuid):
     except HTTPError:
         raise
     except Exception as e:
-        print(f"Error in serve_download: {e}")
+        print(f"Error in serve_download: {sanitize_diagnostic_text(e)}")
         abort(500, "Internal server error")
 
 @get('/static/preview/<uuid>')
@@ -2625,7 +2919,7 @@ def serve_preview(uuid):
     except HTTPError:
         raise
     except Exception as e:
-        print(f"Error in serve_preview: {e}")
+        print(f"Error in serve_preview: {sanitize_diagnostic_text(e)}")
         abort(500, "Internal server error")
 
 
@@ -2671,7 +2965,9 @@ def websocket_handler(ws):
             if message is None:
                 break
                 
-            print(f"Received: {message}")
+            event_match = re.match(r"^\[[A-Z_]+\]", str(message or ""))
+            event_name = event_match.group(0) if event_match else "[UNKNOWN]"
+            print(f"Received WebSocket event: {event_name}")
 
             # Status request handling
             if message == '[REQUEST_STATE]':
@@ -2686,7 +2982,7 @@ def websocket_handler(ws):
                 safe_websocket_send(ws, "[HISTORY_RESTORE_COMPLETE], done")
                 
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"WebSocket error: {sanitize_diagnostic_text(e)}")
     finally:
         # Disconnect the client
         download_manager.remove_client(ws)
