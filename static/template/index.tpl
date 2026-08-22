@@ -74,6 +74,7 @@
                                     <span>{{t('composer.quality')}}</span>
                                     <select title="{{t('composer.resolution_title')}}" id="selResolution" class="form-control admin-control">
                                     <option>best</option>
+                                    <option value="compatible-mp4">{{t('composer.compatible_mp4')}}</option>
                                     <option>2160p</option>
                                     <option>1440p</option>
                                     <option>1080p</option>
@@ -287,6 +288,7 @@
                                         <span>{{t('composer.mobile_share_default')}}</span>
                                         <select id="share-default-profile" class="form-control admin-control">
                                             <option value="best">{{t('composer.share_best')}}</option>
+                                            <option value="compatible-mp4">{{t('composer.compatible_mp4_short')}}</option>
                                             <option value="1080p">1080p</option>
                                             <option value="720p">720p</option>
                                             <option value="audio-mp3">MP3</option>

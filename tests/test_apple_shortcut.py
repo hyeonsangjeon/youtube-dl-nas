@@ -37,6 +37,8 @@ def test_shortcut_installs_configuration_questions_and_contextual_prompts():
     assert "from_timestamp" in rendered
     assert "first10" in rendered
     assert "ios-shortcut" in rendered
+    assert "compatible-mp4" in rendered
+    assert "2.1" in rendered
 
 
 def test_signed_shortcut_assets_are_current_and_contain_no_real_credentials():

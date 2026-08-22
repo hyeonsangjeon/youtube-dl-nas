@@ -9,7 +9,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function() {
     const storageKey = 'ydlnasDownloadProfile:v1';
     const videoProfiles = new Set([
-        'best', '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'
+        'best', 'compatible-mp4', '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'
     ]);
     const audioProfiles = new Set(['audio', 'audio-m4a', 'audio-mp3']);
     const subtitleProfiles = new Set(['srt', 'vtt']);

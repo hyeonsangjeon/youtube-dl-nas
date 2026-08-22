@@ -52,6 +52,8 @@
   "composer.audio": "Audio",
   "composer.subtitle": "Napisy",
   "composer.quality": "Jakość",
+  "composer.compatible_mp4": "Zgodny MP4 (H.264/AAC)",
+  "composer.compatible_mp4_short": "Zgodny MP4",
   "composer.resolution_title": "Wybierz rozdzielczość",
   "composer.url": "URL",
   "composer.subtitle_language": "Język napisów",

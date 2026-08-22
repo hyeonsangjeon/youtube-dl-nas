@@ -187,7 +187,7 @@ def context_request(name):
             ("id", text_token(output("account-id"))),
             ("pw", text_token(output("account-password"))),
             ("client", "ios-shortcut"),
-            ("client_version", "2.0"),
+            ("client_version", "2.1"),
             ("soft_errors", "true"),
         ],
     )
@@ -197,6 +197,7 @@ def profile_menu_actions():
     group = "profile-menu"
     values = [
         ("Best", "best"),
+        ("Compatible MP4", "compatible-mp4"),
         ("1080p", "1080p"),
         ("720p", "720p"),
         ("MP3", "audio-mp3"),
@@ -330,7 +331,7 @@ def build_workflow():
                 ("id", text_token(output("account-id"))),
                 ("pw", text_token(output("account-password"))),
                 ("client", "ios-shortcut"),
-                ("client_version", "2.0"),
+                ("client_version", "2.1"),
             ],
         ),
         set_variable("Queue Response", output("queue-request", "Contents of URL")),
@@ -369,7 +370,7 @@ def build_workflow():
             "Category": "Parameter",
             "DefaultValue": "best",
             "ParameterKey": "WFTextActionText",
-            "Text": "Default profile: best, 1080p, 720p, audio-mp3, audio-m4a, or ask",
+            "Text": "Default profile: best, compatible-mp4, 1080p, 720p, audio-mp3, audio-m4a, or ask",
         },
     ]
 

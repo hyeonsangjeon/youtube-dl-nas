@@ -52,6 +52,8 @@
   "composer.audio": "오디오",
   "composer.subtitle": "자막",
   "composer.quality": "화질",
+  "composer.compatible_mp4": "호환 MP4 (H.264/AAC)",
+  "composer.compatible_mp4_short": "호환 MP4",
   "composer.resolution_title": "해상도 선택",
   "composer.url": "URL",
   "composer.subtitle_language": "자막 언어",

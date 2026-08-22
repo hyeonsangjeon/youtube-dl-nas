@@ -214,6 +214,7 @@
 				<key>WFMenuItems</key>
 				<array>
 					<string>Best</string>
+					<string>Compatible MP4</string>
 					<string>1080p</string>
 					<string>720p</string>
 					<string>MP3</string>
@@ -280,7 +281,7 @@
 				<key>WFControlFlowMode</key>
 				<integer>1</integer>
 				<key>WFMenuItemTitle</key>
-				<string>1080p</string>
+				<string>Compatible MP4</string>
 			</dict>
 		</dict>
 		<dict>
@@ -291,7 +292,7 @@
 				<key>UUID</key>
 				<string>3178039D-3BAF-5760-8580-3A0E027673A4</string>
 				<key>WFTextActionText</key>
-				<string>1080p</string>
+				<string>compatible-mp4</string>
 			</dict>
 		</dict>
 		<dict>
@@ -327,7 +328,7 @@
 				<key>WFControlFlowMode</key>
 				<integer>1</integer>
 				<key>WFMenuItemTitle</key>
-				<string>720p</string>
+				<string>1080p</string>
 			</dict>
 		</dict>
 		<dict>
@@ -338,7 +339,7 @@
 				<key>UUID</key>
 				<string>4DF3030C-EF05-5AFC-BDC9-FF951805DB2C</string>
 				<key>WFTextActionText</key>
-				<string>720p</string>
+				<string>1080p</string>
 			</dict>
 		</dict>
 		<dict>
@@ -374,7 +375,7 @@
 				<key>WFControlFlowMode</key>
 				<integer>1</integer>
 				<key>WFMenuItemTitle</key>
-				<string>MP3</string>
+				<string>720p</string>
 			</dict>
 		</dict>
 		<dict>
@@ -385,7 +386,7 @@
 				<key>UUID</key>
 				<string>CFC5880C-BA2C-53B7-972C-453AB008C597</string>
 				<key>WFTextActionText</key>
-				<string>audio-mp3</string>
+				<string>720p</string>
 			</dict>
 		</dict>
 		<dict>
@@ -421,7 +422,7 @@
 				<key>WFControlFlowMode</key>
 				<integer>1</integer>
 				<key>WFMenuItemTitle</key>
-				<string>M4A</string>
+				<string>MP3</string>
 			</dict>
 		</dict>
 		<dict>
@@ -431,6 +432,53 @@
 			<dict>
 				<key>UUID</key>
 				<string>E726639D-A7D6-5138-B2E4-D0B6BAE76804</string>
+				<key>WFTextActionText</key>
+				<string>audio-mp3</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.setvariable</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFInput</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>Type</key>
+						<string>ActionOutput</string>
+						<key>OutputUUID</key>
+						<string>E726639D-A7D6-5138-B2E4-D0B6BAE76804</string>
+						<key>OutputName</key>
+						<string>Text</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenAttachment</string>
+				</dict>
+				<key>WFVariableName</key>
+				<string>Profile</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.choosefrommenu</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>GroupingIdentifier</key>
+				<string>F491870E-2D4A-550F-B2FF-40F3E7587F7D</string>
+				<key>WFControlFlowMode</key>
+				<integer>1</integer>
+				<key>WFMenuItemTitle</key>
+				<string>M4A</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.gettext</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>UUID</key>
+				<string>A3DD49BB-26D9-58EB-ABCD-8F456FF6110F</string>
 				<key>WFTextActionText</key>
 				<string>audio-m4a</string>
 			</dict>
@@ -447,7 +495,7 @@
 						<key>Type</key>
 						<string>ActionOutput</string>
 						<key>OutputUUID</key>
-						<string>E726639D-A7D6-5138-B2E4-D0B6BAE76804</string>
+						<string>A3DD49BB-26D9-58EB-ABCD-8F456FF6110F</string>
 						<key>OutputName</key>
 						<string>Text</string>
 					</dict>
@@ -731,7 +779,7 @@
 										<key>attachmentsByRange</key>
 										<dict/>
 										<key>string</key>
-										<string>2.0</string>
+										<string>2.1</string>
 									</dict>
 									<key>WFSerializationType</key>
 									<string>WFTextTokenString</string>
@@ -1166,7 +1214,7 @@
 										<key>attachmentsByRange</key>
 										<dict/>
 										<key>string</key>
-										<string>2.0</string>
+										<string>2.1</string>
 									</dict>
 									<key>WFSerializationType</key>
 									<string>WFTextTokenString</string>
@@ -2119,7 +2167,7 @@
 										<key>attachmentsByRange</key>
 										<dict/>
 										<key>string</key>
-										<string>2.0</string>
+										<string>2.1</string>
 									</dict>
 									<key>WFSerializationType</key>
 									<string>WFTextTokenString</string>
@@ -2300,7 +2348,7 @@
 			<key>ParameterKey</key>
 			<string>WFTextActionText</string>
 			<key>Text</key>
-			<string>Default profile: best, 1080p, 720p, audio-mp3, audio-m4a, or ask</string>
+			<string>Default profile: best, compatible-mp4, 1080p, 720p, audio-mp3, audio-m4a, or ask</string>
 		</dict>
 	</array>
 	<key>WFWorkflowInputContentItemClasses</key>

@@ -32,7 +32,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 
 ## What You Get
 
-- Video up to 2160p, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
+- Video up to 2160p, an explicit H.264/AAC Compatible MP4 profile, audio-only M4A/MP3, and SRT/VTT subtitle downloads.
 - English, Korean, Simplified Chinese, and Polish UI with automatic browser-language detection and a saved preference.
 - Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
 - Download-volume capacity status, a safe active-job stop control, retained partial data, and actionable failure guidance.

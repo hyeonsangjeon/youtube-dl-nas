@@ -52,6 +52,8 @@
   "composer.audio": "Audio",
   "composer.subtitle": "Subtitle",
   "composer.quality": "Quality",
+  "composer.compatible_mp4": "Compatible MP4 (H.264/AAC)",
+  "composer.compatible_mp4_short": "Compatible MP4",
   "composer.resolution_title": "Pick a resolution",
   "composer.url": "URL",
   "composer.subtitle_language": "Subtitle language",

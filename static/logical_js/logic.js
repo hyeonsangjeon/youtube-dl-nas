@@ -721,7 +721,7 @@ $(function () {
         const safeTimestamp = escapeAttr(item.timestamp || '');
         const titleText = escapeHtml(item.title || translate('common.untitled'));
         const channelText = escapeHtml(item.channel || translate('common.unknown'));
-        const resolutionText = escapeHtml(item.resolution || translate('common.unknown'));
+        const resolutionText = escapeHtml(getResolutionText(item.resolution));
         const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const dateText = formatTimestamp(item.timestamp);
         const statusText = escapeHtml(getStatusText(item.status));
@@ -753,7 +753,7 @@ $(function () {
         const safeUuid = escapeAttr(item.uuid);
         const titleText = escapeHtml(item.title || translate('common.untitled'));
         const channelText = escapeHtml(item.channel || translate('common.unknown'));
-        const resolutionText = escapeHtml(item.resolution || translate('common.unknown'));
+        const resolutionText = escapeHtml(getResolutionText(item.resolution));
         const typeText = escapeHtml(getDownloadTypeText(item.download_type || getHistoryType(item.resolution)));
         const statusText = escapeHtml(getStatusText(item.status));
         const metadataSourceLine = renderMetadataSourceLine(item);
@@ -801,7 +801,7 @@ $(function () {
         `;
         const durationBadge = durationText ? `<span class="history-grid-duration">${durationText}</span>` : '';
         const resolutionBadge = item.resolution === 'mounted' ? '' :
-            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${escapeHtml(item.resolution || translate('common.unknown'))}</span>`;
+            `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${escapeHtml(getResolutionText(item.resolution))}</span>`;
 
         return `
             <article class="history-grid-card ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
@@ -1266,7 +1266,7 @@ $(function () {
                 <dl class="detail-list">
                     ${renderDetailField(translate('detail.downloaded'), formatTimestamp(item.timestamp), 'downloaded')}
                     ${renderDetailField(translate('detail.duration'), formatDuration(item.duration_seconds) || translate('common.unknown'), 'duration')}
-                    ${renderDetailField(translate('detail.resolution'), item.resolution || translate('common.unknown'), 'resolution')}
+                    ${renderDetailField(translate('detail.resolution'), getResolutionText(item.resolution), 'resolution')}
                     ${renderDetailField(translate('detail.size'), formatFileSize(item), 'size')}
                     ${renderDetailField(translate('detail.filename'), item.filename || translate('detail.no_file'), 'filename')}
                     ${item.thumbnail_file_exists ? renderDetailField(translate('detail.thumbnail_file'), item.thumbnail_file, 'thumbnail-file') : ''}
@@ -1432,9 +1432,16 @@ $(function () {
         return translate(keyByType[type] || 'history.file');
     }
 
+    function getResolutionText(resolution) {
+        if (resolution === 'compatible-mp4') {
+            return translate('composer.compatible_mp4_short');
+        }
+        return resolution || translate('common.unknown');
+    }
+
     function getResolutionClass(resolution) {
         resolution = resolution || '';
-        if (resolution.indexOf('best') >= 0 || resolution.indexOf('1080') >= 0 || resolution.indexOf('1440') >= 0 || resolution.indexOf('2160') >= 0) {
+        if (resolution.indexOf('best') >= 0 || resolution.indexOf('compatible-mp4') >= 0 || resolution.indexOf('1080') >= 0 || resolution.indexOf('1440') >= 0 || resolution.indexOf('2160') >= 0) {
             return 'resolution-high';
         } else if (resolution.indexOf('720') >= 0) {
             return 'resolution-medium';
@@ -1655,7 +1662,7 @@ $(function () {
                         <strong title="${escapeAttr(url)}">${escapeHtml(formatQueueUrl(url))}</strong>
                         <span>${escapeHtml(sourceLabel)}</span>
                     </div>
-                    <span class="resolution-tag ${getResolutionClass(resolution)}">${escapeHtml(resolution)}</span>
+                    <span class="resolution-tag ${getResolutionClass(resolution)}">${escapeHtml(getResolutionText(resolution))}</span>
                     <button type="button" class="queue-remove" data-job-id="${escapeAttr(jobId)}"
                             title="${escapeAttr(translate('queue.remove_title'))}" aria-label="${escapeAttr(translate('queue.remove_label'))}">
                         <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
