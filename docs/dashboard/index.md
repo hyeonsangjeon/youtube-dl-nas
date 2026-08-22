@@ -21,6 +21,8 @@ Use the language selector before sign-in or in the dashboard header to choose En
 
 Choose **Compatible MP4 (H.264/AAC)** for clients that need broadly playable codecs. This profile fails honestly when the source does not offer that combination; it does not transcode media or change the meaning of **Best**.
 
+After a request is queued successfully, the dashboard remembers that profile on the current device. A new or invalid preference falls back to **Best**, and URLs are never submitted automatically.
+
 Open **Options** to save a JPG thumbnail beside the media file, choose the profile used by PWA mobile sharing on this device, or manage a Netscape cookies file for restricted sources. **Ask every time** prefills the shared URL in this form so you can review its output profile.
 
 Cookies are sensitive account credentials. Upload only a file exported for a site you are authorized to access. An app-managed file is validated, limited to 1 MiB, stored in the persistent metadata volume with owner-only permissions, and can be replaced or removed here. If `YTDLP_COOKIES_FILE` points to an external mount, Options reports its readiness but cannot modify it.
@@ -45,6 +47,8 @@ The same normalized URL, download profile, and options cannot be queued twice ac
 - Move through results in numbered pages of 20 items.
 - Select an item to inspect its source URL, duration, resolution, size, filename, metadata state, and UUID.
 
+On desktop, the detail area opens with **Library Overview**. On compact and mobile layouts, use the statistics button in Files & History to open the same layer. It summarizes stored-file count and size, completed downloads from the last 7 days, a 14-day activity chart, media-type distribution, and recorded failures from the current history. Mounted files count toward stored-library totals but not download activity. Selecting a media type or failure group applies the existing history filters.
+
 Use **Preview** to play an existing video or audio file without downloading it again. Saved thumbnail sidecars are used in the grid and listed in item details. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file and its thumbnail sidecar.
 
 When a mobile browser returns from the background, Files & History and Current Activity refresh automatically without resetting the selected view, filters, page, or detail item.
@@ -68,6 +72,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0817` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0822` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).
