@@ -43,6 +43,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Subtitle QA for SRT/VTT/ASS/SSA files with `nlptutti` CER/WER/CRR metrics and keyword preservation.
 - Android PWA sharing, Android local-HTTP Shortcuts, and an installable iOS Shortcut.
 - Per-device PWA share profiles, including Ask every time for review before queueing.
+- Authenticated, size-bounded Netscape cookies management for restricted sources, while external mounted files remain read-only.
 - Playlist Guard with explicit Current video, First 10, and All items scopes.
 - Optional JPG thumbnail sidecars with local grid previews and sidecar-aware deletion.
 - REST API with normal ID/password authentication and an optional Bearer token.

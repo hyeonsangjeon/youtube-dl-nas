@@ -299,6 +299,25 @@
                                         </select>
                                         <small>{{t('composer.mobile_share_hint')}}</small>
                                     </label>
+                                    <div id="cookies-management" class="cookies-management" data-state="loading">
+                                        <div class="cookies-management-copy">
+                                            <strong>{{t('composer.cookies_heading')}}</strong>
+                                            <span id="cookies-status" class="cookies-status" role="status" aria-live="polite">{{t('composer.cookies_loading')}}</span>
+                                            <small>{{t('composer.cookies_sensitive_hint')}}</small>
+                                            <small id="cookies-mounted-hint" hidden>{{t('composer.cookies_mounted_hint')}}</small>
+                                        </div>
+                                        <div class="cookies-management-actions">
+                                            <label id="cookies-upload-label" class="btn btn-default cookies-upload-button" for="cookies-file">
+                                                <span class="glyphicon glyphicon-upload" aria-hidden="true"></span>
+                                                <span id="cookies-upload-text">{{t('composer.cookies_upload')}}</span>
+                                            </label>
+                                            <input id="cookies-file" class="cookies-file-input" type="file" name="cookies_file" accept=".txt,text/plain">
+                                            <button id="cookies-delete" type="button" class="btn btn-default" hidden>
+                                                <span class="glyphicon glyphicon-trash" aria-hidden="true"></span>
+                                                {{t('composer.cookies_remove')}}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </details>
                         </form>

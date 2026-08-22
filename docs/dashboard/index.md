@@ -21,7 +21,9 @@ Use the language selector before sign-in or in the dashboard header to choose En
 
 Choose **Compatible MP4 (H.264/AAC)** for clients that need broadly playable codecs. This profile fails honestly when the source does not offer that combination; it does not transcode media or change the meaning of **Best**.
 
-Open **Options** to save a JPG thumbnail beside the media file or choose the profile used by PWA mobile sharing on this device. **Ask every time** prefills the shared URL in this form so you can review its output profile.
+Open **Options** to save a JPG thumbnail beside the media file, choose the profile used by PWA mobile sharing on this device, or manage a Netscape cookies file for restricted sources. **Ask every time** prefills the shared URL in this form so you can review its output profile.
+
+Cookies are sensitive account credentials. Upload only a file exported for a site you are authorized to access. An app-managed file is validated, limited to 1 MiB, stored in the persistent metadata volume with owner-only permissions, and can be replaced or removed here. If `YTDLP_COOKIES_FILE` points to an external mount, Options reports its readiness but cannot modify it.
 
 When a URL points to a playlist or channel, Playlist Guard shows a scope selector. A video URL that also carries a playlist defaults to **Current video only**. Pure playlist and channel URLs require **First 10** or **All items** before they can be queued. Each completed item receives its own Files & History row.
 

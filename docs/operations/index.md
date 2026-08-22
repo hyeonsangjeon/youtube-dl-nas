@@ -99,8 +99,10 @@ permissions with the account that owns the mounted paths.
 
 Pull the newest image first. The container also updates `yt-dlp` at startup and
 on its configured schedule, but some sources can still require cookies, a
-proxy, or a later upstream extractor fix. Check `YTDLP_COOKIES_FILE`, `PROXY`,
-and `YTDLP_EXTRA_ARGS` only when the source requires them.
+proxy, or a later upstream extractor fix. A signed-in administrator can manage
+a bounded Netscape cookies file under dashboard **Options**. An external
+`YTDLP_COOKIES_FILE` mount remains the read-only alternative. Check cookies,
+`PROXY`, and `YTDLP_EXTRA_ARGS` only when the source requires them.
 
 New requests accept only HTTP(S) sources that resolve to public-network
 addresses. This prevents an exposed dashboard credential from turning the NAS

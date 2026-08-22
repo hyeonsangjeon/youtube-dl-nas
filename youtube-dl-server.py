@@ -40,10 +40,12 @@ AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
+APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
 APP_VERSION = os.environ.get("APP_VERSION", "26.0817")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
+COOKIES_FILE_MAX_BYTES = 1024 * 1024
 YDLNAS_ALLOW_PRIVATE_SOURCES = os.environ.get("YDLNAS_ALLOW_PRIVATE_SOURCES", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
@@ -164,6 +166,12 @@ ERROR_CODE_BY_MESSAGE = {
     "Unsupported timestamp mode": "unsupported_timestamp_mode",
     "Timestamp was not found in the shared URL": "timestamp_not_found",
     "Unsupported mobile share profile": "unsupported_share_profile",
+    "Cookies file is required": "cookies_file_required",
+    "Cookies file is too large": "cookies_file_too_large",
+    "Cookies file is not a valid Netscape cookies file": "cookies_file_invalid",
+    "Mounted cookies cannot be changed from the dashboard": "cookies_file_mounted",
+    "Cookies file could not be saved": "cookies_file_save_failed",
+    "Cookies file could not be deleted": "cookies_file_delete_failed",
     "Queued download not found or already active": "queue_not_found",
     "No active download to cancel": "active_download_not_found",
     "Download storage is critically low": "storage_critical",
@@ -259,6 +267,7 @@ def sanitize_diagnostic_text(value):
         DOWNFOLDER_DIR,
         STATE_DIR,
         YTDLP_COOKIES_FILE,
+        APP_COOKIES_FILE,
         os.path.abspath(AUTH_FILE),
         os.path.abspath(DOWNFOLDER_DIR),
         os.path.abspath(STATE_DIR),
@@ -608,6 +617,146 @@ def require_cookie_auth():
         return None, json_error("Unauthorized", 403)
 
     return data, None
+
+
+def cookies_file_status():
+    mounted = bool(YTDLP_COOKIES_FILE)
+    cookie_path = YTDLP_COOKIES_FILE if mounted else APP_COOKIES_FILE
+    exists = os.path.isfile(cookie_path) and (mounted or not os.path.islink(cookie_path))
+    readable = exists and os.access(cookie_path, os.R_OK)
+    return {
+        "configured": mounted or exists,
+        "readable": readable,
+        "managed": not mounted and exists,
+        "mode": "mounted" if mounted else ("managed" if exists else "none"),
+        "max_bytes": COOKIES_FILE_MAX_BYTES,
+    }
+
+
+def active_cookies_file():
+    status = cookies_file_status()
+    if not status["configured"]:
+        return ""
+    if not status["readable"]:
+        raise ValueError("Configured cookies file is unavailable")
+    return YTDLP_COOKIES_FILE if status["mode"] == "mounted" else APP_COOKIES_FILE
+
+
+def valid_netscape_cookies(contents):
+    try:
+        text = contents.decode("utf-8-sig")
+    except (AttributeError, UnicodeDecodeError):
+        return False
+    if "\x00" in text:
+        return False
+
+    lines = text.splitlines()
+    header_found = any(
+        line.lstrip().startswith("#") and "netscape http cookie file" in line.casefold()
+        for line in lines[:10]
+    )
+    if not header_found:
+        return False
+
+    record_count = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or (stripped.startswith("#") and not stripped.startswith("#HttpOnly_")):
+            continue
+        fields = line.split("\t", 6)
+        if len(fields) != 7:
+            return False
+        domain, include_subdomains, path, secure, expires, name, _ = fields
+        if domain.startswith("#HttpOnly_"):
+            domain = domain[len("#HttpOnly_"):]
+        if (
+            not domain
+            or include_subdomains.upper() not in {"TRUE", "FALSE"}
+            or not path.startswith("/")
+            or secure.upper() not in {"TRUE", "FALSE"}
+            or not name
+        ):
+            return False
+        try:
+            int(expires)
+        except ValueError:
+            return False
+        record_count += 1
+    return record_count > 0
+
+
+def save_managed_cookies(contents):
+    os.makedirs(os.path.dirname(APP_COOKIES_FILE), exist_ok=True)
+    temp_path = f"{APP_COOKIES_FILE}.tmp-{uuid.uuid4().hex}"
+    file_descriptor = None
+    try:
+        file_descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(file_descriptor, "wb") as cookie_file:
+            file_descriptor = None
+            cookie_file.write(contents)
+            cookie_file.flush()
+            os.fsync(cookie_file.fileno())
+        os.replace(temp_path, APP_COOKIES_FILE)
+        os.chmod(APP_COOKIES_FILE, 0o600)
+    except OSError:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
+
+
+@get('/youtube-dl/cookies')
+def get_cookies_status():
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    return {"success": True, "status": cookies_file_status()}
+
+
+@post('/youtube-dl/cookies')
+def upload_cookies_file():
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    if YTDLP_COOKIES_FILE:
+        return json_error("Mounted cookies cannot be changed from the dashboard", 409)
+    if request.content_length and request.content_length > COOKIES_FILE_MAX_BYTES + (64 * 1024):
+        return json_error("Cookies file is too large", 413)
+
+    upload = request.files.get("cookies_file")
+    if not upload:
+        return json_error("Cookies file is required", 400)
+    try:
+        contents = upload.file.read(COOKIES_FILE_MAX_BYTES + 1)
+    except OSError:
+        return json_error("Cookies file is not a valid Netscape cookies file", 400)
+    if len(contents) > COOKIES_FILE_MAX_BYTES:
+        return json_error("Cookies file is too large", 413)
+    if not valid_netscape_cookies(contents):
+        return json_error("Cookies file is not a valid Netscape cookies file", 400)
+    try:
+        save_managed_cookies(contents)
+    except OSError:
+        return json_error("Cookies file could not be saved", 500)
+    return {"success": True, "status": cookies_file_status()}
+
+
+@route('/youtube-dl/cookies', method='DELETE')
+def delete_cookies_file():
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    if YTDLP_COOKIES_FILE:
+        return json_error("Mounted cookies cannot be changed from the dashboard", 409)
+    try:
+        if os.path.lexists(APP_COOKIES_FILE):
+            os.unlink(APP_COOKIES_FILE)
+    except OSError:
+        return json_error("Cookies file could not be deleted", 500)
+    return {"success": True, "status": cookies_file_status()}
 
 
 class NoRedirectHandler(HTTPRedirectHandler):
@@ -2563,10 +2712,9 @@ def build_ytdlp_common_args(data=None):
     args = ["yt-dlp", "--retry-sleep", "1", "--newline"]
     if data.get("PROXY"):
         args.extend(["--proxy", data["PROXY"]])
-    if YTDLP_COOKIES_FILE:
-        if not os.path.isfile(YTDLP_COOKIES_FILE):
-            raise ValueError(f"YTDLP_COOKIES_FILE does not exist: {YTDLP_COOKIES_FILE}")
-        args.extend(["--cookies", YTDLP_COOKIES_FILE])
+    cookies_file = active_cookies_file()
+    if cookies_file:
+        args.extend(["--cookies", cookies_file])
     if YTDLP_EXTRA_ARGS:
         args.extend(shlex.split(YTDLP_EXTRA_ARGS))
     return args
