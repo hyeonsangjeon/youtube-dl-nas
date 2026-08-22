@@ -304,6 +304,10 @@
   "server.unauthorized": "会话已过期，请重新登录。",
   "server.invalid_credentials": "账号、密码或 API 令牌无效。",
   "server.url_required": "必须提供 URL。",
+  "server.source_url_scheme": "仅允许 HTTP 和 HTTPS 来源网址。",
+  "server.private_source_url": "默认阻止私有或本地网络来源网址。",
+  "server.source_url_unresolvable": "无法解析来源主机。",
+  "server.source_redirect_limit": "来源网址超过了重定向次数限制。",
   "server.resolution_required": "必须选择分辨率。",
   "server.subtitle_language_required": "下载字幕需要语言代码，例如 vtt|en 或 srt|ko。",
   "server.unsupported_resolution": "不支持此分辨率或输出配置。",
@@ -364,6 +368,8 @@
   "failure.postprocessing.action": "在容器日志中检查 FFmpeg 步骤、可用空间和文件权限。",
   "failure.extractor.reason": "源站发生变化，当前提取器无法读取内容。",
   "failure.extractor.action": "确认每小时的 yt-dlp 更新成功后重试。",
+  "failure.source_blocked.reason": "来源指向了私有或本地网络地址。",
+  "failure.source_blocked.action": "请使用公网网址，或仅在容器配置中明确允许受信任的私有来源。",
   "failure.unknown.reason": "下载在识别出具体原因前结束。",
   "failure.unknown.action": "先重试一次；若再次失败，请检查已脱敏的容器日志。"
 }
