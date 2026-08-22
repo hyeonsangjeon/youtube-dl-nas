@@ -304,6 +304,10 @@
   "server.unauthorized": "세션이 만료되었습니다. 다시 로그인하세요.",
   "server.invalid_credentials": "계정, 비밀번호 또는 API 토큰이 올바르지 않습니다.",
   "server.url_required": "URL이 필요합니다.",
+  "server.source_url_scheme": "HTTP 또는 HTTPS 원본 URL만 사용할 수 있습니다.",
+  "server.private_source_url": "사설 또는 로컬 네트워크 원본 URL은 기본적으로 차단됩니다.",
+  "server.source_url_unresolvable": "원본 호스트의 주소를 확인할 수 없습니다.",
+  "server.source_redirect_limit": "원본 URL의 리디렉션 횟수가 제한을 초과했습니다.",
   "server.resolution_required": "해상도가 필요합니다.",
   "server.subtitle_language_required": "자막 다운로드에는 언어 코드가 필요합니다. 예: vtt|en 또는 srt|ko",
   "server.unsupported_resolution": "지원하지 않는 해상도 또는 출력 형식입니다.",
@@ -364,6 +368,8 @@
   "failure.postprocessing.action": "컨테이너 로그에서 FFmpeg 단계와 여유 공간, 파일 권한을 확인하세요.",
   "failure.extractor.reason": "원본 사이트가 바뀌어 현재 추출기가 내용을 읽지 못했습니다.",
   "failure.extractor.action": "매시간 실행되는 yt-dlp 업데이트가 성공했는지 확인한 뒤 재시도하세요.",
+  "failure.source_blocked.reason": "원본이 사설 또는 로컬 네트워크 주소로 연결되었습니다.",
+  "failure.source_blocked.action": "공개 URL을 사용하거나, 신뢰할 수 있는 내부 원본만 컨테이너 설정에서 명시적으로 허용하세요.",
   "failure.unknown.reason": "구체적인 원인을 확인하기 전에 다운로드가 종료되었습니다.",
   "failure.unknown.action": "한 번 재시도하고, 다시 실패하면 정리된 컨테이너 로그를 확인하세요."
 }

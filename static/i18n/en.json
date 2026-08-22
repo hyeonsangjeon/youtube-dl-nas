@@ -304,6 +304,10 @@
   "server.unauthorized": "Your session has expired. Sign in again.",
   "server.invalid_credentials": "The account, password, or API token is invalid.",
   "server.url_required": "URL is required.",
+  "server.source_url_scheme": "Only HTTP and HTTPS source URLs are allowed.",
+  "server.private_source_url": "Private or local source URLs are blocked by default.",
+  "server.source_url_unresolvable": "The source host could not be resolved.",
+  "server.source_redirect_limit": "The source URL exceeded the redirect limit.",
   "server.resolution_required": "Resolution is required.",
   "server.subtitle_language_required": "Subtitle downloads require a language code, for example vtt|en or srt|ko.",
   "server.unsupported_resolution": "This resolution or output profile is not supported.",
@@ -364,6 +368,8 @@
   "failure.postprocessing.action": "Check container logs for the FFmpeg step, available space, and file permissions.",
   "failure.extractor.reason": "The source changed and the current extractor could not read it.",
   "failure.extractor.action": "Confirm the hourly yt-dlp updater succeeded, then retry.",
+  "failure.source_blocked.reason": "The source led to a private or local network destination.",
+  "failure.source_blocked.action": "Use a public URL, or explicitly enable trusted private sources in the container configuration.",
   "failure.unknown.reason": "The download ended before a specific cause could be identified.",
   "failure.unknown.action": "Retry once, then inspect the sanitized container logs if it fails again."
 }

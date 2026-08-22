@@ -182,6 +182,7 @@ docker run -d \
 | `-e NLPTUTTI_UPDATE_TIMEOUT` | Maximum runtime package-update duration in seconds. Defaults to `180`. |
 | `-e YTDLP_COOKIES_FILE` | Optional path to a mounted Netscape-format cookies file. |
 | `-e YTDLP_EXTRA_ARGS` | Optional administrator-controlled extra arguments parsed with shell-style quoting. |
+| `-e YDLNAS_ALLOW_PRIVATE_SOURCES` | Advanced opt-in for downloads from private or local network addresses. Defaults to `false`. |
 | `-e YDLNAS_STORAGE_WARNING_GB` | Free-space warning threshold in GiB. Defaults to `10`; set `0` to disable. |
 | `-e YDLNAS_STORAGE_CRITICAL_GB` | Free-space threshold that pauses new queue additions. Defaults to `2`; set `0` to disable. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |

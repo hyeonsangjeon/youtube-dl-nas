@@ -75,6 +75,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 | `PROXY` | No | Empty | Proxy passed to `yt-dlp` |
 | `YTDLP_COOKIES_FILE` | No | Empty | Mounted Netscape-format cookie file |
 | `YTDLP_EXTRA_ARGS` | No | Empty | Administrator-controlled extra `yt-dlp` arguments |
+| `YDLNAS_ALLOW_PRIVATE_SOURCES` | No | `false` | Explicitly allow trusted private or local source URLs |
 | `YDLNAS_STORAGE_WARNING_GB` | No | `10` | Free-space warning threshold in GiB; `0` disables it |
 | `YDLNAS_STORAGE_CRITICAL_GB` | No | `2` | Pause new queue additions below this free space; `0` disables it |
 | `NLPTUTTI_AUTO_UPDATE` | No | `true` | Install or upgrade `nlptutti` at new-container startup for Subtitle QA |

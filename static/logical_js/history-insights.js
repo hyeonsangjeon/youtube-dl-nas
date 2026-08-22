@@ -12,7 +12,7 @@
     const knownFailureCodes = [
         'storage_full', 'storage_permission', 'auth_required', 'rate_limited',
         'format_unavailable', 'unsupported_url', 'network', 'postprocessing',
-        'extractor', 'unknown'
+        'extractor', 'source_blocked', 'unknown'
     ];
 
     function isMountedFile(item) {

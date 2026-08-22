@@ -1,10 +1,12 @@
 import json
 import subprocess
 import html
+import ipaddress
 from queue import Queue
 import re
 import shutil
 import signal
+import socket
 import time
 import uuid
 import hmac
@@ -28,7 +30,9 @@ from i18n import (
 )
 import os
 import secrets
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.error import HTTPError as URLHTTPError, URLError
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 DOWNFOLDER_DIR = os.environ.get("DOWNLOAD_DIR", "./downfolder")
 STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
@@ -40,6 +44,9 @@ APP_VERSION = os.environ.get("APP_VERSION", "26.0817")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
+YDLNAS_ALLOW_PRIVATE_SOURCES = os.environ.get("YDLNAS_ALLOW_PRIVATE_SOURCES", "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 
 def nonnegative_float_env(name, default):
@@ -134,6 +141,10 @@ ERROR_CODE_BY_MESSAGE = {
     "Unauthorized": "unauthorized",
     "Invalid password, account, or API token.": "invalid_credentials",
     "URL is required": "url_required",
+    "Only HTTP and HTTPS source URLs are allowed": "source_url_scheme",
+    "Private or local source URLs are blocked": "private_source_url",
+    "Source host could not be resolved": "source_url_unresolvable",
+    "Source URL exceeded the redirect limit": "source_redirect_limit",
     "Resolution is required": "resolution_required",
     "Subtitle downloads require a language code, for example vtt|en or srt|ko": "subtitle_language_required",
     "Unsupported resolution": "unsupported_resolution",
@@ -587,9 +598,130 @@ def require_cookie_auth():
 
     return data, None
 
-def validate_download_request(url, resolution):
+
+class NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def source_address_is_allowed(address):
+    try:
+        parsed = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    return parsed.is_global
+
+
+def resolve_source_addresses(hostname, port):
+    try:
+        records = socket.getaddrinfo(
+            hostname,
+            port,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
+            proto=socket.IPPROTO_TCP,
+        )
+    except (socket.gaierror, OSError):
+        return []
+
+    addresses = []
+    for record in records:
+        address = record[4][0]
+        if address not in addresses:
+            addresses.append(address)
+    return addresses
+
+
+def validate_source_url(url, resolve=True):
     if not isinstance(url, str) or not url.strip():
         return "URL is required"
+
+    source_url = url.strip()
+    if any(character.isspace() or ord(character) < 32 for character in source_url):
+        return "Only HTTP and HTTPS source URLs are allowed"
+
+    try:
+        parsed = urlsplit(source_url)
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except (TypeError, ValueError):
+        return "Only HTTP and HTTPS source URLs are allowed"
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return "Only HTTP and HTTPS source URLs are allowed"
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return None if YDLNAS_ALLOW_PRIVATE_SOURCES else "Private or local source URLs are blocked"
+
+    try:
+        literal_address = ipaddress.ip_address(hostname.split("%", 1)[0])
+    except ValueError:
+        literal_address = None
+
+    if literal_address is not None:
+        if not YDLNAS_ALLOW_PRIVATE_SOURCES and not source_address_is_allowed(literal_address):
+            return "Private or local source URLs are blocked"
+        return None
+
+    if not resolve:
+        return None
+
+    addresses = resolve_source_addresses(hostname, port)
+    if not addresses:
+        return "Source host could not be resolved"
+    if not YDLNAS_ALLOW_PRIVATE_SOURCES and any(not source_address_is_allowed(address) for address in addresses):
+        return "Private or local source URLs are blocked"
+    return None
+
+
+def source_redirect_opener():
+    handlers = [NoRedirectHandler()]
+    proxy = load_auth_data().get("PROXY")
+    if proxy:
+        handlers.insert(0, ProxyHandler({"http": proxy, "https": proxy}))
+    return build_opener(*handlers)
+
+
+def validate_source_redirects(url, opener=None, max_redirects=5, timeout=4):
+    current_url = str(url or "").strip()
+    redirect_opener = opener or source_redirect_opener()
+
+    for redirect_count in range(max_redirects + 1):
+        validation_error = validate_source_url(current_url, resolve=True)
+        if validation_error:
+            return validation_error
+
+        request_object = Request(
+            current_url,
+            method="HEAD",
+            headers={"User-Agent": "youtube-dl-nas source guard", "Accept": "*/*"},
+        )
+        try:
+            with redirect_opener.open(request_object, timeout=timeout):
+                return None
+        except URLHTTPError as http_error:
+            location = http_error.headers.get("Location") if http_error.headers else None
+            if http_error.code not in {301, 302, 303, 307, 308} or not location:
+                return None
+            if redirect_count >= max_redirects:
+                return "Source URL exceeded the redirect limit"
+            current_url = urljoin(current_url, location)
+        except (URLError, TimeoutError, OSError):
+            # yt-dlp may use cookies, impersonation, or a configured proxy that this
+            # lightweight probe cannot reproduce. DNS and literal-address checks
+            # above remain authoritative when the probe itself is unavailable.
+            return None
+
+    return "Source URL exceeded the redirect limit"
+
+
+def validate_download_request(url, resolution, resolve_source=True):
+    if not isinstance(url, str) or not url.strip():
+        return "URL is required"
+
+    source_error = validate_source_url(url, resolve=resolve_source)
+    if source_error:
+        return source_error
 
     if not isinstance(resolution, str) or not resolution.strip():
         return "Resolution is required"
@@ -975,7 +1107,7 @@ def normalize_queue_job(item, restored=False):
 
     url = str(job.get("url") or "").strip()
     resolution = str(job.get("resolution") or "").strip()
-    if validate_download_request(url, resolution):
+    if validate_download_request(url, resolution, resolve_source=False):
         return None
 
     source = str(job.get("source") or "web").strip() or "web"
@@ -2666,6 +2798,13 @@ def download(item):
         }
         
         download_manager.set_current_download(download_info)
+
+        source_error = validate_source_redirects(request_url)
+        if source_error:
+            download_manager.send_message("Source URL blocked by the private-network guard.")
+            download_manager.complete_download(terminal_history_item("failed", "source_blocked"))
+            return
+
         download_manager.send_message("Getting video information...")
         download_manager.update_progress(0)
 

@@ -96,6 +96,12 @@ on its configured schedule, but some sources can still require cookies, a
 proxy, or a later upstream extractor fix. Check `YTDLP_COOKIES_FILE`, `PROXY`,
 and `YTDLP_EXTRA_ARGS` only when the source requires them.
 
+New requests accept only HTTP(S) sources that resolve to public-network
+addresses. This prevents an exposed dashboard credential from turning the NAS
+into a private-network fetcher. If the intended media source is hosted on a
+trusted internal address, set `YDLNAS_ALLOW_PRIVATE_SOURCES=true` explicitly
+and restrict dashboard access to trusted users.
+
 Do not post private URLs, cookies, passwords, API tokens, or complete browser
 headers in logs or issues.
 

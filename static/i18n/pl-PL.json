@@ -304,6 +304,10 @@
   "server.unauthorized": "Sesja wygasła. Zaloguj się ponownie.",
   "server.invalid_credentials": "Konto, hasło lub token API są nieprawidłowe.",
   "server.url_required": "URL jest wymagany.",
+  "server.source_url_scheme": "Dozwolone są tylko źródłowe adresy URL HTTP i HTTPS.",
+  "server.private_source_url": "Prywatne lub lokalne źródłowe adresy URL są domyślnie zablokowane.",
+  "server.source_url_unresolvable": "Nie udało się rozpoznać hosta źródłowego.",
+  "server.source_redirect_limit": "Adres źródłowy przekroczył limit przekierowań.",
   "server.resolution_required": "Rozdzielczość jest wymagana.",
   "server.subtitle_language_required": "Pobieranie napisów wymaga kodu języka, na przykład vtt|en lub srt|ko.",
   "server.unsupported_resolution": "Ta rozdzielczość lub profil wyjściowy nie są obsługiwane.",
@@ -364,6 +368,8 @@
   "failure.postprocessing.action": "Sprawdź w logach kontenera etap FFmpeg, wolne miejsce i uprawnienia plików.",
   "failure.extractor.reason": "Źródło uległo zmianie i bieżący ekstraktor nie mógł go odczytać.",
   "failure.extractor.action": "Upewnij się, że godzinowa aktualizacja yt-dlp się powiodła, i spróbuj ponownie.",
+  "failure.source_blocked.reason": "Źródło prowadziło do prywatnego lub lokalnego adresu sieciowego.",
+  "failure.source_blocked.action": "Użyj publicznego URL-a lub jawnie zezwól w konfiguracji kontenera na zaufane źródła prywatne.",
   "failure.unknown.reason": "Pobieranie zakończyło się przed ustaleniem konkretnej przyczyny.",
   "failure.unknown.action": "Spróbuj ponownie, a przy kolejnym błędzie sprawdź oczyszczone logi kontenera."
 }

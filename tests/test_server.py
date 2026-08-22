@@ -5,6 +5,7 @@ import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError as URLHTTPError
 
 import pytest
 from bottle import default_app
@@ -34,6 +35,22 @@ def app():
     return TestApp(default_app())
 
 
+@pytest.fixture(autouse=True)
+def stable_public_source_network(monkeypatch):
+    class SuccessfulProbe:
+        def open(self, request, timeout):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: ["93.184.216.34"])
+    monkeypatch.setattr(server, "source_redirect_opener", SuccessfulProbe)
+
+
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
@@ -57,6 +74,89 @@ def test_queue_endpoints_require_login(app):
     assert get_error["code"] == "unauthorized"
     assert post_error["msg"] == "Unauthorized"
     assert post_error["code"] == "unauthorized"
+
+
+def test_source_url_guard_rejects_non_http_and_non_public_destinations(monkeypatch):
+    assert server.validate_source_url("https://public.example/video") is None
+    assert server.validate_source_url("https://8.8.8.8/video") is None
+    assert server.validate_source_url("https://[2606:4700:4700::1111]/video") is None
+    assert server.validate_source_url("file:///etc/passwd") == "Only HTTP and HTTPS source URLs are allowed"
+    assert server.validate_source_url("https://localhost/video") == "Private or local source URLs are blocked"
+
+    for source_url in (
+        "http://127.0.0.1/video",
+        "http://169.254.169.254/latest/meta-data",
+        "http://192.168.1.10/video",
+        "http://[::1]/video",
+        "http://[fe80::1]/video",
+        "http://[fc00::1]/video",
+    ):
+        assert server.validate_source_url(source_url) == "Private or local source URLs are blocked"
+
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: ["93.184.216.34", "10.0.0.5"])
+    assert server.validate_source_url("https://mixed.example/video") == "Private or local source URLs are blocked"
+
+
+def test_source_url_guard_reports_dns_failures_and_supports_explicit_opt_in(monkeypatch):
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: [])
+    assert server.validate_source_url("https://missing.example/video") == "Source host could not be resolved"
+
+    monkeypatch.setattr(server, "YDLNAS_ALLOW_PRIVATE_SOURCES", True)
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: ["10.0.0.5"])
+    assert server.validate_source_url("https://internal.example/video") is None
+    assert server.validate_source_url("http://127.0.0.1/video") is None
+
+
+def test_source_redirect_guard_rechecks_each_destination(monkeypatch):
+    class PrivateRedirectProbe:
+        def open(self, request, timeout):
+            raise URLHTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "http://127.0.0.1/private"},
+                None,
+            )
+
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: ["93.184.216.34"])
+    assert server.validate_source_redirects(
+        "https://public.example/start",
+        opener=PrivateRedirectProbe(),
+    ) == "Private or local source URLs are blocked"
+
+
+def test_source_redirect_guard_has_a_bounded_chain(monkeypatch):
+    class LoopingRedirectProbe:
+        def open(self, request, timeout):
+            raise URLHTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "/next"},
+                None,
+            )
+
+    monkeypatch.setattr(server, "resolve_source_addresses", lambda hostname, port: ["93.184.216.34"])
+    assert server.validate_source_redirects(
+        "https://public.example/start",
+        opener=LoopingRedirectProbe(),
+        max_redirects=2,
+    ) == "Source URL exceeded the redirect limit"
+
+
+def test_rest_rejects_private_source_before_queueing(app):
+    response = app.post_json(
+        "/youtube-dl/rest",
+        {
+            "url": "http://127.0.0.1/private",
+            "resolution": "best",
+            "id": "tester",
+            "pw": "secret",
+        },
+        status=400,
+    )
+
+    assert response.json["code"] == "private_source_url"
 
 
 def test_login_rejects_empty_credentials_when_account_is_unconfigured(app):
@@ -1104,6 +1204,30 @@ def test_download_canceled_during_metadata_does_not_start_process():
     popen.assert_not_called()
     manager.complete_download.assert_called_once()
     assert manager.complete_download.call_args.args[0]["status"] == "canceled"
+
+
+def test_download_stops_before_metadata_when_redirect_guard_blocks_source():
+    manager = MagicMock()
+    manager.current_download = {}
+    manager.set_current_download.side_effect = lambda info: setattr(manager, "current_download", info)
+    job = server.create_queue_job("https://public.example/redirect", "best", "web")
+
+    with patch.object(server, "download_manager", manager), \
+         patch.object(
+             server,
+             "validate_source_redirects",
+             return_value="Private or local source URLs are blocked",
+         ), \
+         patch.object(server, "fetch_media_metadata") as metadata, \
+         patch.object(server.subprocess, "Popen") as popen:
+        server.download(job)
+
+    metadata.assert_not_called()
+    popen.assert_not_called()
+    manager.complete_download.assert_called_once()
+    failed_item = manager.complete_download.call_args.args[0]
+    assert failed_item["status"] == "failed"
+    assert failed_item["failure_code"] == "source_blocked"
 
 
 def test_completed_process_wins_over_late_cancel_request():
