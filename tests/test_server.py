@@ -55,7 +55,7 @@ def stable_public_source_network(monkeypatch):
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0817"
+    assert health.json["version"] == "26.0822"
     assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")

@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0817` (`2026-08-17`)
+Current release: `26.0822` (`2026-08-22`)
 
 ## Start Here
 
@@ -41,6 +41,7 @@ Current release: `26.0817` (`2026-08-17`)
 
 - Queue video, audio, or subtitle downloads from a browser.
 - Choose an explicit Compatible MP4 profile when a client requires H.264 video and AAC audio; existing Best and resolution profiles keep their current behavior.
+- Keep the last successfully queued dashboard profile ready on each device without auto-submitting the next URL.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
 - Share a URL from an installed Android PWA, configurable Android HTTP Shortcut, or signed Smart Share v2 iOS Shortcut without a relay service.
@@ -48,7 +49,7 @@ Current release: `26.0817` (`2026-08-17`)
 - Optionally save a JPG thumbnail beside each downloaded video or audio file.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
 - See free download-volume capacity, stop an active job without deleting compatible partial data, and get a concrete recovery action when a download fails.
-- Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages.
+- Review download history and mounted folder files in compact list or thumbnail grid views with search, filters, newest-first sorting, and 20-item numbered pages, then open Library Overview for stored totals, recent activity, media mix, and recorded failures.
 - Surface pre-existing files in `/downfolder` even when they do not have saved download metadata.
 - Preview saved video and audio in the dashboard, retry failed items, download files, delete history rows, or delete physical files.
 - Compare SRT, VTT, ASS, and SSA files with a verified transcript using `nlptutti` character/word error metrics and keyword preservation checks.

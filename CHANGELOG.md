@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0822 - 2026-08-22
+
 ### Added
 
 - Added a lightweight Library Overview to the existing history drawer with stored-file totals, 7-day and 14-day activity, media-type distribution, and recorded failure summaries computed from the current history response.
