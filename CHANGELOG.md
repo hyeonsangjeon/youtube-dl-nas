@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 
 - Added a lightweight Library Overview to the existing history drawer with stored-file totals, 7-day and 14-day activity, media-type distribution, and recorded failure summaries computed from the current history response.
 - Added an accessible statistics drawer for compact and mobile layouts, with direct links from type and failure aggregates into existing history filters.
+- Remember the last successfully queued dashboard profile on each device while keeping submission explicit and falling back to Best for new or invalid local preferences.
 
 ### Security
 
