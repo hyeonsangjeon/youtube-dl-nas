@@ -1,7 +1,7 @@
 #!/bin/bash
 set -u
 
-APP_DIR=/usr/src/app
+APP_DIR=${APP_DIR:-/usr/src/app}
 STATE_DIR=${STATE_DIR:-$APP_DIR/metadata}
 DOWNLOAD_DIR=${DOWNLOAD_DIR:-/downfolder}
 PUID=${PUID:-0}
@@ -11,6 +11,37 @@ YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-true}
 NLPTUTTI_AUTO_UPDATE=${NLPTUTTI_AUTO_UPDATE:-true}
 SCHEDULER_PID=""
 SERVER_PID=""
+
+resolve_secret_file() {
+  local value_name=$1
+  local file_name="${value_name}_FILE"
+  local value=${!value_name-}
+  local file_path=${!file_name-}
+
+  # Preserve the existing environment-variable behavior when both forms exist.
+  if [ -n "$value" ] || [ -z "$file_path" ]; then
+    return
+  fi
+  if [ ! -f "$file_path" ] || [ ! -r "$file_path" ]; then
+    echo "$file_name points to a missing or unreadable regular file" >&2
+    exit 1
+  fi
+
+  if ! value=$(cat -- "$file_path"); then
+    echo "$file_name could not be read" >&2
+    exit 1
+  fi
+  if [ -z "$value" ]; then
+    echo "$file_name points to an empty file" >&2
+    exit 1
+  fi
+  printf -v "$value_name" '%s' "$value"
+  export "$value_name"
+}
+
+resolve_secret_file MY_ID
+resolve_secret_file MY_PW
+resolve_secret_file YDLNAS_API_TOKEN
 
 case "$PUID" in
   *[!0-9]*|'')
