@@ -2471,6 +2471,49 @@ $(function () {
         });
     }
 
+    function downloadProfileStorage() {
+        try {
+            return window.localStorage;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function restoreDownloadProfile() {
+        const helper = window.YDLNAS_DOWNLOAD_PROFILE;
+        if (!helper || typeof helper.load !== 'function') {
+            return;
+        }
+        const profile = helper.load(downloadProfileStorage());
+        if (!profile) {
+            return;
+        }
+
+        const resolutionOption = $('#selResolution option').filter(function() {
+            return this.value === profile.resolution;
+        });
+        if (!resolutionOption.length) {
+            return;
+        }
+
+        $('#selResolution').val(profile.resolution).trigger('change');
+        if (profile.mode === 'subtitle' && profile.subtitleLanguage) {
+            const languageOption = $('#selSubtitleLanguage option').filter(function() {
+                return this.value === profile.subtitleLanguage;
+            });
+            if (languageOption.length) {
+                $('#selSubtitleLanguage').val(profile.subtitleLanguage);
+            }
+        }
+    }
+
+    function saveDownloadProfile(resolution) {
+        const helper = window.YDLNAS_DOWNLOAD_PROFILE;
+        if (helper && typeof helper.save === 'function') {
+            helper.save(downloadProfileStorage(), resolution);
+        }
+    }
+
     function syncModeFromResolution() {
         const selectedValue = $('#selResolution').val();
         let mode = 'video';
@@ -2550,6 +2593,9 @@ $(function () {
                     fetchStatus();
                     addMessage(translate('message.already_queued', { title: label }), 'warning');
                     return;
+                }
+                if (response.queued === true) {
+                    saveDownloadProfile(data.resolution);
                 }
                 $('#progress-container').show();
                 updateProgress(0);
@@ -2823,6 +2869,7 @@ $(function () {
     });
 
     applyHistoryPrefsToControls();
+    restoreDownloadProfile();
     syncModeFromResolution();
     updatePlaylistGuard();
     loadPreferences();

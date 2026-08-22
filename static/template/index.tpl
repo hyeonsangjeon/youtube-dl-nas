@@ -497,6 +497,7 @@
     window.YDLNAS_I18N = {{!translations_json}};
     window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
+<script src="youtube-dl/static/logical_js/download-profile.js?v={{app_version}}"></script>
 <script src="youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
 <script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 <script>
