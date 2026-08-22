@@ -181,6 +181,7 @@ $(function () {
     let historyItems = [];
     let historyPrefs = loadHistoryPrefs();
     let selectedHistoryUuid = null;
+    let historyOverviewOpen = false;
     let activeDownload = null;
     let queueCount = 0;
     let queueItems = [];
@@ -191,6 +192,7 @@ $(function () {
     let hasOpenedWebSocket = false;
     let lastPlaylistKind = 'single';
     const historyPageSize = 20;
+    const historyDrawerMedia = '(max-width: 1180px)';
     let currentHistoryPage = 1;
     const emptyColspan = 7;
 
@@ -998,31 +1000,231 @@ $(function () {
 
     function selectHistoryItem(uuid) {
         selectedHistoryUuid = uuid;
-        const item = historyItems.find((historyItem) => historyItem.uuid === uuid);
-        renderDetailDrawer(item || null);
+        historyOverviewOpen = true;
         renderHistory();
-        if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
-            window.requestAnimationFrame(function() {
-                const detailDrawer = document.getElementById('history-detail-drawer');
-                if (detailDrawer) {
-                    detailDrawer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            });
+        if (isCompactHistoryDrawer()) {
+            focusHistoryDrawerControl('#close-detail');
         }
+    }
+
+    function isCompactHistoryDrawer() {
+        return !!(window.matchMedia && window.matchMedia(historyDrawerMedia).matches);
+    }
+
+    function focusHistoryDrawerControl(selector) {
+        window.requestAnimationFrame(function() {
+            const control = document.querySelector(selector);
+            if (control) {
+                control.focus();
+            }
+        });
+    }
+
+    function syncHistoryDrawerChrome(hasItem) {
+        const compact = isCompactHistoryDrawer();
+        const visible = hasItem || !compact || historyOverviewOpen;
+        const drawer = $('#history-detail-drawer');
+        drawer.toggleClass('detail-has-item', hasItem);
+        drawer.toggleClass('detail-is-overview', !hasItem);
+        drawer.toggleClass('detail-overview-open', !hasItem && compact && historyOverviewOpen);
+        drawer.attr('role', compact ? 'dialog' : 'complementary');
+        if (compact) {
+            drawer.attr('aria-modal', 'true');
+        } else {
+            drawer.removeAttr('aria-modal');
+        }
+        $('#history-detail-backdrop').prop('hidden', !(compact && visible));
+        $('#history-insights-toggle').attr('aria-expanded', compact && visible ? 'true' : 'false');
+        $('body').toggleClass('history-drawer-open', compact && visible);
+    }
+
+    function formatInsightCount(value) {
+        const count = Math.max(0, Number(value) || 0);
+        try {
+            return new Intl.NumberFormat(appLocale(), { maximumFractionDigits: 0 }).format(count);
+        } catch (error) {
+            return String(count);
+        }
+    }
+
+    function formatInsightDay(timestamp) {
+        const date = new Date(timestamp);
+        try {
+            return new Intl.DateTimeFormat(appLocale(), { month: 'short', day: 'numeric' }).format(date);
+        } catch (error) {
+            return `${date.getMonth() + 1}/${date.getDate()}`;
+        }
+    }
+
+    function getHistoryInsights() {
+        const helper = window.YDLNAS_HISTORY_INSIGHTS;
+        if (helper && typeof helper.aggregate === 'function') {
+            return helper.aggregate(historyItems, new Date());
+        }
+        return {
+            storedFiles: 0,
+            storedBytes: 0,
+            recentCompleted: 0,
+            failedJobs: 0,
+            completed14: 0,
+            activityDays: [],
+            typeTotals: {},
+            failureReasons: []
+        };
+    }
+
+    function renderInsightActivity(insights) {
+        const days = insights.activityDays || [];
+        const maxCount = Math.max.apply(null, [1].concat(days.map(function(day) { return day.count; })));
+        const bars = days.map(function(day) {
+            const height = day.count > 0 ? Math.max(8, Math.round((day.count / maxCount) * 100)) : 0;
+            const date = formatInsightDay(day.timestamp);
+            const tooltip = translate('history.insights_day_tooltip', {
+                date: date,
+                count: formatInsightCount(day.count)
+            });
+            return `
+                <span class="insights-day" title="${escapeAttr(tooltip)}">
+                    <span class="insights-day-count">${day.count > 0 ? formatInsightCount(day.count) : ''}</span>
+                    <span class="insights-bar-track">
+                        <span class="insights-bar-value" style="height: ${height}%"></span>
+                    </span>
+                </span>
+            `;
+        }).join('');
+        const first = days.length ? formatInsightDay(days[0].timestamp) : '';
+        const middle = days.length ? formatInsightDay(days[Math.floor(days.length / 2)].timestamp) : '';
+        const last = days.length ? formatInsightDay(days[days.length - 1].timestamp) : '';
+
+        return `
+            <section class="insights-section" aria-labelledby="insights-activity-heading">
+                <div class="insights-section-heading">
+                    <h3 id="insights-activity-heading">${escapeHtml(translate('history.insights_activity_title'))}</h3>
+                    <span>${escapeHtml(translate('history.insights_activity_summary', { count: formatInsightCount(insights.completed14) }))}</span>
+                </div>
+                <div class="insights-chart" role="img" aria-label="${escapeAttr(translate('history.insights_activity_label', { count: formatInsightCount(insights.completed14) }))}">
+                    <div class="insights-chart-bars" aria-hidden="true">${bars}</div>
+                    <div class="insights-chart-axis" aria-hidden="true">
+                        <span>${escapeHtml(first)}</span>
+                        <span>${escapeHtml(middle)}</span>
+                        <span>${escapeHtml(last)}</span>
+                    </div>
+                </div>
+            </section>
+        `;
+    }
+
+    function renderInsightTypes(insights) {
+        const totals = insights.typeTotals || {};
+        const types = ['video', 'audio', 'subtitle'];
+        if (totals.file && totals.file.count > 0) {
+            types.push('file');
+        }
+        const denominator = insights.storedBytes > 0 ? insights.storedBytes : Math.max(1, insights.storedFiles);
+        const icons = {
+            video: 'glyphicon-facetime-video',
+            audio: 'glyphicon-music',
+            subtitle: 'glyphicon-subtitles',
+            file: 'glyphicon-file'
+        };
+        const rows = types.map(function(type) {
+            const total = totals[type] || { count: 0, bytes: 0 };
+            const shareValue = insights.storedBytes > 0 ? total.bytes : total.count;
+            const width = total.count > 0 ? Math.max(3, Math.round((shareValue / denominator) * 100)) : 0;
+            const label = getDownloadTypeText(type);
+            const summary = translate('history.insights_type_summary', {
+                count: formatInsightCount(total.count),
+                size: formatBytes(total.bytes)
+            });
+            return `
+                <button type="button" class="insights-type-row insights-filter" data-history-type="${type}"
+                        title="${escapeAttr(translate('history.insights_filter_title', { label: label }))}">
+                    <span class="insights-type-copy">
+                        <span class="insights-type-label">
+                            <span class="glyphicon ${icons[type]}" aria-hidden="true"></span>
+                            <strong>${escapeHtml(label)}</strong>
+                        </span>
+                        <small>${escapeHtml(summary)}</small>
+                    </span>
+                    <span class="insights-type-track" aria-hidden="true">
+                        <span class="insights-type-value insights-type-${type}" style="width: ${width}%"></span>
+                    </span>
+                </button>
+            `;
+        }).join('');
+
+        return `
+            <section class="insights-section" aria-labelledby="insights-types-heading">
+                <div class="insights-section-heading">
+                    <h3 id="insights-types-heading">${escapeHtml(translate('history.insights_library_title'))}</h3>
+                </div>
+                <div class="insights-type-list">${rows}</div>
+            </section>
+        `;
+    }
+
+    function renderInsightFailures(insights) {
+        const reasons = insights.failureReasons || [];
+        if (!reasons.length) {
+            return '';
+        }
+        const rows = reasons.map(function(reason) {
+            const label = reason.code === 'canceled' ?
+                translate('history.canceled') :
+                translate(`failure.${reason.code}.reason`);
+            return `
+                <li>
+                    <span>${escapeHtml(label)}</span>
+                    <strong>${formatInsightCount(reason.count)}</strong>
+                </li>
+            `;
+        }).join('');
+
+        return `
+            <section class="insights-section insights-failures" aria-labelledby="insights-failures-heading">
+                <div class="insights-section-heading">
+                    <h3 id="insights-failures-heading">${escapeHtml(translate('history.insights_failures_title'))}</h3>
+                    <button type="button" class="insights-section-filter insights-filter" data-history-status="failed"
+                            title="${escapeAttr(translate('history.insights_filter_failures'))}" aria-label="${escapeAttr(translate('history.insights_filter_failures'))}">
+                        <span class="glyphicon glyphicon-filter" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <ul>${rows}</ul>
+            </section>
+        `;
+    }
+
+    function renderHistoryInsights() {
+        const insights = getHistoryInsights();
+        return `
+            <article class="insights-panel">
+                <button type="button" id="close-insights" class="detail-close insights-close" title="${escapeAttr(translate('history.insights_close'))}" aria-label="${escapeAttr(translate('history.insights_close'))}">
+                    <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                </button>
+                <header class="insights-heading">
+                    <span class="insights-scope"><span class="glyphicon glyphicon-stats" aria-hidden="true"></span>${escapeHtml(translate('history.insights_scope'))}</span>
+                    <h2>${escapeHtml(translate('history.insights_title'))}</h2>
+                    <p>${escapeHtml(translate('history.insights_description'))}</p>
+                </header>
+                <div class="insights-metrics" role="list">
+                    <div role="listitem"><span>${escapeHtml(translate('history.insights_stored_files'))}</span><strong>${formatInsightCount(insights.storedFiles)}</strong></div>
+                    <div role="listitem"><span>${escapeHtml(translate('history.insights_total_size'))}</span><strong>${escapeHtml(formatBytes(insights.storedBytes))}</strong></div>
+                    <div role="listitem"><span>${escapeHtml(translate('history.insights_last_7_days'))}</span><strong>${formatInsightCount(insights.recentCompleted)}</strong></div>
+                    <div role="listitem"><span>${escapeHtml(translate('history.insights_failed_jobs'))}</span><strong>${formatInsightCount(insights.failedJobs)}</strong></div>
+                </div>
+                ${renderInsightActivity(insights)}
+                ${renderInsightTypes(insights)}
+                ${renderInsightFailures(insights)}
+                <p class="insights-note"><span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span>${escapeHtml(translate('history.insights_note'))}</p>
+            </article>
+        `;
     }
 
     function renderDetailDrawer(item) {
         const drawer = $('#history-detail-drawer');
-        drawer.toggleClass('detail-is-empty', !item);
-        drawer.toggleClass('detail-has-item', !!item);
         if (!item) {
-            drawer.html(`
-                <div class="detail-empty">
-                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
-                    <h2>${escapeHtml(translate('history.select_heading'))}</h2>
-                    <p>${escapeHtml(translate('history.select_description'))}</p>
-                </div>
-            `);
+            drawer.html(renderHistoryInsights());
+            syncHistoryDrawerChrome(false);
             return;
         }
 
@@ -1048,8 +1250,8 @@ $(function () {
 
         drawer.html(`
             <article class="detail-panel ${mountedFile ? 'detail-panel-mounted' : ''}" data-uuid="${escapeAttr(item.uuid)}">
-                <button type="button" id="close-detail" class="detail-close" title="${escapeAttr(translate('detail.close'))}">
-                    <span class="glyphicon glyphicon-remove"></span>
+                <button type="button" id="close-detail" class="detail-close" title="${escapeAttr(translate('history.insights_back'))}" aria-label="${escapeAttr(translate('history.insights_back'))}">
+                    <span class="glyphicon glyphicon-arrow-left" aria-hidden="true"></span>
                 </button>
                 <div class="detail-heading">
                     <div>
@@ -1079,6 +1281,7 @@ $(function () {
                 <div class="detail-actions">${renderActionButtons(item, 'detail')}</div>
             </article>
         `);
+        syncHistoryDrawerChrome(true);
     }
 
     function renderDetailField(label, value, key) {
@@ -1089,6 +1292,54 @@ $(function () {
                 <dd>${escapeHtml(value)}</dd>
             </div>
         `;
+    }
+
+    function dismissHistoryDrawer(restoreFocus) {
+        selectedHistoryUuid = null;
+        historyOverviewOpen = false;
+        renderHistory();
+        if (restoreFocus && isCompactHistoryDrawer()) {
+            focusHistoryDrawerControl('#history-insights-toggle');
+        }
+    }
+
+    function trapHistoryDrawerFocus(event) {
+        const drawer = document.getElementById('history-detail-drawer');
+        if (!drawer) {
+            return;
+        }
+        const focusable = Array.prototype.filter.call(
+            drawer.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+            function(element) { return element.offsetParent !== null; }
+        );
+        if (!focusable.length) {
+            return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const focusOutside = !drawer.contains(document.activeElement);
+        if (event.shiftKey && (document.activeElement === first || focusOutside)) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || focusOutside)) {
+            event.preventDefault();
+            first.focus();
+        }
+    }
+
+    function applyInsightsFilter(type, status) {
+        historyPrefs.type = type || 'all';
+        historyPrefs.status = status || 'all';
+        historyPrefs.search = '';
+        selectedHistoryUuid = null;
+        historyOverviewOpen = false;
+        resetHistoryPaging();
+        applyHistoryPrefsToControls();
+        saveHistoryPrefs();
+        renderHistory();
+        if (isCompactHistoryDrawer()) {
+            focusHistoryDrawerControl('#history-search');
+        }
     }
 
     function getTimestampValue(timestamp) {
@@ -1123,12 +1374,9 @@ $(function () {
         return String(value).padStart(2, '0');
     }
 
-    function formatFileSize(item) {
-        const size = Number(item.file_size_bytes || 0);
-        if (!item.file_exists) {
-            return item.filename ? translate('history.missing') : '-';
-        }
-        if (size <= 0) {
+    function formatBytes(sizeValue) {
+        const size = Number(sizeValue || 0);
+        if (!Number.isFinite(size) || size <= 0) {
             return '0 B';
         }
 
@@ -1151,6 +1399,13 @@ $(function () {
             // Keep the stable numeric fallback above.
         }
         return `${formattedValue} ${units[unitIndex]}`;
+    }
+
+    function formatFileSize(item) {
+        if (!item.file_exists) {
+            return item.filename ? translate('history.missing') : '-';
+        }
+        return formatBytes(item.file_size_bytes);
     }
 
     function getHistoryType(resolution) {
@@ -2354,6 +2609,17 @@ $(function () {
         renderHistory();
     });
 
+    $(document).on("click", "#history-insights-toggle", function() {
+        selectedHistoryUuid = null;
+        historyOverviewOpen = true;
+        renderHistory();
+        focusHistoryDrawerControl('#close-insights');
+    });
+
+    $(document).on("click", ".insights-filter", function() {
+        applyInsightsFilter($(this).data('history-type'), $(this).data('history-status'));
+    });
+
     $(document).on("click", "#reset-history-filters", function() {
         const currentView = historyPrefs.view || 'list';
         historyPrefs = {
@@ -2417,8 +2683,15 @@ $(function () {
 
     $(document).on("click", "#close-detail", function() {
         selectedHistoryUuid = null;
+        historyOverviewOpen = true;
         renderHistory();
-        renderDetailDrawer(null);
+        if (isCompactHistoryDrawer()) {
+            focusHistoryDrawerControl('#close-insights');
+        }
+    });
+
+    $(document).on("click", "#close-insights, #history-detail-backdrop", function() {
+        dismissHistoryDrawer(true);
     });
 
     $(document).on("click", "#refresh-history", function() {
@@ -2519,11 +2792,23 @@ $(function () {
     });
 
     $(document).on("keydown", function(event) {
-        if (event.key === 'Escape' && $('.media-preview-modal').length) {
+        if (event.key === 'Tab' && $('body').hasClass('history-drawer-open')) {
+            trapHistoryDrawerFocus(event);
+        } else if (event.key === 'Escape' && $('.media-preview-modal').length) {
             closeMediaPreview();
-        }
-        if (event.key === 'Escape' && $('.subtitle-qa-modal').length) {
+        } else if (event.key === 'Escape' && $('.subtitle-qa-modal').length) {
             closeSubtitleQa();
+        } else if (event.key === 'Escape' && $('body').hasClass('history-drawer-open')) {
+            dismissHistoryDrawer(true);
+        }
+    });
+
+    let historyDrawerWasCompact = isCompactHistoryDrawer();
+    window.addEventListener('resize', function() {
+        const compact = isCompactHistoryDrawer();
+        if (compact !== historyDrawerWasCompact) {
+            historyDrawerWasCompact = compact;
+            syncHistoryDrawerChrome(!!selectedHistoryUuid);
         }
     });
 
