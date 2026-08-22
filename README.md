@@ -80,7 +80,7 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
 6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
 
-Open **Options** to save thumbnail sidecars or choose the profile used when this device shares a URL to the installed PWA. **Compatible MP4** requests H.264/AAC without silently falling back to another codec; **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The setting is stored in a signed, HTTP-only preference cookie on that device.
+Open **Options** to save thumbnail sidecars, choose the profile used when this device shares a URL to the installed PWA, or manage a bounded Netscape cookies file for restricted sources. **Compatible MP4** requests H.264/AAC without silently falling back to another codec; **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The share setting is stored in a signed, HTTP-only preference cookie on that device.
 
 Playlist Guard defaults a normal video URL containing a playlist parameter to **Current video only**. Pure playlist and channel URLs require an explicit **First 10** or **All items** choice. Every completed output receives its own Files & History row.
 
@@ -218,6 +218,12 @@ secrets:
 ```
 
 Leave the corresponding direct variable empty when using its file form. A non-empty direct variable always takes precedence. Startup stops with a concise error when a requested file is missing, unreadable, not a regular file, or empty; secret values are never printed.
+
+### Cookies For Restricted Sources
+
+Signed-in administrators can open dashboard **Options** to upload, replace, or remove an app-managed Netscape cookies file. The file is limited to 1 MiB, validated before replacement, stored as `0600` in the persistent metadata volume, and never returned by the API or printed in diagnostics. Cookies can grant account access, so export them only for sites and accounts you are authorized to use.
+
+`YTDLP_COOKIES_FILE` remains supported for an externally mounted file. When it is set, the dashboard reports only whether that file is readable and treats it as read-only; the external setting takes precedence over the app-managed file.
 
 ## Mobile Sharing
 

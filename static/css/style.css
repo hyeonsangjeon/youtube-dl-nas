@@ -1781,6 +1781,78 @@ a:hover {
   font-size: 12px;
 }
 
+.cookies-management {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid #e7ecf2;
+}
+
+.cookies-management-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #344054;
+}
+
+.cookies-management-copy strong {
+  font-size: 12px;
+}
+
+.cookies-status {
+  color: #526173;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cookies-management[data-state="ready"] .cookies-status {
+  color: #127147;
+}
+
+.cookies-management[data-state="unavailable"] .cookies-status {
+  color: #a13b2b;
+}
+
+.cookies-management-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.cookies-management-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  margin: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cookies-upload-button[aria-disabled="true"] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.cookies-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .download-preview {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -3652,6 +3724,20 @@ a.video-title {
   .composer-options-grid,
   .history-controls {
     grid-template-columns: 1fr;
+  }
+
+  .cookies-management {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cookies-management-actions {
+    width: 100%;
+  }
+
+  .cookies-management-actions .btn,
+  .cookies-upload-button {
+    flex: 1 1 0;
   }
 
   .history-type-switch {

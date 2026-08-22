@@ -390,6 +390,116 @@ $(function () {
         });
     }
 
+    function setCookiesBusy(busy) {
+        const mounted = $('#cookies-management').attr('data-mode') === 'mounted';
+        $('#cookies-file').prop('disabled', busy || mounted);
+        $('#cookies-delete').prop('disabled', busy);
+        $('#cookies-upload-label').attr('aria-disabled', busy || mounted ? 'true' : 'false');
+    }
+
+    function renderCookiesStatus(status) {
+        status = status || {};
+        const management = $('#cookies-management');
+        const mode = status.mode || 'none';
+        const mounted = mode === 'mounted';
+        const managed = mode === 'managed';
+        let statusKey = 'composer.cookies_not_configured';
+        let state = 'empty';
+
+        if (status.configured && status.readable) {
+            statusKey = mounted ? 'composer.cookies_mounted_ready' : 'composer.cookies_managed_ready';
+            state = 'ready';
+        } else if (status.configured) {
+            statusKey = 'composer.cookies_unavailable';
+            state = 'unavailable';
+        }
+
+        management.attr('data-state', state).attr('data-mode', mode);
+        $('#cookies-status').text(translate(statusKey));
+        $('#cookies-mounted-hint').prop('hidden', !mounted);
+        $('#cookies-upload-label').prop('hidden', mounted);
+        $('#cookies-file').prop('disabled', mounted);
+        $('#cookies-delete').prop('hidden', !managed);
+        $('#cookies-upload-text').text(translate(managed ? 'composer.cookies_replace' : 'composer.cookies_upload'));
+        management.data('max-bytes', Number(status.max_bytes) || 0);
+    }
+
+    function loadCookiesStatus() {
+        $.ajax({
+            method: 'GET',
+            url: '/youtube-dl/cookies',
+            dataType: 'json',
+            success: function(response) {
+                if (response && response.success) {
+                    renderCookiesStatus(response.status);
+                }
+            },
+            error: function() {
+                renderCookiesStatus({ configured: true, readable: false, mode: 'error' });
+            }
+        });
+    }
+
+    function uploadCookiesFile(file) {
+        if (!file) {
+            return;
+        }
+        const maxBytes = Number($('#cookies-management').data('max-bytes')) || 0;
+        if (maxBytes && file.size > maxBytes) {
+            addMessage(translate('server.cookies_file_too_large'), 'error');
+            return;
+        }
+
+        const data = new FormData();
+        data.append('cookies_file', file);
+        setCookiesBusy(true);
+        $.ajax({
+            method: 'POST',
+            url: '/youtube-dl/cookies',
+            data: data,
+            dataType: 'json',
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                if (response && response.success) {
+                    renderCookiesStatus(response.status);
+                    addMessage(translate('message.cookies_uploaded'), 'success');
+                } else {
+                    addMessage(getResponseMessage(response, translate('message.cookies_failed')), 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.cookies_failed')), 'error');
+            },
+            complete: function() {
+                setCookiesBusy(false);
+            }
+        });
+    }
+
+    function deleteManagedCookies() {
+        setCookiesBusy(true);
+        $.ajax({
+            method: 'DELETE',
+            url: '/youtube-dl/cookies',
+            dataType: 'json',
+            success: function(response) {
+                if (response && response.success) {
+                    renderCookiesStatus(response.status);
+                    addMessage(translate('message.cookies_deleted'), 'success');
+                } else {
+                    addMessage(getResponseMessage(response, translate('message.cookies_failed')), 'error');
+                }
+            },
+            error: function(jqXHR) {
+                addMessage(getAjaxErrorMessage(jqXHR, translate('message.cookies_failed')), 'error');
+            },
+            complete: function() {
+                setCookiesBusy(false);
+            }
+        });
+    }
+
     function loadHistoryPrefs() {
         const defaults = {
             sort: 'date-desc',
@@ -2723,6 +2833,21 @@ $(function () {
         saveShareProfile($(this).val());
     });
 
+    $(document).on("change", "#cookies-file", function() {
+        const file = this.files && this.files[0];
+        this.value = '';
+        uploadCookiesFile(file);
+    });
+
+    $(document).on("click", "#cookies-delete", function() {
+        showConfirmModal(
+            translate('confirm.cookies_remove_heading'),
+            translate('confirm.cookies_remove_message'),
+            deleteManagedCookies,
+            translate('composer.cookies_remove')
+        );
+    });
+
     $(document).on("click keydown", ".history-row, .history-card, .history-grid-card", function(event) {
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
             return;
@@ -2880,6 +3005,7 @@ $(function () {
     syncModeFromResolution();
     updatePlaylistGuard();
     loadPreferences();
+    loadCookiesStatus();
     restoreLocalState();
     renderHistory();
     startStatusPolling();

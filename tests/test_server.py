@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -741,6 +742,156 @@ def test_preferences_reject_unsupported_share_profile(app):
         status=400,
     )
     assert response.json["code"] == "unsupported_share_profile"
+
+
+def netscape_cookies(value="secret-cookie-value"):
+    return (
+        "# Netscape HTTP Cookie File\n"
+        "# This file is generated for a test.\n"
+        f"#HttpOnly_.example.com\tTRUE\t/\tTRUE\t2147483647\tsession\t{value}\n"
+    ).encode("utf-8")
+
+
+def test_cookies_management_requires_dashboard_auth(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", "")
+    monkeypatch.setattr(server, "APP_COOKIES_FILE", str(tmp_path / "cookies.txt"))
+
+    assert app.get("/youtube-dl/cookies", status=403).json["code"] == "unauthorized"
+    assert app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "cookies.txt", netscape_cookies())],
+        status=403,
+    ).json["code"] == "unauthorized"
+    assert app.delete("/youtube-dl/cookies", status=403).json["code"] == "unauthorized"
+
+
+def test_managed_cookies_upload_replace_use_and_delete(app, tmp_path, monkeypatch):
+    managed_path = tmp_path / "cookies.txt"
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", "")
+    monkeypatch.setattr(server, "APP_COOKIES_FILE", str(managed_path))
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+
+    initial = app.get("/youtube-dl/cookies").json
+    assert initial == {
+        "success": True,
+        "status": {
+            "configured": False,
+            "readable": False,
+            "managed": False,
+            "mode": "none",
+            "max_bytes": server.COOKIES_FILE_MAX_BYTES,
+        },
+    }
+
+    uploaded = app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "cookies.txt", netscape_cookies())],
+    ).json
+    assert uploaded["status"]["mode"] == "managed"
+    assert uploaded["status"]["readable"] is True
+    assert "secret-cookie-value" not in json.dumps(uploaded)
+    assert managed_path.read_bytes() == netscape_cookies()
+    assert stat.S_IMODE(managed_path.stat().st_mode) == 0o600
+    command = server.build_ytdlp_common_args()
+    assert command[command.index("--cookies") + 1] == str(managed_path)
+
+    replacement = netscape_cookies("replacement-cookie-value")
+    replaced = app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "replacement.txt", replacement)],
+    ).json
+    assert replaced["status"]["mode"] == "managed"
+    assert managed_path.read_bytes() == replacement
+    assert "secret-cookie-value" not in managed_path.read_text(encoding="utf-8")
+
+    deleted = app.delete("/youtube-dl/cookies").json
+    assert deleted["status"]["mode"] == "none"
+    assert not managed_path.exists()
+    assert "--cookies" not in server.build_ytdlp_common_args()
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"not a Netscape cookies file",
+        b"# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\tnot-a-time\tname\tvalue\n",
+        b"# Netscape HTTP Cookie File\n# comments only\n",
+    ],
+)
+def test_managed_cookies_reject_invalid_formats(app, tmp_path, monkeypatch, contents):
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", "")
+    monkeypatch.setattr(server, "APP_COOKIES_FILE", str(tmp_path / "cookies.txt"))
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+
+    response = app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "cookies.txt", contents)],
+        status=400,
+    )
+    assert response.json["code"] == "cookies_file_invalid"
+    assert not (tmp_path / "cookies.txt").exists()
+
+
+def test_managed_cookies_reject_oversized_files(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", "")
+    monkeypatch.setattr(server, "APP_COOKIES_FILE", str(tmp_path / "cookies.txt"))
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    contents = netscape_cookies() + (b"x" * server.COOKIES_FILE_MAX_BYTES)
+
+    response = app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "cookies.txt", contents)],
+        status=413,
+    )
+    assert response.json["code"] == "cookies_file_too_large"
+    assert not (tmp_path / "cookies.txt").exists()
+
+
+def test_mounted_cookies_are_status_only_and_read_only(app, tmp_path, monkeypatch):
+    mounted_path = tmp_path / "mounted-cookies.txt"
+    mounted_path.write_bytes(netscape_cookies("mounted-secret-value"))
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", str(mounted_path))
+    monkeypatch.setattr(server, "APP_COOKIES_FILE", str(tmp_path / "managed-cookies.txt"))
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+
+    status_response = app.get("/youtube-dl/cookies").json
+    assert status_response["status"] == {
+        "configured": True,
+        "readable": True,
+        "managed": False,
+        "mode": "mounted",
+        "max_bytes": server.COOKIES_FILE_MAX_BYTES,
+    }
+    serialized_status = json.dumps(status_response)
+    assert str(mounted_path) not in serialized_status
+    assert "mounted-secret-value" not in serialized_status
+    original = mounted_path.read_bytes()
+
+    upload = app.post(
+        "/youtube-dl/cookies",
+        upload_files=[("cookies_file", "cookies.txt", netscape_cookies("replacement"))],
+        status=409,
+    )
+    assert upload.json["code"] == "cookies_file_mounted"
+    assert app.delete("/youtube-dl/cookies", status=409).json["code"] == "cookies_file_mounted"
+    assert mounted_path.read_bytes() == original
+    command = server.build_ytdlp_common_args()
+    assert command[command.index("--cookies") + 1] == str(mounted_path)
+
+
+def test_unavailable_mounted_cookies_report_no_path_or_secret(app, tmp_path, monkeypatch):
+    missing_path = tmp_path / "private-cookie-location" / "cookies.txt"
+    monkeypatch.setattr(server, "YTDLP_COOKIES_FILE", str(missing_path))
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+
+    response = app.get("/youtube-dl/cookies").json
+    assert response["status"]["mode"] == "mounted"
+    assert response["status"]["configured"] is True
+    assert response["status"]["readable"] is False
+    assert str(missing_path) not in json.dumps(response)
+    with pytest.raises(ValueError, match="Configured cookies file is unavailable") as error:
+        server.build_ytdlp_common_args()
+    assert str(missing_path) not in str(error.value)
 
 
 def test_safe_redirect_and_shared_url_helpers():
