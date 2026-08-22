@@ -58,7 +58,7 @@ def nonnegative_float_env(name, default):
 
 STORAGE_WARNING_GB = nonnegative_float_env("YDLNAS_STORAGE_WARNING_GB", "10")
 STORAGE_CRITICAL_GB = nonnegative_float_env("YDLNAS_STORAGE_CRITICAL_GB", "2")
-VALID_RESOLUTIONS = {"best", "compatible-mp4", "audio", "audio-m4a", "audio-mp3"}
+VALID_RESOLUTIONS = {"best", "compatible-mp4", "audio", "audio-m4a", "audio-mp3", "audio-opus"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
 SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi"}
@@ -90,7 +90,7 @@ PLAYLIST_MODES = {"single", "first10", "all"}
 SECTION_MODES = {"full", "from_timestamp"}
 SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
 SHARE_REVIEW_COOKIE = "share_review"
-SHARE_PROFILES = {"best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "ask"}
+SHARE_PROFILES = {"best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "audio-opus", "ask"}
 SHARE_PROFILE_ALIASES = {
     "best": "best",
     "compatible": "compatible-mp4",
@@ -103,8 +103,10 @@ SHARE_PROFILE_ALIASES = {
     "mp3": "audio-mp3",
     "audio": "audio-m4a",
     "m4a": "audio-m4a",
+    "opus": "audio-opus",
     "audio-mp3": "audio-mp3",
     "audio-m4a": "audio-m4a",
+    "audio-opus": "audio-opus",
     "ask": "ask",
 }
 THUMBNAIL_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
@@ -2241,7 +2243,7 @@ def share_context():
         "success": True,
         "code": "share_context",
         **context,
-        "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a"],
+        "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "audio-opus"],
         "playlist_options": ["first10", "all"] if context["playlist_kind"] else [],
         "timestamp_options": ["full", "from_timestamp"] if context["timestamp_seconds"] else ["full"],
     }
@@ -2270,7 +2272,7 @@ def q_put_rest():
     )
     if resolution == "ask":
         return json_error("Unsupported mobile share profile", 400, {
-            "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a"],
+            "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "audio-opus"],
         })
 
     validation_error = validate_download_request(url, resolution)
@@ -2659,6 +2661,8 @@ def build_youtube_dl_cmd(item):
         cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x", "--audio-format", "m4a"])
     elif resolution == "audio-mp3":
         cmd.extend(["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x", "--audio-format", "mp3"])
+    elif resolution == "audio-opus":
+        cmd.extend(["-f", "bestaudio[acodec^=opus]/bestaudio/best", "-x", "--audio-format", "opus"])
     elif re.match(r"(vtt|srt)", resolution):
         sub_format, sub_lang = resolution.split('|', 1)
         cmd.extend(["--write-auto-subs", "--sub-langs", sub_lang, "--sub-format", sub_format, "--skip-download"])

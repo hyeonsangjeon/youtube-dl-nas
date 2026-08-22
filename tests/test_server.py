@@ -431,6 +431,7 @@ def test_smart_share_context_extracts_url_profile_playlist_and_timestamp(app):
     assert response.json["timestamp_label"] == "1:30"
     assert response.json["timestamp_options"] == ["full", "from_timestamp"]
     assert "compatible-mp4" in response.json["profiles"]
+    assert "audio-opus" in response.json["profiles"]
 
 
 def test_smart_share_context_accepts_compatible_mp4_alias(app):
@@ -445,6 +446,20 @@ def test_smart_share_context_accepts_compatible_mp4_alias(app):
     )
 
     assert response.json["profile"] == "compatible-mp4"
+
+
+def test_smart_share_context_accepts_opus_alias(app):
+    response = app.post_json(
+        "/youtube-dl/share/context",
+        {
+            "url": "https://youtu.be/opus",
+            "profile": "opus",
+            "id": "tester",
+            "pw": "secret",
+        },
+    )
+
+    assert response.json["profile"] == "audio-opus"
 
 
 def test_smart_share_context_marks_pure_playlists_for_scope_prompt(app):
@@ -789,6 +804,11 @@ def test_download_profiles_have_bounded_format_fallbacks():
         "resolution": "compatible-mp4",
         "source": "web",
     })
+    opus = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "audio-opus",
+        "source": "web",
+    })
 
     assert "/bestvideo+bestaudio/best" in best[best.index("-f") + 1]
     assert "best[height<=720]" in capped[capped.index("-f") + 1]
@@ -800,6 +820,8 @@ def test_download_profiles_have_bounded_format_fallbacks():
     assert all("vcodec^=avc1" in option and "acodec^=mp4a" in option for option in compatible_selector.split("/"))
     assert compatible[compatible.index("--merge-output-format") + 1] == "mp4"
     assert "--recode-video" not in compatible
+    assert "bestaudio/best" in opus[opus.index("-f") + 1]
+    assert opus[opus.index("--audio-format") + 1] == "opus"
 
 
 def test_metadata_process_is_attached_to_active_job_for_cancellation():

@@ -39,9 +39,11 @@ const audio = profile.save(storage, 'audio-m4a');
 const restoredAudio = profile.load(storage);
 const compatible = profile.save(storage, 'compatible-mp4');
 const restoredCompatible = profile.load(storage);
+const opus = profile.save(storage, 'audio-opus');
+const restoredOpus = profile.load(storage);
 const subtitle = profile.save(storage, 'vtt|ko');
 const restoredSubtitle = profile.load(storage);
-process.stdout.write(JSON.stringify({audio, restoredAudio, compatible, restoredCompatible, subtitle, restoredSubtitle}));
+process.stdout.write(JSON.stringify({audio, restoredAudio, compatible, restoredCompatible, opus, restoredOpus, subtitle, restoredSubtitle}));
 """)
 
     assert result["audio"] == {
@@ -58,6 +60,13 @@ process.stdout.write(JSON.stringify({audio, restoredAudio, compatible, restoredC
         "subtitleLanguage": "",
     }
     assert result["restoredCompatible"] == result["compatible"]
+    assert result["opus"] == {
+        "version": 1,
+        "mode": "audio",
+        "resolution": "audio-opus",
+        "subtitleLanguage": "",
+    }
+    assert result["restoredOpus"] == result["opus"]
     assert result["subtitle"] == {
         "version": 1,
         "mode": "subtitle",
