@@ -6,8 +6,10 @@ services:
     ports:
       - "${WEB_PORT:-8080}:8080"
     environment:
-      MY_ID: "${MY_ID:?Set MY_ID in .env}"
-      MY_PW: "${MY_PW:?Set MY_PW in .env}"
+      MY_ID: "${MY_ID:-}"
+      MY_ID_FILE: "${MY_ID_FILE:-}"
+      MY_PW: "${MY_PW:-}"
+      MY_PW_FILE: "${MY_PW_FILE:-}"
       TZ: "${TZ:-UTC}"
       DOWNLOAD_DIR: "/downfolder"
       STATE_DIR: "/usr/src/app/metadata"
@@ -24,6 +26,7 @@ services:
       YDLNAS_STORAGE_WARNING_GB: "${YDLNAS_STORAGE_WARNING_GB:-10}"
       YDLNAS_STORAGE_CRITICAL_GB: "${YDLNAS_STORAGE_CRITICAL_GB:-2}"
       YDLNAS_API_TOKEN: "${YDLNAS_API_TOKEN:-}"
+      YDLNAS_API_TOKEN_FILE: "${YDLNAS_API_TOKEN_FILE:-}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       PROXY: "${PROXY:-}"
     volumes:

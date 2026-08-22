@@ -68,6 +68,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 | --- | --- | --- | --- |
 | `MY_ID` | Yes | - | Dashboard and REST login ID |
 | `MY_PW` | Yes | - | Dashboard and REST password |
+| `MY_ID_FILE` / `MY_PW_FILE` | No | Empty | Advanced mounted-secret alternatives; direct variables take precedence |
 | `TZ` | No | System default | Container time zone, such as `Asia/Seoul` |
 | `APP_PORT` | No | `8080` | App port when using host networking |
 | `PUID` / `PGID` | No | `0` | Owner for new download and state files |
@@ -81,6 +82,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 | `NLPTUTTI_AUTO_UPDATE` | No | `true` | Install or upgrade `nlptutti` at new-container startup for Subtitle QA |
 | `NLPTUTTI_UPDATE_TIMEOUT` | No | `180` | Runtime package-update timeout in seconds |
 | `YDLNAS_API_TOKEN` | No | Empty | Optional Bearer token; ID/password remains supported |
+| `YDLNAS_API_TOKEN_FILE` | No | Empty | Advanced mounted-secret alternative; the direct token takes precedence |
 | `COOKIE_SECURE` | No | `false` | Set `true` behind an HTTPS-only reverse proxy |
 
 See the [complete Docker options](https://github.com/hyeonsangjeon/youtube-dl-nas#docker-options) for updater controls and deployment examples.

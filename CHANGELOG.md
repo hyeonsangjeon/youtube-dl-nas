@@ -10,6 +10,7 @@ All notable changes to this project are documented here.
 - Added an accessible statistics drawer for compact and mobile layouts, with direct links from type and failure aggregates into existing history filters.
 - Remember the last successfully queued dashboard profile on each device while keeping submission explicit and falling back to Best for new or invalid local preferences.
 - Added an explicit Compatible MP4 profile that requires H.264 video and AAC audio without changing the existing Best and resolution profiles.
+- Added optional Docker secret-file inputs for the login ID, password, and API token while preserving direct environment variables as the default and precedence winner.
 
 ### Security
 

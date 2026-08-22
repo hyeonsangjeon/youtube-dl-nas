@@ -38,6 +38,12 @@ docker compose ps
 Open `http://<nas-address>:<WEB_PORT>` and sign in with the configured ID and
 password. Use HTTPS before exposing the dashboard outside a trusted network.
 
+For Compose secrets, mount one file per value and set `MY_ID_FILE`,
+`MY_PW_FILE`, or `YDLNAS_API_TOKEN_FILE` to its container path. Direct
+environment variables remain the default and take precedence when both forms
+are configured. A requested secret file must be a readable, non-empty regular
+file; startup errors identify only the variable and never print its contents.
+
 ## Upgrade
 
 Back up or snapshot `DOWNLOAD_DIR` and `CONFIG_DIR` before changing an image or

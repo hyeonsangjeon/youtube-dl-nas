@@ -172,6 +172,8 @@ docker run -d \
 | `-p host:guest` | Port forwarding. The app defaults to `8080`. |
 | `-e MY_ID` | Required login ID. Avoid values starting with `!`, `$`, or `&`. |
 | `-e MY_PW` | Required login password. Avoid values starting with `!`, `$`, or `&`. |
+| `-e MY_ID_FILE` | Advanced alternative: read the login ID from one mounted secret file. `MY_ID` wins when both are set. |
+| `-e MY_PW_FILE` | Advanced alternative: read the login password from one mounted secret file. `MY_PW` wins when both are set. |
 | `-e TZ` | Optional container time zone, for example `Asia/Seoul`. |
 | `-e APP_PORT` | Optional app port. Defaults to `8080`. |
 | `-e PROXY` | Optional proxy value passed to `yt-dlp`. Defaults to empty. |
@@ -187,7 +189,35 @@ docker run -d \
 | `-e YDLNAS_STORAGE_WARNING_GB` | Free-space warning threshold in GiB. Defaults to `10`; set `0` to disable. |
 | `-e YDLNAS_STORAGE_CRITICAL_GB` | Free-space threshold that pauses new queue additions. Defaults to `2`; set `0` to disable. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
+| `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
+
+### Docker Compose Secrets
+
+Environment variables remain the simplest choice for Synology and other NAS interfaces. Advanced Compose deployments can mount one secret per file and point the matching `_FILE` variable at `/run/secrets/...`:
+
+```yaml
+services:
+  youtube-dl-nas:
+    environment:
+      MY_ID_FILE: /run/secrets/ydlnas_id
+      MY_PW_FILE: /run/secrets/ydlnas_password
+      YDLNAS_API_TOKEN_FILE: /run/secrets/ydlnas_api_token
+    secrets:
+      - ydlnas_id
+      - ydlnas_password
+      - ydlnas_api_token
+
+secrets:
+  ydlnas_id:
+    file: ./secrets/id.txt
+  ydlnas_password:
+    file: ./secrets/password.txt
+  ydlnas_api_token:
+    file: ./secrets/api-token.txt
+```
+
+Leave the corresponding direct variable empty when using its file form. A non-empty direct variable always takes precedence. Startup stops with a concise error when a requested file is missing, unreadable, not a regular file, or empty; secret values are never printed.
 
 ## Mobile Sharing
 
