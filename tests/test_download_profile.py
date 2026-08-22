@@ -37,9 +37,11 @@ const storage = {
 };
 const audio = profile.save(storage, 'audio-m4a');
 const restoredAudio = profile.load(storage);
+const compatible = profile.save(storage, 'compatible-mp4');
+const restoredCompatible = profile.load(storage);
 const subtitle = profile.save(storage, 'vtt|ko');
 const restoredSubtitle = profile.load(storage);
-process.stdout.write(JSON.stringify({audio, restoredAudio, subtitle, restoredSubtitle}));
+process.stdout.write(JSON.stringify({audio, restoredAudio, compatible, restoredCompatible, subtitle, restoredSubtitle}));
 """)
 
     assert result["audio"] == {
@@ -49,6 +51,13 @@ process.stdout.write(JSON.stringify({audio, restoredAudio, subtitle, restoredSub
         "subtitleLanguage": "",
     }
     assert result["restoredAudio"] == result["audio"]
+    assert result["compatible"] == {
+        "version": 1,
+        "mode": "video",
+        "resolution": "compatible-mp4",
+        "subtitleLanguage": "",
+    }
+    assert result["restoredCompatible"] == result["compatible"]
     assert result["subtitle"] == {
         "version": 1,
         "mode": "subtitle",

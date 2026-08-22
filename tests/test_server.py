@@ -302,6 +302,24 @@ def test_rest_api_preserves_advanced_resolution_values(app):
     assert enqueue.call_args.args[1] == "2160p"
 
 
+def test_rest_api_accepts_compatible_mp4_profile(app):
+    with patch.object(server, "enqueue_download") as enqueue:
+        enqueue.return_value = {"queued": True, "duplicate": False, "job": {}}
+        response = app.post_json(
+            "/youtube-dl/rest",
+            {
+                "url": "https://youtu.be/example",
+                "resolution": "compatible-mp4",
+                "id": "tester",
+                "pw": "secret",
+            },
+        )
+
+    assert response.json["success"] is True
+    assert response.json["profile"] == "compatible-mp4"
+    assert enqueue.call_args.args[1] == "compatible-mp4"
+
+
 def test_rest_api_rejects_empty_or_invalid_credentials(app):
     empty_credentials = app.post_json(
         "/youtube-dl/rest",
@@ -412,6 +430,21 @@ def test_smart_share_context_extracts_url_profile_playlist_and_timestamp(app):
     assert response.json["timestamp_seconds"] == 90
     assert response.json["timestamp_label"] == "1:30"
     assert response.json["timestamp_options"] == ["full", "from_timestamp"]
+    assert "compatible-mp4" in response.json["profiles"]
+
+
+def test_smart_share_context_accepts_compatible_mp4_alias(app):
+    response = app.post_json(
+        "/youtube-dl/share/context",
+        {
+            "url": "https://youtu.be/compatible",
+            "profile": "mp4",
+            "id": "tester",
+            "pw": "secret",
+        },
+    )
+
+    assert response.json["profile"] == "compatible-mp4"
 
 
 def test_smart_share_context_marks_pure_playlists_for_scope_prompt(app):
@@ -658,6 +691,16 @@ def test_mobile_share_uses_signed_device_profile(app):
     )
 
 
+def test_mobile_share_can_save_compatible_mp4_profile(app):
+    app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+    preference = app.post_json(
+        "/youtube-dl/preferences",
+        {"share_profile": "compatible-mp4"},
+    )
+
+    assert preference.json["share_profile"] == "compatible-mp4"
+
+
 def test_mobile_share_ask_mode_prefills_after_authentication(app):
     app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
     app.post_json("/youtube-dl/preferences", {"share_profile": "ask"})
@@ -741,12 +784,22 @@ def test_download_profiles_have_bounded_format_fallbacks():
         "resolution": "audio-m4a",
         "source": "web",
     })
+    compatible = server.build_youtube_dl_cmd({
+        "url": "https://youtu.be/example",
+        "resolution": "compatible-mp4",
+        "source": "web",
+    })
 
     assert "/bestvideo+bestaudio/best" in best[best.index("-f") + 1]
     assert "best[height<=720]" in capped[capped.index("-f") + 1]
     assert capped[capped.index("--merge-output-format") + 1] == "mp4"
     assert "bestaudio/best" in m4a[m4a.index("-f") + 1]
     assert m4a[m4a.index("--audio-format") + 1] == "m4a"
+    compatible_selector = compatible[compatible.index("-f") + 1]
+    assert compatible_selector == server.COMPATIBLE_MP4_FORMAT_SELECTOR
+    assert all("vcodec^=avc1" in option and "acodec^=mp4a" in option for option in compatible_selector.split("/"))
+    assert compatible[compatible.index("--merge-output-format") + 1] == "mp4"
+    assert "--recode-video" not in compatible
 
 
 def test_metadata_process_is_attached_to_active_job_for_cancellation():

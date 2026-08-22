@@ -16,7 +16,7 @@ Mobile sharing sends a URL directly from your phone to the `youtube-dl-nas` inst
 3. Choose **Install app** or **Add to Home screen** from Chrome's menu.
 4. In YouTube, tap **Share**, then choose **youtube-dl NAS**.
 
-The installed PWA receives the shared URL. In dashboard **Options**, choose Best, 1080p, 720p, MP3, M4A, or **Ask every time** as this device's mobile share default. Ask mode opens the composer with the URL filled in; the other profiles queue it immediately. If your login expired, sign in and the same flow continues without exposing the shared URL in the redirect.
+The installed PWA receives the shared URL. In dashboard **Options**, choose Best, Compatible MP4, 1080p, 720p, MP3, M4A, or **Ask every time** as this device's mobile share default. Ask mode opens the composer with the URL filled in; the other profiles queue it immediately. If your login expired, sign in and the same flow continues without exposing the shared URL in the redirect.
 
 Playlist and channel shares always open the composer so Playlist Guard can require an explicit First 10 or All items scope.
 
@@ -32,7 +32,7 @@ Use the open-source [HTTP Shortcuts](https://http-shortcuts.rmy.ch/) app because
 
 The REST API token is optional. The default template uses the same ID and password as the dashboard.
 
-The shortcut accepts Best, 1080p, 720p, MP3, or M4A as a saved default. It checks both the Android share title and text. If the device omits the URL from that data, it opens a URL input as a fallback. Incomplete configuration stops before any network request is made.
+The shortcut accepts Best, Compatible MP4, 1080p, 720p, MP3, or M4A as a saved default. It checks both the Android share title and text. If the device omits the URL from that data, it opens a URL input as a fallback. Incomplete configuration stops before any network request is made.
 
 ## iPhone And iPad
 
@@ -40,7 +40,7 @@ The signed Smart Share v2 Shortcut uses the normal dashboard ID and password. [D
 
 1. During import, enter the NAS base URL without a trailing slash, such as `http://192.168.0.20:8080`.
 2. Enter the normal dashboard ID and password.
-3. Enter `best`, `1080p`, `720p`, `audio-mp3`, `audio-m4a`, or `ask` as the default profile.
+3. Enter `best`, `compatible-mp4`, `1080p`, `720p`, `audio-mp3`, `audio-m4a`, or `ask` as the default profile.
 4. Choose **Add Shortcut**. You do not need to edit any actions.
 5. In YouTube or Safari, tap **Share**, then choose **Download to NAS**.
 
@@ -57,7 +57,7 @@ The Shortcut first asks your NAS to inspect the shared text, then sends the reso
   "id": "YOUR_ID",
   "pw": "YOUR_PASSWORD",
   "client": "ios-shortcut",
-  "client_version": "2.0"
+  "client_version": "2.1"
 }
 ```
 

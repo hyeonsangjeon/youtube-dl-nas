@@ -40,6 +40,7 @@ Current release: `26.0817` (`2026-08-17`)
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
+- Choose an explicit Compatible MP4 profile when a client requires H.264 video and AAC audio; existing Best and resolution profiles keep their current behavior.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
 - Share a URL from an installed Android PWA, configurable Android HTTP Shortcut, or signed Smart Share v2 iOS Shortcut without a relay service.
@@ -79,7 +80,7 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
 6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
 
-Open **Options** to save thumbnail sidecars or choose the profile used when this device shares a URL to the installed PWA. **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The setting is stored in a signed, HTTP-only preference cookie on that device.
+Open **Options** to save thumbnail sidecars or choose the profile used when this device shares a URL to the installed PWA. **Compatible MP4** requests H.264/AAC without silently falling back to another codec; **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The setting is stored in a signed, HTTP-only preference cookie on that device.
 
 Playlist Guard defaults a normal video URL containing a playlist parameter to **Current video only**. Pure playlist and channel URLs require an explicit **First 10** or **All items** choice. Every completed output receives its own Files & History row.
 
@@ -249,6 +250,7 @@ Queue receipts and errors retain the English `msg` field for existing integratio
 Supported `resolution` examples:
 
 - `best`
+- `compatible-mp4` for H.264 video plus AAC audio in an MP4 container
 - `2160p`, `1440p`, `1080p`, `720p`, `480p`, `360p`, `240p`, `144p`
 - `audio-m4a`, `audio-mp3`
 - `vtt|en`, `vtt|ko`, `srt|en`, `srt|ko`

@@ -58,7 +58,7 @@ def nonnegative_float_env(name, default):
 
 STORAGE_WARNING_GB = nonnegative_float_env("YDLNAS_STORAGE_WARNING_GB", "10")
 STORAGE_CRITICAL_GB = nonnegative_float_env("YDLNAS_STORAGE_CRITICAL_GB", "2")
-VALID_RESOLUTIONS = {"best", "audio", "audio-m4a", "audio-mp3"}
+VALID_RESOLUTIONS = {"best", "compatible-mp4", "audio", "audio-m4a", "audio-mp3"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
 SUBTITLE_PATTERN = re.compile(r"^(vtt|srt)\|([A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*)$")
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi"}
@@ -70,6 +70,12 @@ SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_
 SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
 SUBTITLE_QA_MAX_KEYWORDS = 20
 YTDLP_OUTPUT_TEMPLATE = "%(title)s__%(extractor_key)s_%(id)s.%(ext)s"
+COMPATIBLE_MP4_FORMAT_SELECTOR = (
+    "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a][acodec^=mp4a]/"
+    "best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/"
+    "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+    "best[vcodec^=avc1][acodec^=mp4a]"
+)
 YTDLP_ITEM_PREFIX = "__YDLNAS_ITEM__:"
 YTDLP_ITEM_TEMPLATE = (
     '{"filepath":%(filepath|"")j,"title":%(title|"")j,'
@@ -84,9 +90,12 @@ PLAYLIST_MODES = {"single", "first10", "all"}
 SECTION_MODES = {"full", "from_timestamp"}
 SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
 SHARE_REVIEW_COOKIE = "share_review"
-SHARE_PROFILES = {"best", "1080p", "720p", "audio-mp3", "audio-m4a", "ask"}
+SHARE_PROFILES = {"best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "ask"}
 SHARE_PROFILE_ALIASES = {
     "best": "best",
+    "compatible": "compatible-mp4",
+    "compatible-mp4": "compatible-mp4",
+    "mp4": "compatible-mp4",
     "1080": "1080p",
     "1080p": "1080p",
     "720": "720p",
@@ -2232,7 +2241,7 @@ def share_context():
         "success": True,
         "code": "share_context",
         **context,
-        "profiles": ["best", "1080p", "720p", "audio-mp3", "audio-m4a"],
+        "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a"],
         "playlist_options": ["first10", "all"] if context["playlist_kind"] else [],
         "timestamp_options": ["full", "from_timestamp"] if context["timestamp_seconds"] else ["full"],
     }
@@ -2261,7 +2270,7 @@ def q_put_rest():
     )
     if resolution == "ask":
         return json_error("Unsupported mobile share profile", 400, {
-            "profiles": ["best", "1080p", "720p", "audio-mp3", "audio-m4a"],
+            "profiles": ["best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a"],
         })
 
     validation_error = validate_download_request(url, resolution)
@@ -2638,6 +2647,12 @@ def build_youtube_dl_cmd(item):
         cmd.extend([
             "-f",
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+        ])
+    elif resolution == "compatible-mp4":
+        cmd.extend([
+            "-f",
+            COMPATIBLE_MP4_FORMAT_SELECTOR,
             "--merge-output-format", "mp4",
         ])
     elif resolution in ("audio-m4a", "audio"):
