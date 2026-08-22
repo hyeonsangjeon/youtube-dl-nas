@@ -370,6 +370,10 @@
                                 <p id="history-result-count" class="history-subtitle">{{t('history.download_count', count=0)}}</p>
                             </div>
                             <div class="history-actions">
+                                <button id="history-insights-toggle" type="button" class="history-insights-toggle"
+                                        title="{{t('history.insights_open_title')}}" aria-label="{{t('history.insights_open_title')}}" aria-expanded="false">
+                                    <span class="glyphicon glyphicon-stats" aria-hidden="true"></span>
+                                </button>
                                 <div class="history-view-switch" role="group" aria-label="{{t('history.view_label')}}">
                                     <button id="history-view-list" type="button" class="history-view-btn is-active" data-history-view="list" title="{{t('history.list_title')}}" aria-pressed="true">
                                         <span class="glyphicon glyphicon-list" aria-hidden="true"></span>
@@ -458,11 +462,13 @@
                     </section>
                 </main>
 
-                <aside id="history-detail-drawer" class="detail-drawer" aria-live="polite">
+                <div id="history-detail-backdrop" class="detail-backdrop" aria-hidden="true" hidden></div>
+                <aside id="history-detail-drawer" class="detail-drawer detail-is-overview" aria-live="polite"
+                       aria-label="{{t('history.insights_title')}}">
                     <div class="detail-empty">
-                        <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
-                        <h2>{{t('history.select_heading')}}</h2>
-                        <p>{{t('history.select_description')}}</p>
+                        <span class="glyphicon glyphicon-stats" aria-hidden="true"></span>
+                        <h2>{{t('history.insights_title')}}</h2>
+                        <p>{{t('history.insights_scope')}}</p>
                     </div>
                 </aside>
             </div>
@@ -491,6 +497,7 @@
     window.YDLNAS_I18N = {{!translations_json}};
     window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
+<script src="youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
 <script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 <script>
     if ('serviceWorker' in navigator) {
