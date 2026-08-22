@@ -11,7 +11,7 @@ Smart Share v2:
 5. queues the resolved request with the existing ID/password REST authentication; and
 6. displays the server's queue position or duplicate receipt.
 
-No Shortcut action editing is required. Valid import profiles are `best`, `compatible-mp4`, `1080p`, `720p`, `audio-mp3`, `audio-m4a`, and `ask`. The distributed file contains placeholders only and no real endpoint or credentials.
+No Shortcut action editing is required. Valid import profiles are `best`, `compatible-mp4`, `1080p`, `720p`, `audio-mp3`, `audio-m4a`, `audio-opus`, and `ask`. The distributed file contains placeholders only and no real endpoint or credentials.
 
 `Download-to-NAS.plist` is the deterministic editable source. On macOS, regenerate and sign both installable copies with:
 

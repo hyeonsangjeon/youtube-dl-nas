@@ -282,7 +282,7 @@ Supported `resolution` examples:
 - `best`
 - `compatible-mp4` for H.264 video plus AAC audio in an MP4 container
 - `2160p`, `1440p`, `1080p`, `720p`, `480p`, `360p`, `240p`, `144p`
-- `audio-m4a`, `audio-mp3`
+- `audio-m4a`, `audio-mp3`, `audio-opus`
 - `vtt|en`, `vtt|ko`, `srt|en`, `srt|ko`
 
 ### Authenticated Dashboard APIs

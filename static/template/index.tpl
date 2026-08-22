@@ -85,6 +85,7 @@
                                     <option>144p</option>
                                     <option>audio-m4a</option>
                                     <option>audio-mp3</option>
+                                    <option>audio-opus</option>
                                     <option>srt</option>
                                     <option>vtt</option>
                                     </select>
@@ -293,6 +294,7 @@
                                             <option value="720p">720p</option>
                                             <option value="audio-mp3">MP3</option>
                                             <option value="audio-m4a">M4A</option>
+                                            <option value="audio-opus">Opus</option>
                                             <option value="ask">{{t('composer.share_ask')}}</option>
                                         </select>
                                         <small>{{t('composer.mobile_share_hint')}}</small>

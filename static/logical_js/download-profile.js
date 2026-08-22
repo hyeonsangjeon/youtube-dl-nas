@@ -11,7 +11,7 @@
     const videoProfiles = new Set([
         'best', 'compatible-mp4', '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'
     ]);
-    const audioProfiles = new Set(['audio', 'audio-m4a', 'audio-mp3']);
+    const audioProfiles = new Set(['audio', 'audio-m4a', 'audio-mp3', 'audio-opus']);
     const subtitleProfiles = new Set(['srt', 'vtt']);
     const subtitleLanguagePattern = /^[A-Za-z0-9_-]+(?:-[A-Za-z0-9_-]+)*$/;
 

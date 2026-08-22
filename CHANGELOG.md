@@ -11,6 +11,7 @@ All notable changes to this project are documented here.
 - Remember the last successfully queued dashboard profile on each device while keeping submission explicit and falling back to Best for new or invalid local preferences.
 - Added an explicit Compatible MP4 profile that requires H.264 video and AAC audio without changing the existing Best and resolution profiles.
 - Added optional Docker secret-file inputs for the login ID, password, and API token while preserving direct environment variables as the default and precedence winner.
+- Added an explicit Opus audio profile across the dashboard, REST API, mobile sharing, and downloadable shortcut templates.
 
 ### Security
 

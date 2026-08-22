@@ -202,6 +202,7 @@ def profile_menu_actions():
         ("720p", "720p"),
         ("MP3", "audio-mp3"),
         ("M4A", "audio-m4a"),
+        ("Opus", "audio-opus"),
     ]
     actions = [menu_start(group, [label for label, _ in values], "Download profile")]
     for index, (label, value) in enumerate(values):
@@ -370,7 +371,7 @@ def build_workflow():
             "Category": "Parameter",
             "DefaultValue": "best",
             "ParameterKey": "WFTextActionText",
-            "Text": "Default profile: best, compatible-mp4, 1080p, 720p, audio-mp3, audio-m4a, or ask",
+            "Text": "Default profile: best, compatible-mp4, 1080p, 720p, audio-mp3, audio-m4a, audio-opus, or ask",
         },
     ]
 
