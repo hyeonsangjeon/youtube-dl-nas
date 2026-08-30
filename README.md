@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0822` (`2026-08-22`)
+Current release: `26.0830` (`2026-08-30`)
 
 ## Start Here
 
@@ -44,6 +44,7 @@ Current release: `26.0822` (`2026-08-22`)
 - Keep the last successfully queued dashboard profile ready on each device without auto-submitting the next URL.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
+- Submit once and let Smart Preflight inspect metadata and existing NAS files during a three-second undo window before transfer starts.
 - Share a URL from an installed Android PWA, configurable Android HTTP Shortcut, or signed Smart Share v2 iOS Shortcut without a relay service.
 - Guard playlist and channel URLs with explicit Current video, First 10, or All items scope before they reach the queue.
 - Optionally save a JPG thumbnail beside each downloaded video or audio file.
@@ -74,8 +75,8 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 ## Dashboard Workflow
 
 1. Paste a URL, choose Video, Audio, or Subtitle mode, then submit it to the queue. Playlist and channel URLs open a scope selector before bulk work can start.
-2. Watch the Current Activity panel for progress, speed, ETA, free storage, and the ordered list of jobs waiting next.
-   Stop an active job with the square stop control or remove a waiting job before it starts. Compatible partial data is retained for retry, and jobs restored after a container restart are labeled in the queue.
+2. Watch Current Activity check the source and count down to an automatic start. Use the remove control during this three-second Smart Preflight window to undo the request without adding a history row.
+   Once transfer starts, the control changes to Stop and retains compatible partial data for retry. Existing media is not downloaded twice: an **Already on NAS** receipt links directly to preview, file download, and details. Jobs restored after a container restart remain labeled in the queue.
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
@@ -102,6 +103,8 @@ Clearing history rows does not delete files. Kept files are reloaded from `/down
 The active request and waiting jobs are written atomically to `queue_state.json` in the metadata volume. After a container restart, the interrupted active request is restored first, followed by the remaining queue in its original order. `yt-dlp --continue` reuses compatible partial files from `/downfolder/.incomplete`; whether a remote source can resume the exact byte range depends on that source.
 
 Equivalent URLs with share-tracking parameters removed are not queued twice with the same download profile and options. After metadata extraction, the stable extractor and media ID provide a second duplicate check against files already on the NAS. A repeated completion for the same physical file reuses its existing history row and original download timestamp. Failed and canceled history items remain retryable. Safe failure categories appear only in item details; private URLs, credentials, cookie contents, and mounted paths are not persisted as diagnostics. Send `"force": true` through the REST API only when overwriting an existing download is intentional.
+
+When a request becomes active, Smart Preflight starts metadata inspection and a three-second minimum start window at the same time. A slow metadata response does not add another three-second delay. Undo during this phase removes the request without creating a canceled history row. If the extracted media identity matches an existing file, transfer is skipped and the dashboard keeps an actionable receipt for one minute. When metadata cannot be read, the dashboard shows a warning and still lets `yt-dlp` attempt the requested download.
 
 The dashboard warns when the download volume has 10 GiB or less free and pauses new queue additions at 2 GiB or less by default. Existing and active jobs are not deleted. Adjust these thresholds with `YDLNAS_STORAGE_WARNING_GB` and `YDLNAS_STORAGE_CRITICAL_GB`, or set either value to `0` to disable that threshold.
 
@@ -233,6 +236,8 @@ Signed-in administrators can open dashboard **Options** to upload, replace, or r
 - iPhone/iPad: install the signed [Download to NAS Shortcut](docs/mobile/assets/Download-to-NAS.shortcut) and answer its one-time NAS URL, login, and default-profile questions. No action editing is required.
 
 See the [mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) or the source in [`docs/mobile`](docs/mobile/). No relay server is used; the phone sends URLs directly to the NAS. GitHub Pages only hosts the manual and import files.
+
+Immediate mobile profiles keep the one-share workflow: the NAS queues the URL, runs Smart Preflight, and starts automatically. No second confirmation screen is added. Playlist Guard and **Ask every time** continue to open the composer only when an explicit choice is required.
 
 ## REST API
 

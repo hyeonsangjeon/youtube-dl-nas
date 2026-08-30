@@ -29,4 +29,12 @@ The project board is the source of truth for priority, status, and target releas
 - Support optional Docker secret files for the login ID, password, and API token.
 - Add authenticated, bounded Netscape cookies management while keeping external cookie mounts read-only.
 
+## Completed For 26.0830
+
+- Inspect source metadata and existing NAS files during a three-second Smart Preflight window before transfer starts automatically.
+- Let users undo a request before transfer without creating a canceled history row, while retaining the existing Stop and retry behavior after transfer begins.
+- Skip media-identity duplicates and keep an actionable Already on NAS receipt with preview, file download, and detail actions.
+- Persist preflight state and resolved metadata in the database-free queue across container restarts.
+- Localize checking, countdown, undo, warning, and duplicate receipt states in English, Korean, Simplified Chinese, and Polish.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).

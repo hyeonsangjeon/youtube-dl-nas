@@ -377,6 +377,7 @@
                                 <strong>{{t('activity.up_next')}}</strong>
                                 <span id="queue-summary">{{t('activity.queue_empty')}}</span>
                             </div>
+                            <div id="preflight-receipt" class="preflight-receipt" hidden></div>
                             <div id="queue-items" class="queue-items">
                                 <div class="queue-empty">{{t('activity.queue_hint')}}</div>
                             </div>

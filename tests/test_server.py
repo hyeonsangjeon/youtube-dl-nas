@@ -55,7 +55,7 @@ def stable_public_source_network(monkeypatch):
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0822"
+    assert health.json["version"] == "26.0830"
     assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")
@@ -1111,6 +1111,75 @@ def test_queue_job_normalization_preserves_download_options():
     assert public["playlist_mode"] == "first10"
     assert public["write_thumbnail"] is True
     assert public["section_mode"] == "full"
+    assert public["state"] == "queued"
+    assert public["preflight_ready_at"] == 0
+
+
+def test_preflight_state_starts_a_parallel_grace_window():
+    job = server.create_queue_job("https://youtu.be/preflight", "best", "web")
+
+    with patch.object(server, "PREFLIGHT_GRACE_SECONDS", 3.0), \
+         patch.object(server.time, "time", return_value=100.0):
+        checking = server.begin_preflight(job)
+        public = server.public_queue_job(checking)
+
+    assert checking["state"] == "checking"
+    assert checking["preflight_started_at"] == 100.0
+    assert checking["preflight_ready_at"] == 103.0
+    assert public["preflight_remaining_seconds"] == 3
+
+
+def test_preflight_window_can_be_undone_without_waiting_for_transfer():
+    job = server.create_queue_job("https://youtu.be/undo-preflight", "best", "web")
+    job.update({
+        "state": "ready",
+        "preflight_started_at": 100.0,
+        "preflight_ready_at": 103.0,
+    })
+    manager = MagicMock()
+    manager.cancellation_requested.return_value = True
+
+    with patch.object(server, "download_manager", manager), \
+         patch.object(server.time, "time", return_value=100.0), \
+         patch.object(server.time, "sleep") as sleep:
+        result = server.wait_for_preflight_window(job)
+
+    assert result == "canceled"
+    manager.consume_cancellation.assert_called_once_with(job["id"])
+    sleep.assert_not_called()
+
+
+def test_duplicate_preflight_receipt_is_actionable_and_expires(tmp_path):
+    media = tmp_path / "saved__Youtube_DUPLICATE.mp4"
+    media.write_bytes(b"saved")
+    job = server.create_queue_job("https://youtu.be/DUPLICATE", "best", "web")
+    existing = {
+        "uuid": "existing-file",
+        "url": job["url"],
+        "title": "Saved video",
+        "channel": "Creator",
+        "filename": media.name,
+        "resolution": "best",
+        "status": "completed",
+    }
+    original_receipt = server.recent_preflight_receipt
+
+    try:
+        with patch.object(server, "DOWNFOLDER_DIR", str(tmp_path)), \
+             patch.object(server, "PREFLIGHT_RECEIPT_TTL_SECONDS", 60.0), \
+             patch.object(server.time, "time", return_value=100.0):
+            receipt = server.set_recent_preflight_receipt(existing, job)
+            current = server.get_recent_preflight_receipt()
+
+        assert current["id"] == receipt["id"]
+        assert current["existing"]["file_exists"] is True
+        assert current["existing"]["download_type"] == "video"
+        assert current["existing"]["channel"] == "Creator"
+
+        with patch.object(server.time, "time", return_value=161.0):
+            assert server.get_recent_preflight_receipt() is None
+    finally:
+        server.recent_preflight_receipt = original_receipt
 
 
 def test_completed_output_json_supports_one_history_item_per_playlist_file(tmp_path):
@@ -1233,6 +1302,7 @@ def test_status_includes_visible_queue_items(app):
         assert response.json["queue"][0]["url"] == "https://youtu.be/queued"
         assert response.json["queue"][0]["resolution"] == "audio-mp3"
         assert response.json["queue"][0]["source"] == "api"
+        assert "preflight_receipt" in response.json
     finally:
         with server.dl_q.mutex:
             server.dl_q.queue.clear()
@@ -1382,8 +1452,16 @@ def test_active_download_cancel_targets_the_attached_process():
         result = manager.request_active_cancel()
         repeated = manager.request_active_cancel()
 
-    assert result == {"job_id": "active-job", "already_requested": False}
-    assert repeated == {"job_id": "active-job", "already_requested": True}
+    assert result == {
+        "job_id": "active-job",
+        "already_requested": False,
+        "phase": "download",
+    }
+    assert repeated == {
+        "job_id": "active-job",
+        "already_requested": True,
+        "phase": "download",
+    }
     assert manager.current_download["status"] == "canceling"
     assert manager.cancellation_requested("active-job") is True
     terminate.assert_called_once_with(process)
@@ -1428,8 +1506,32 @@ def test_download_canceled_during_metadata_does_not_start_process():
 
     metadata.assert_called_once_with(job["url"], job["id"])
     popen.assert_not_called()
-    manager.complete_download.assert_called_once()
-    assert manager.complete_download.call_args.args[0]["status"] == "canceled"
+    canceled_job = manager.cancel_preflight.call_args.args[0]
+    assert canceled_job["id"] == job["id"]
+    assert canceled_job["state"] == "ready"
+    assert canceled_job["title"] == "Canceled early"
+    manager.complete_download.assert_not_called()
+
+
+def test_metadata_failure_is_visible_but_does_not_block_the_download_attempt():
+    manager = MagicMock()
+    manager.current_download = {}
+    manager.set_current_download.side_effect = lambda info: setattr(manager, "current_download", info)
+    manager.consume_cancellation.return_value = False
+    job = server.create_queue_job("https://example.com/metadata-timeout", "best", "web")
+
+    with patch.object(server, "download_manager", manager), \
+         patch.object(server, "fetch_media_metadata", side_effect=server.subprocess.TimeoutExpired(["yt-dlp"], 30)), \
+         patch.object(server, "find_existing_download", return_value=None), \
+         patch.object(server, "wait_for_preflight_window", return_value="canceled"), \
+         patch.object(server.subprocess, "Popen") as popen:
+        server.download(job)
+
+    update = manager.update_current_download.call_args.kwargs
+    assert update["status"] == "ready"
+    assert update["preflight_warning"] == "metadata_unavailable"
+    manager.cancel_preflight.assert_called_once()
+    popen.assert_not_called()
 
 
 def test_download_stops_before_metadata_when_redirect_guard_blocks_source():
@@ -1771,6 +1873,8 @@ def test_worker_shutdown_preserves_active_and_pending_queue_state(tmp_path):
             saved = json.loads((tmp_path / "queue.json").read_text(encoding="utf-8"))
 
         assert saved["active"]["id"] == active["id"]
+        assert saved["active"]["state"] == "checking"
+        assert saved["active"]["preflight_ready_at"] > 0
         assert [job["id"] for job in saved["pending"]] == [pending["id"]]
     finally:
         with server.dl_q.mutex:
@@ -1805,6 +1909,8 @@ def test_worker_continues_to_next_job_after_a_terminal_result(tmp_path):
             server.dl_worker()
 
         assert [entry.args[0]["id"] for entry in download.call_args_list] == [first["id"], second["id"]]
+        assert all(entry.args[0]["state"] == "checking" for entry in download.call_args_list)
+        assert all(entry.args[0]["preflight_ready_at"] > 0 for entry in download.call_args_list)
         assert server.active_queue_job is None
     finally:
         with server.dl_q.mutex:
@@ -1887,6 +1993,26 @@ def test_frontend_refreshes_history_after_mobile_foreground_and_reconnect():
     assert "scheduleDashboardRefresh(50)" in source
     assert "historyFetchInFlight" in source
     assert "pendingHistoryRefresh" in source
+
+
+def test_frontend_exposes_preflight_countdown_undo_and_duplicate_receipt():
+    source = (MODULE_PATH.parent / "static" / "logical_js" / "logic.js").read_text(encoding="utf-8")
+    template_source = (MODULE_PATH.parent / "static" / "template" / "index.tpl").read_text(encoding="utf-8")
+
+    assert "getPreflightRemainingSeconds" in source
+    assert "activity.checking_countdown" in source
+    assert "activity.undo_title" in source
+    assert "confirm.undo_download_heading" in source
+    assert "confirm.undo_download_message" in source
+    assert 'messageType === "[ACTIVE_UPDATED]"' in source
+    assert 'messageType === "[PREFLIGHT_CANCELED]"' in source
+    assert "preflight-receipt-preview" in source
+    assert "preflight-receipt-details" in source
+    assert 'id="preflight-receipt"' in template_source
+    for locale, catalog in CATALOGS.items():
+        assert "activity.undo" in catalog, locale
+        assert "confirm.undo_download_heading" in catalog, locale
+        assert "confirm.undo_download_message" in catalog, locale
 
 
 def test_preview_requires_login_and_serves_media_inline(app, tmp_path):

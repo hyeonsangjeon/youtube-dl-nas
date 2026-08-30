@@ -31,7 +31,11 @@ When a URL points to a playlist or channel, Playlist Guard shows a scope selecto
 
 ## Current Activity
 
-The activity panel shows the active title, channel, thumbnail, progress, transfer speed, ETA, and free space on the download volume. **Up next** lists waiting requests in processing order with their source and selected quality. Use the square stop control to cancel the active download while retaining compatible partial data, or use the remove icon to cancel a waiting request before it starts.
+The activity panel shows the active title, channel, thumbnail, progress, transfer speed, ETA, and free space on the download volume. **Up next** lists waiting requests in processing order with their source and selected quality.
+
+When a request becomes active, Smart Preflight checks its metadata and existing NAS files while a three-second start window runs. The remove control undoes the request during this phase without adding a canceled history row. The transfer starts automatically as soon as both checks are ready; slow metadata does not incur another three-second delay. After transfer begins, the control changes to the square Stop action and retains compatible partial data.
+
+If the stable media identity already exists, the transfer is skipped and an **Already on NAS** receipt offers Preview, Download File, and Details. The receipt remains available briefly even if a WebSocket update was missed. A metadata warning does not block the actual `yt-dlp` attempt.
 
 The storage indicator warns at 10 GiB free and pauses new queue additions at 2 GiB free by default. Failed items show a safe reason and a concrete next action in the detail panel without saving credentials, cookie contents, private URLs, or mounted paths as diagnostics.
 
@@ -72,6 +76,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0822` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0830` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

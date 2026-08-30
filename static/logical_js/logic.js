@@ -185,6 +185,9 @@ $(function () {
     let activeDownload = null;
     let queueCount = 0;
     let queueItems = [];
+    let preflightReceipt = null;
+    let dismissedPreflightReceiptId = '';
+    let preflightCountdownTimer = null;
     let statusPollTimer = null;
     let historyFetchInFlight = false;
     let pendingHistoryRefresh = false;
@@ -1593,6 +1596,8 @@ $(function () {
             pending: 'history.status_pending',
             queued: 'activity.queued',
             working: 'history.status_working',
+            checking: 'history.status_checking',
+            ready: 'history.status_ready',
             extracting_info: 'history.status_extracting_info',
             downloading: 'history.status_downloading',
             downloading_file: 'history.status_downloading',
@@ -1655,6 +1660,7 @@ $(function () {
             currentVideoTitle = activeDownload.title || currentVideoTitle || '';
             currentChannel = activeDownload.channel || currentChannel || '';
         }
+        syncPreflightCountdown();
         updateActivityPanel(activeDownload);
     }
 
@@ -1665,6 +1671,7 @@ $(function () {
 
         updateStorageStatus(response.storage || null);
         updateQueueCount(Number(response.queue_count || 0), response.queue || []);
+        updatePreflightReceipt(response.preflight_receipt || null);
         if (response.current_download) {
             applyCurrentDownload(response.current_download);
             if (response.current_download.progress !== undefined) {
@@ -1672,7 +1679,39 @@ $(function () {
             }
         } else if (!response.is_downloading) {
             activeDownload = null;
+            syncPreflightCountdown();
             updateActivityPanel(null);
+        }
+    }
+
+    function isPreflightStatus(status) {
+        return status === 'checking' || status === 'ready';
+    }
+
+    function getPreflightRemainingSeconds(data) {
+        const readyAt = Number((data || {}).preflight_ready_at || 0);
+        if (!readyAt) {
+            return 0;
+        }
+        return Math.max(0, Math.ceil(readyAt - (Date.now() / 1000)));
+    }
+
+    function syncPreflightCountdown() {
+        if (activeDownload && isPreflightStatus(activeDownload.status)) {
+            if (!preflightCountdownTimer) {
+                preflightCountdownTimer = window.setInterval(function() {
+                    if (!activeDownload || !isPreflightStatus(activeDownload.status)) {
+                        syncPreflightCountdown();
+                        return;
+                    }
+                    updateActivityPanel(activeDownload);
+                }, 250);
+            }
+            return;
+        }
+        if (preflightCountdownTimer) {
+            window.clearInterval(preflightCountdownTimer);
+            preflightCountdownTimer = null;
         }
     }
 
@@ -1737,8 +1776,76 @@ $(function () {
             item.source,
             Boolean(item.restored),
             item.playlist_mode,
-            Boolean(item.write_thumbnail)
+            Boolean(item.write_thumbnail),
+            item.state,
+            item.title,
+            item.channel,
+            item.thumbnail,
+            item.preflight_warning
         ];
+    }
+
+    function updatePreflightReceipt(receipt) {
+        if (!receipt || !receipt.id || receipt.id === dismissedPreflightReceiptId) {
+            preflightReceipt = null;
+        } else {
+            preflightReceipt = receipt;
+        }
+        renderPreflightReceipt();
+    }
+
+    function getPreflightReceiptItem() {
+        if (!preflightReceipt || !preflightReceipt.existing) {
+            return null;
+        }
+        const existing = preflightReceipt.existing;
+        return historyItems.find((item) => item.uuid === existing.uuid) || normalizeHistoryItem(existing);
+    }
+
+    function renderPreflightReceipt() {
+        const container = $('#preflight-receipt');
+        const item = getPreflightReceiptItem();
+        if (!preflightReceipt || !item) {
+            container.prop('hidden', true).empty();
+            return;
+        }
+
+        const thumbnail = getSafeThumbnailUrl(item.thumbnail_local_url || item.thumbnail);
+        const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
+        const thumbnailHtml = thumbnail ?
+            `<img src="${escapeAttr(thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` :
+            `<span class="glyphicon ${getMediaPlaceholderIcon(item.download_type)}" aria-hidden="true"></span>`;
+        const previewButton = canPreview ? `
+            <button type="button" class="preflight-receipt-action preflight-receipt-preview"
+                    title="${escapeAttr(translate('action.preview_title'))}" aria-label="${escapeAttr(translate('action.preview_title'))}">
+                <span class="glyphicon glyphicon-play" aria-hidden="true"></span>
+            </button>` : '';
+        const downloadLink = item.file_exists ? `
+            <a class="preflight-receipt-action" href="${getDownloadHref(item)}" download
+               title="${escapeAttr(translate('action.download_title'))}" aria-label="${escapeAttr(translate('action.download_title'))}">
+                <span class="glyphicon glyphicon-download-alt" aria-hidden="true"></span>
+            </a>` : '';
+
+        container.html(`
+            <div class="preflight-receipt-media">${thumbnailHtml}</div>
+            <div class="preflight-receipt-copy">
+                <span>${escapeHtml(translate('queue.receipt_label'))}</span>
+                <strong title="${escapeAttr(item.title || item.filename || translate('common.untitled'))}">${escapeHtml(item.title || item.filename || translate('common.untitled'))}</strong>
+                <p>${escapeHtml(translate('queue.receipt_description'))}</p>
+            </div>
+            <div class="preflight-receipt-actions">
+                ${previewButton}
+                ${downloadLink}
+                <button type="button" class="preflight-receipt-action preflight-receipt-details"
+                        title="${escapeAttr(translate('queue.open_details_title'))}" aria-label="${escapeAttr(translate('queue.open_details_title'))}">
+                    <span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="preflight-receipt-action preflight-receipt-dismiss"
+                        title="${escapeAttr(translate('queue.receipt_dismiss_title'))}" aria-label="${escapeAttr(translate('queue.receipt_dismiss_title'))}">
+                    <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                </button>
+            </div>
+        `).prop('hidden', false);
     }
 
     function renderQueueItems() {
@@ -1827,7 +1934,10 @@ $(function () {
             dataType: 'json',
             success: function(response) {
                 if (response.success) {
-                    addMessage(translate('message.cancel_requested'), 'info');
+                    addMessage(
+                        translate(response.phase === 'preflight' ? 'message.preflight_canceled' : 'message.cancel_requested'),
+                        'info'
+                    );
                     fetchStatus();
                 } else {
                     button.prop('disabled', false);
@@ -1862,15 +1972,38 @@ $(function () {
         }
 
         const status = data.status || 'working';
+        const preflight = isPreflightStatus(status);
+        const remaining = getPreflightRemainingSeconds(data);
         const title = data.title || currentVideoTitle || translate('activity.preparing');
         const channel = data.channel || currentChannel || translate('activity.resolving');
         $('#activity-title').text(title);
-        $('#activity-summary').text(status === 'extracting_info' ? translate('activity.getting_info') : translate('activity.in_progress'));
+        let activitySummary = translate('activity.in_progress');
+        if (preflight && data.preflight_warning === 'metadata_unavailable') {
+            activitySummary = translate('activity.metadata_unavailable');
+        } else if (status === 'checking') {
+            activitySummary = remaining > 0 ?
+                translate('activity.checking_countdown', { count: remaining }) :
+                translate('activity.checking_source');
+        } else if (status === 'ready') {
+            activitySummary = remaining > 0 ?
+                translate('activity.ready_countdown', { count: remaining }) :
+                translate('activity.starting');
+        } else if (status === 'extracting_info') {
+            activitySummary = translate('activity.getting_info');
+        }
+        $('#activity-summary').text(activitySummary);
         $('#activity-channel').text(channel);
         $('#activity-status').text(getStatusText(status))
             .removeClass('status-completed status-failed status-pending status-canceled')
             .addClass(getStatusClass(status));
-        $('#cancel-active').prop('hidden', false).prop('disabled', status === 'canceling');
+        $('#cancel-active')
+            .prop('hidden', false)
+            .prop('disabled', status === 'canceling')
+            .attr('title', translate(preflight ? 'activity.undo_title' : 'activity.cancel_title'))
+            .attr('aria-label', translate(preflight ? 'activity.undo_title' : 'activity.cancel_title'));
+        $('#cancel-active .glyphicon')
+            .toggleClass('glyphicon-stop', !preflight)
+            .toggleClass('glyphicon-remove', preflight);
 
         if (data.thumbnail) {
             $('#activity-thumbnail-image').attr('src', data.thumbnail).show();
@@ -1880,10 +2013,13 @@ $(function () {
             $('#activity-thumbnail-placeholder').show();
         }
 
-        const hasTransferStats = Boolean(data.speed || data.eta);
+        const hasTransferStats = !preflight && Boolean(data.speed || data.eta);
         $('#activity-transfer').prop('hidden', !hasTransferStats);
         $('#activity-speed').text(data.speed || '--');
         $('#activity-eta').text(translate('activity.eta', { value: data.eta || '--' }));
+        if (preflight) {
+            $('#progress-container').hide();
+        }
     }
 
     function addMessage(message, type = 'info', autoHide = true) {
@@ -2086,6 +2222,14 @@ $(function () {
                 console.error("Error parsing active download data:", e);
             }
 
+        } else if (messageType === "[ACTIVE_UPDATED]") {
+            try {
+                applyCurrentDownload(JSON.parse(messageContent));
+            } catch (error) {
+                console.error('Error parsing active download update:', error);
+                fetchStatus();
+            }
+
         } else if (messageType === "[QUEUE_UPDATED]") {
             fetchStatus();
 
@@ -2094,8 +2238,10 @@ $(function () {
                 const duplicateData = JSON.parse(messageContent);
                 const existing = duplicateData.existing || {};
                 const title = existing.title || existing.filename || translate('common.untitled');
+                updatePreflightReceipt(duplicateData);
                 addMessage(translate('message.already_on_nas', { title: title }), 'warning');
                 activeDownload = null;
+                syncPreflightCountdown();
                 updateActivityPanel(null);
                 fetchStatus();
                 fetchHistory({ quiet: true });
@@ -2103,6 +2249,13 @@ $(function () {
                 console.error('Error parsing duplicate download data:', error);
                 fetchStatus();
             }
+
+        } else if (messageType === "[PREFLIGHT_CANCELED]") {
+            activeDownload = null;
+            syncPreflightCountdown();
+            updateActivityPanel(null);
+            addMessage(translate('message.preflight_canceled'), 'info');
+            fetchStatus();
 
         } else if (messageType === "[PROGRESS]") {
             const progress = parseFloat(messageContent);
@@ -2813,11 +2966,12 @@ $(function () {
     });
 
     $(document).on("click", "#cancel-active", function() {
+        const preflight = activeDownload && isPreflightStatus(activeDownload.status);
         showConfirmModal(
-            translate('confirm.cancel_download_heading'),
-            translate('confirm.cancel_download_message'),
+            translate(preflight ? 'confirm.undo_download_heading' : 'confirm.cancel_download_heading'),
+            translate(preflight ? 'confirm.undo_download_message' : 'confirm.cancel_download_message'),
             requestActiveCancellation,
-            translate('activity.cancel')
+            translate(preflight ? 'activity.undo' : 'activity.cancel')
         );
     });
 
@@ -2940,6 +3094,29 @@ $(function () {
         event.stopPropagation();
         const uuid = $(this).data('uuid');
         showSubtitleQa(historyItems.find((item) => item.uuid === uuid));
+    });
+
+    $(document).on('click', '.preflight-receipt-preview', function() {
+        showMediaPreview(getPreflightReceiptItem());
+    });
+
+    $(document).on('click', '.preflight-receipt-details', function() {
+        const item = getPreflightReceiptItem();
+        if (!item) {
+            return;
+        }
+        selectedHistoryUuid = item.uuid;
+        historyOverviewOpen = true;
+        renderDetailDrawer(item);
+        if (isCompactHistoryDrawer()) {
+            focusHistoryDrawerControl('#close-detail');
+        }
+    });
+
+    $(document).on('click', '.preflight-receipt-dismiss', function() {
+        dismissedPreflightReceiptId = preflightReceipt ? preflightReceipt.id : '';
+        preflightReceipt = null;
+        renderPreflightReceipt();
     });
 
     $(document).on("click", ".media-preview-close", function() {

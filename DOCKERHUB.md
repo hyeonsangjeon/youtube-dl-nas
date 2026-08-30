@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0822` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0830` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -37,6 +37,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Authenticated queue with live progress, transfer speed, ETA, and the ordered list of waiting jobs.
 - Download-volume capacity status, a safe active-job stop control, retained partial data, and actionable failure guidance.
 - Database-free queue recovery across container restarts, compatible partial-download continuation, duplicate guards, and removable waiting jobs.
+- One-submit Smart Preflight with a three-second undo window, media-identity duplicate checks, and actionable **Already on NAS** receipts.
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, 20-item pages, and a lightweight library overview.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
 - Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
@@ -111,14 +112,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0822` | Current pinned release |
+| `26.0830` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0822` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0830` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0822
+docker pull modenaf360/youtube-dl-nas:26.0830
 ```
 
 ## Health Check

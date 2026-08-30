@@ -2,6 +2,7 @@ import json
 import subprocess
 import html
 import ipaddress
+import math
 from queue import Queue
 import re
 import shutil
@@ -41,7 +42,7 @@ APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
 APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0822")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0830")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -87,7 +88,10 @@ YTDLP_ITEM_TEMPLATE = (
     '"webpage_url":%(webpage_url|"")j,"original_url":%(original_url|"")j}'
 )
 GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
-QUEUE_STATE_VERSION = 3
+QUEUE_STATE_VERSION = 4
+PREFLIGHT_GRACE_SECONDS = 3.0
+PREFLIGHT_RECEIPT_TTL_SECONDS = 60.0
+QUEUE_JOB_STATES = {"queued", "checking", "ready", "downloading"}
 PLAYLIST_MODES = {"single", "first10", "all"}
 SECTION_MODES = {"full", "from_timestamp"}
 SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
@@ -1286,6 +1290,22 @@ def normalize_queue_job(item, restored=False):
     section_start = extract_shared_timestamp(url) if section_mode == "from_timestamp" else 0
     if section_mode == "from_timestamp" and not section_start:
         return None
+
+    state = str(job.get("state") or "queued").strip().lower()
+    if state not in QUEUE_JOB_STATES:
+        state = "queued"
+
+    def queue_timestamp(name):
+        try:
+            return max(0.0, float(job.get(name) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    try:
+        duration_seconds = max(0, int(float(job.get("duration_seconds") or 0)))
+    except (TypeError, ValueError):
+        duration_seconds = 0
+
     return {
         "id": job_id,
         "url": url,
@@ -1300,6 +1320,16 @@ def normalize_queue_job(item, restored=False):
         "write_thumbnail": parse_boolean(job.get("write_thumbnail")),
         "section_mode": section_mode,
         "section_start": section_start,
+        "state": state,
+        "preflight_started_at": queue_timestamp("preflight_started_at"),
+        "preflight_ready_at": queue_timestamp("preflight_ready_at"),
+        "title": str(job.get("title") or "").strip(),
+        "channel": str(job.get("channel") or "").strip(),
+        "thumbnail": str(job.get("thumbnail") or "").strip(),
+        "duration_seconds": duration_seconds,
+        "media_id": str(job.get("media_id") or "").strip(),
+        "extractor": str(job.get("extractor") or "").strip(),
+        "preflight_warning": str(job.get("preflight_warning") or "").strip(),
     }
 
 
@@ -1341,6 +1371,20 @@ def public_queue_job(job, position=None):
         "write_thumbnail": job["write_thumbnail"],
         "section_mode": job["section_mode"],
         "section_start": job["section_start"],
+        "state": job["state"],
+        "preflight_started_at": job["preflight_started_at"],
+        "preflight_ready_at": job["preflight_ready_at"],
+        "preflight_remaining_seconds": max(
+            0,
+            int(math.ceil(job["preflight_ready_at"] - time.time())),
+        ) if job["preflight_ready_at"] else 0,
+        "title": job["title"],
+        "channel": job["channel"],
+        "thumbnail": job["thumbnail"],
+        "duration_seconds": job["duration_seconds"],
+        "media_id": job["media_id"],
+        "extractor": job["extractor"],
+        "preflight_warning": job["preflight_warning"],
     }
     if position is not None:
         public_job["position"] = position
@@ -1414,6 +1458,52 @@ def set_active_queue_job(job):
     persist_queue_state()
 
 
+def begin_preflight(job):
+    job = normalize_queue_job(job)
+    if not job:
+        return None
+
+    now = time.time()
+    if not job["preflight_started_at"]:
+        job["preflight_started_at"] = now
+    if not job["preflight_ready_at"]:
+        job["preflight_ready_at"] = now + PREFLIGHT_GRACE_SECONDS
+    job["state"] = "checking"
+    return normalize_queue_job(job)
+
+
+def update_active_queue_job(job, **updates):
+    global active_queue_job
+
+    candidate = dict(job or {})
+    candidate.update(updates)
+    candidate = normalize_queue_job(candidate)
+    if not candidate:
+        return None
+
+    changed = False
+    with queue_state_lock:
+        active = normalize_queue_job(active_queue_job) if active_queue_job else None
+        if active and active["id"] == candidate["id"]:
+            active_queue_job = candidate
+            changed = True
+    if changed:
+        persist_queue_state()
+    return candidate
+
+
+def wait_for_preflight_window(job):
+    ready_at = float((job or {}).get("preflight_ready_at") or 0)
+    while ready_at > time.time():
+        if shutdown_event.is_set():
+            return "shutdown"
+        if download_manager.cancellation_requested(job["id"]):
+            download_manager.consume_cancellation(job["id"])
+            return "canceled"
+        time.sleep(min(0.1, max(0.0, ready_at - time.time())))
+    return "ready"
+
+
 def clear_active_queue_job():
     global active_queue_job
     with queue_state_lock:
@@ -1472,7 +1562,45 @@ def existing_download_summary(item):
         "source": item.get("source"),
         "section_mode": item.get("section_mode"),
         "section_start": item.get("section_start"),
+        "channel": item.get("channel"),
+        "thumbnail": item.get("thumbnail"),
+        "thumbnail_local_url": item.get("thumbnail_local_url"),
+        "duration_seconds": item.get("duration_seconds"),
+        "file_exists": item.get("file_exists"),
+        "file_size_bytes": item.get("file_size_bytes"),
+        "download_type": item.get("download_type"),
+        "metadata_status": item.get("metadata_status"),
     }
+
+
+def set_recent_preflight_receipt(existing, job):
+    global recent_preflight_receipt
+
+    existing = existing_download_summary(existing)
+    public_job = public_queue_job(job)
+    now = time.time()
+    receipt = {
+        "id": f"{(public_job or {}).get('id', '')}:{existing.get('uuid') or ''}",
+        "type": "duplicate_history",
+        "created_at": datetime.now().isoformat(),
+        "expires_at": now + PREFLIGHT_RECEIPT_TTL_SECONDS,
+        "existing": existing,
+        "job": public_job,
+    }
+    with preflight_receipt_lock:
+        recent_preflight_receipt = receipt
+    return receipt
+
+
+def get_recent_preflight_receipt():
+    global recent_preflight_receipt
+
+    with preflight_receipt_lock:
+        receipt = recent_preflight_receipt
+        if receipt and float(receipt.get("expires_at") or 0) <= time.time():
+            recent_preflight_receipt = None
+            receipt = None
+        return dict(receipt) if receipt else None
 
 
 def find_existing_download(
@@ -1604,6 +1732,7 @@ def enqueue_download(
                     section_mode=job["section_mode"],
                 )
             if existing:
+                set_recent_preflight_receipt(existing, job)
                 return {
                     "queued": False,
                     "duplicate": True,
@@ -1830,10 +1959,19 @@ class GlobalDownloadManager:
             already_requested = self.cancel_requested_job_id == job_id
             self.cancel_requested_job_id = job_id
             process = self.active_process if self.active_process_job_id == job_id else None
+            previous_status = str(current.get("status") or "")
+            phase = str(current.get("cancel_phase") or "")
+            if phase not in {"preflight", "download"}:
+                phase = "preflight" if previous_status in {"checking", "ready", "extracting_info"} else "download"
+                current["cancel_phase"] = phase
             current["status"] = "canceling"
         if process and not already_requested:
             terminate_process_group(process)
-        return {"job_id": job_id, "already_requested": already_requested}
+        return {
+            "job_id": job_id,
+            "already_requested": already_requested,
+            "phase": phase,
+        }
 
     def cancellation_requested(self, job_id):
         with self.process_lock:
@@ -1864,6 +2002,17 @@ class GlobalDownloadManager:
         """Update status"""
         if self.current_download:
             self.current_download['status'] = status
+            self.broadcast_to_all_clients(
+                f"[ACTIVE_UPDATED], {json.dumps(self.current_download, ensure_ascii=False)}"
+            )
+
+    def update_current_download(self, **updates):
+        if not self.current_download:
+            return
+        self.current_download.update(updates)
+        self.broadcast_to_all_clients(
+            f"[ACTIVE_UPDATED], {json.dumps(self.current_download, ensure_ascii=False)}"
+        )
 
     def update_transfer_stats(self, speed, eta):
         """Update live transfer statistics and broadcast them to dashboard clients."""
@@ -1962,14 +2111,19 @@ class GlobalDownloadManager:
 
     def skip_duplicate(self, existing, job):
         """Finish an active queue item without downloading an existing NAS file again."""
-        payload = {
-            "existing": existing,
-            "job": public_queue_job(job),
-        }
+        payload = set_recent_preflight_receipt(existing, job)
         if self.current_download:
             self.current_download["status"] = "duplicate"
         self.reset_active_runtime()
         self.broadcast_to_all_clients(f"[DUPLICATE], {json.dumps(payload, ensure_ascii=False)}")
+
+    def cancel_preflight(self, job):
+        """Undo a queued request before file transfer without adding a history row."""
+        payload = {"job": public_queue_job(job)}
+        self.reset_active_runtime()
+        self.broadcast_to_all_clients(
+            f"[PREFLIGHT_CANCELED], {json.dumps(payload, ensure_ascii=False)}"
+        )
 
     def defer_current_download(self):
         """Release transient UI state while queue persistence retains the job for restart."""
@@ -2311,6 +2465,7 @@ def get_download_status():
         "queue": queued_items,
         "connected_clients": len(download_manager.connected_clients),
         "storage": get_storage_status(),
+        "preflight_receipt": get_recent_preflight_receipt(),
     }
 
 @get('/youtube-dl/q', method='POST')
@@ -2469,10 +2624,19 @@ def cancel_active_download():
         return json_error("No active download to cancel", 409)
     return {
         "success": True,
-        "code": "cancellation_requested",
+        "code": (
+            "preflight_cancellation_requested"
+            if cancellation["phase"] == "preflight"
+            else "cancellation_requested"
+        ),
         "job_id": cancellation["job_id"],
         "already_requested": cancellation["already_requested"],
-        "msg": "Active download cancellation requested",
+        "phase": cancellation["phase"],
+        "msg": (
+            "Queued download undo requested"
+            if cancellation["phase"] == "preflight"
+            else "Active download cancellation requested"
+        ),
     }
 
 @post('/youtube-dl/q/<job_id>/remove')
@@ -2698,6 +2862,7 @@ def dl_worker():
             if not job:
                 print("Skipping invalid queued download")
                 continue
+            job = begin_preflight(job)
             set_active_queue_job(job)
             download(job)
         except Exception as e:
@@ -2951,7 +3116,7 @@ def download(item):
             'write_thumbnail': job["write_thumbnail"],
             'section_mode': job["section_mode"],
             'section_start': job["section_start"],
-            'status': 'extracting_info',
+            'status': 'checking',
             'progress': 0,
             'title': video_title,
             'channel': channel_name,
@@ -2959,6 +3124,9 @@ def download(item):
             'duration_seconds': duration_seconds,
             'media_id': media_id,
             'extractor': extractor,
+            'preflight_started_at': job["preflight_started_at"],
+            'preflight_ready_at': job["preflight_ready_at"],
+            'preflight_warning': job["preflight_warning"],
             'speed': '',
             'eta': '',
             'start_time': time.time()
@@ -2975,6 +3143,8 @@ def download(item):
         download_manager.send_message("Getting video information...")
         download_manager.update_progress(0)
 
+        metadata = {}
+        preflight_warning = ""
         try:
             metadata = fetch_media_metadata(request_url, download_uuid)
             video_title = get_media_display_title(metadata, video_title)
@@ -2992,14 +3162,40 @@ def download(item):
             if thumbnail_url:
                 download_manager.send_thumbnail(thumbnail_url)
         except Exception as e:
+            preflight_warning = "metadata_unavailable"
             failure_diagnostics.append(e)
             print(f"Info extraction error: {sanitize_diagnostic_text(e)}")
+
+        if not metadata:
+            preflight_warning = "metadata_unavailable"
+
+        job = update_active_queue_job(
+            job,
+            state="ready",
+            title=video_title,
+            channel=channel_name,
+            thumbnail=thumbnail_url,
+            duration_seconds=duration_seconds,
+            media_id=media_id,
+            extractor=extractor,
+            preflight_warning=preflight_warning,
+        ) or job
+        download_manager.update_current_download(
+            status="ready",
+            title=video_title,
+            channel=channel_name,
+            thumbnail=thumbnail_url,
+            duration_seconds=duration_seconds,
+            media_id=media_id,
+            extractor=extractor,
+            preflight_warning=preflight_warning,
+        )
 
         if shutdown_event.is_set():
             download_manager.defer_current_download()
             return
         if download_manager.consume_cancellation(download_uuid):
-            complete_cancellation()
+            download_manager.cancel_preflight(job)
             return
 
         if not job["force"] and job["playlist_mode"] == "single":
@@ -3015,11 +3211,20 @@ def download(item):
                 download_manager.skip_duplicate(existing, job)
                 return
 
+        preflight_outcome = wait_for_preflight_window(job)
+        if preflight_outcome == "shutdown":
+            download_manager.defer_current_download()
+            return
+        if preflight_outcome == "canceled":
+            download_manager.cancel_preflight(job)
+            return
+
         # Download start
         display_info = video_title
         if channel_name:
             display_info = f"{video_title} by {channel_name}"
             
+        job = update_active_queue_job(job, state="downloading") or job
         download_manager.update_status('downloading')
         download_manager.send_message(f"[Started] downloading {display_info} resolution below {resolution}")
         download_manager.update_progress(5)
@@ -3305,6 +3510,8 @@ shutdown_event = Event()
 active_queue_job = None
 queue_restore_count = 0
 queue_state_loaded = False
+preflight_receipt_lock = Lock()
+recent_preflight_receipt = None
 
 def run_server():
     global port, proxy
