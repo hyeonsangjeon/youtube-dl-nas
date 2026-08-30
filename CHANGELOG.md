@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0830 - 2026-08-30
+
+### Added
+
+- Added Smart Preflight Queue states that inspect metadata and existing NAS files while a three-second undo window runs, then start the requested profile automatically without another confirmation screen.
+- Added an actionable, short-lived **Already on NAS** receipt with preview, file download, and detail actions when a stable media identity is already stored.
+- Added localized Checking, Ready, countdown, Undo, metadata-warning, and duplicate-receipt UI in English, Korean, Simplified Chinese, and Polish.
+
+### Changed
+
+- Treat cancellation before file transfer as an Undo that removes the active request without adding a canceled history row; cancellation after transfer begins keeps the existing partial-file and retry behavior.
+- Persist preflight state and resolved metadata in the file-backed queue so restart recovery remains backward compatible without adding a database.
+
+### Fixed
+
+- Keep the latest duplicate result available through authenticated status polling for one minute so a missed WebSocket event does not hide the existing-file actions.
+- Continue to the real `yt-dlp` attempt with a visible warning when preliminary metadata extraction is unavailable.
+
 ## 26.0822 - 2026-08-22
 
 ### Added

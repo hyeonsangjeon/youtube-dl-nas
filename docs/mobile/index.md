@@ -20,6 +20,8 @@ The installed PWA receives the shared URL. In dashboard **Options**, choose Best
 
 Playlist and channel shares always open the composer so Playlist Guard can require an explicit First 10 or All items scope.
 
+Immediate profiles stay one-tap: the NAS queues the shared URL, runs Smart Preflight, and starts automatically without a second confirmation screen. During the short start window, the dashboard can undo the request or show an **Already on NAS** receipt instead of downloading the same media again.
+
 ## Android On Local HTTP
 
 Use the open-source [HTTP Shortcuts](https://http-shortcuts.rmy.ch/) app because Android cannot install a local HTTP site as a PWA.
