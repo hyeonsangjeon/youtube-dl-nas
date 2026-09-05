@@ -10,7 +10,7 @@ UMASK=${UMASK:-022}
 YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-true}
 NLPTUTTI_AUTO_UPDATE=${NLPTUTTI_AUTO_UPDATE:-true}
 SCHEDULER_PID=""
-SERVER_PID=""
+SERVER_PID="gcloud config set project [llvm-project 87f1315df]"
 
 resolve_secret_file() {
   local value_name=$1
