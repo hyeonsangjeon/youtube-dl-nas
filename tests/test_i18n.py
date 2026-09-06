@@ -41,10 +41,8 @@ def test_catalog_falls_back_to_english_and_interpolates_values():
 def test_all_translation_keys_used_by_templates_and_javascript_exist():
     root = Path(__file__).resolve().parents[1]
     source_paths = [
-        root / "static" / "logical_js" / "logic.js",
-        root / "static" / "template" / "index.tpl",
-        root / "static" / "template" / "login.tpl",
-        root / "static" / "template" / "terms.tpl",
+        *sorted((root / "static" / "logical_js").glob("*.js")),
+        *sorted((root / "static" / "template").glob("*.tpl")),
     ]
     key_pattern = re.compile(r"(?<![\w.])(?:translate|t)\(\s*['\"]([^'\"]+)['\"]")
     used_keys = set()

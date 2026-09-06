@@ -1,0 +1,69 @@
+worker_processes 1;
+pid @@PID_PATH@@;
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    access_log off;
+    server_tokens off;
+    client_body_temp_path @@BODY_PATH@@;
+    proxy_temp_path @@PROXY_PATH@@;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_next_upstream off;
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    map $http_x_forwarded_proto $public_scheme {
+        default $scheme;
+        http http;
+        https https;
+    }
+
+    server {
+        listen @@APP_PORT@@;
+        server_name _;
+        client_max_body_size 0;
+
+        location ~ ^/youtube-dl/mcp(?:/|$) {
+            proxy_pass http://127.0.0.1:@@MCP_PORT@@;
+            proxy_set_header Host 127.0.0.1:@@MCP_PORT@@;
+            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Proto $public_scheme;
+            proxy_set_header Authorization $http_authorization;
+            proxy_set_header Cookie "";
+            proxy_set_header Connection "";
+            client_max_body_size 1m;
+            proxy_read_timeout @@PROXY_READ_TIMEOUT@@s;
+            add_header Cache-Control "no-store" always;
+        }
+
+        location = /websocket {
+            proxy_pass http://127.0.0.1:@@WEB_PORT@@;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $public_scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_read_timeout 3600s;
+        }
+
+        location / {
+            proxy_pass http://127.0.0.1:@@WEB_PORT@@;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $public_scheme;
+            proxy_set_header Connection "";
+            proxy_read_timeout @@PROXY_READ_TIMEOUT@@s;
+        }
+    }
+}

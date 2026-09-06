@@ -202,6 +202,7 @@ $(function () {
     console.log("Document ready - initializing...");
 
     const pageParams = new URLSearchParams(window.location.search);
+    let requestedHistoryUuid = pageParams.get('item') || '';
     const sharedStatus = pageParams.get('shared');
     if (sharedStatus === 'queued') {
         addMessage(translate('message.shared_queued'), 'success');
@@ -660,6 +661,20 @@ $(function () {
     }
 
     function renderHistory() {
+        if (requestedHistoryUuid && historyItems.some((item) => item.uuid === requestedHistoryUuid)) {
+            historyPrefs.search = '';
+            historyPrefs.type = 'all';
+            historyPrefs.status = 'all';
+            applyHistoryPrefsToControls();
+            selectedHistoryUuid = requestedHistoryUuid;
+            historyOverviewOpen = true;
+            const index = getFilteredHistoryItems().findIndex((item) => item.uuid === requestedHistoryUuid);
+            currentHistoryPage = Math.floor(index / historyPageSize) + 1;
+            requestedHistoryUuid = '';
+            if (isCompactHistoryDrawer()) {
+                focusHistoryDrawerControl('#close-detail');
+            }
+        }
         const filteredItems = getFilteredHistoryItems();
         const totalPages = getHistoryTotalPages(filteredItems.length);
         currentHistoryPage = clampHistoryPage(currentHistoryPage, totalPages);
@@ -790,7 +805,7 @@ $(function () {
                 || item.status === historyPrefs.status
                 || (historyPrefs.status === 'failed' && failedStatuses.indexOf(item.status) >= 0);
             const typeMatches = historyPrefs.type === 'all' || item.download_type === historyPrefs.type;
-            const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''} ${getMetadataStatusText(item)}`.toLowerCase();
+            const searchTarget = `${item.title || ''} ${item.channel || ''} ${item.filename || ''} ${item.relative_path || ''} ${getMetadataStatusText(item)}`.toLowerCase();
             const searchMatches = !searchText || searchTarget.indexOf(searchText) >= 0;
             return statusMatches && typeMatches && searchMatches;
         });
@@ -943,8 +958,7 @@ $(function () {
     }
 
     function getSafeThumbnailUrl(value) {
-        const thumbnail = String(value || '').trim();
-        return /^https?:\/\//i.test(thumbnail) || /^\/static\/thumbnail\//.test(thumbnail) ? thumbnail : '';
+        return window.YDLNAS_MEDIA_UI.safeThumbnailUrl(value);
     }
 
     function bindHistoryGridImages() {
@@ -1000,11 +1014,11 @@ $(function () {
     }
 
     function getDownloadHref(item) {
-        return `/static/downfolder/${encodeURIComponent(item.uuid)}`;
+        return window.YDLNAS_MEDIA_UI.fileHref(item, false);
     }
 
     function getPreviewHref(item) {
-        return `/static/preview/${encodeURIComponent(item.uuid)}`;
+        return window.YDLNAS_MEDIA_UI.fileHref(item, true);
     }
 
     function isMountedFile(item) {
@@ -1382,6 +1396,7 @@ $(function () {
                     ${renderDetailField(translate('detail.resolution'), getResolutionText(item.resolution), 'resolution')}
                     ${renderDetailField(translate('detail.size'), formatFileSize(item), 'size')}
                     ${renderDetailField(translate('detail.filename'), item.filename || translate('detail.no_file'), 'filename')}
+                    ${item.relative_path ? renderDetailField(translate('collections.relative_path'), item.relative_path, 'relative-path') : ''}
                     ${item.thumbnail_file_exists ? renderDetailField(translate('detail.thumbnail_file'), item.thumbnail_file, 'thumbnail-file') : ''}
                     ${renderDetailField(translate('detail.source'), sourceText, 'source')}
                     ${renderDetailField(translate('detail.metadata'), metadataText, 'metadata')}
@@ -1417,27 +1432,7 @@ $(function () {
     }
 
     function trapHistoryDrawerFocus(event) {
-        const drawer = document.getElementById('history-detail-drawer');
-        if (!drawer) {
-            return;
-        }
-        const focusable = Array.prototype.filter.call(
-            drawer.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
-            function(element) { return element.offsetParent !== null; }
-        );
-        if (!focusable.length) {
-            return;
-        }
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const focusOutside = !drawer.contains(document.activeElement);
-        if (event.shiftKey && (document.activeElement === first || focusOutside)) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && (document.activeElement === last || focusOutside)) {
-            event.preventDefault();
-            first.focus();
-        }
+        window.YDLNAS_MEDIA_UI.trapFocus(event, document.getElementById('history-detail-drawer'));
     }
 
     function applyInsightsFilter(type, status) {
@@ -1488,30 +1483,7 @@ $(function () {
     }
 
     function formatBytes(sizeValue) {
-        const size = Number(sizeValue || 0);
-        if (!Number.isFinite(size) || size <= 0) {
-            return '0 B';
-        }
-
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let value = size;
-        let unitIndex = 0;
-        while (value >= 1024 && unitIndex < units.length - 1) {
-            value = value / 1024;
-            unitIndex++;
-        }
-
-        const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
-        let formattedValue = value.toFixed(precision);
-        try {
-            formattedValue = new Intl.NumberFormat(appLocale(), {
-                minimumFractionDigits: precision,
-                maximumFractionDigits: precision
-            }).format(value);
-        } catch (error) {
-            // Keep the stable numeric fallback above.
-        }
-        return `${formattedValue} ${units[unitIndex]}`;
+        return window.YDLNAS_MEDIA_UI.formatBytes(sizeValue, appLocale());
     }
 
     function formatFileSize(item) {
@@ -1607,15 +1579,7 @@ $(function () {
     }
 
     function escapeHtml(value) {
-        return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function(char) {
-            return {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[char];
-        });
+        return window.YDLNAS_MEDIA_UI.escapeHtml(value);
     }
 
     function escapeAttr(value) {
@@ -2398,45 +2362,13 @@ $(function () {
     }
 
     function closeMediaPreview() {
-        const modal = $('.media-preview-modal');
-        modal.find('video, audio').each(function() {
-            this.pause();
-            this.removeAttribute('src');
-            this.load();
-        });
-        modal.remove();
+        window.YDLNAS_MEDIA_UI.closePreview();
     }
 
     function showMediaPreview(item) {
-        if (!item || !item.file_exists || (item.download_type !== 'video' && item.download_type !== 'audio')) {
+        if (!window.YDLNAS_MEDIA_UI.openPreview(item, translate)) {
             addMessage(translate('preview.unavailable'), 'warning');
-            return;
         }
-
-        closeMediaPreview();
-        const title = item.title || item.filename || translate('preview.media');
-        const source = escapeAttr(getPreviewHref(item));
-        const player = item.download_type === 'audio' ?
-            `<div class="media-preview-audio-art"><span class="glyphicon glyphicon-music" aria-hidden="true"></span></div><audio controls autoplay preload="metadata" src="${source}"></audio>` :
-            `<video controls autoplay playsinline preload="metadata" src="${source}"></video>`;
-        const modal = $(`
-            <div class="media-preview-modal" role="dialog" aria-modal="true" aria-labelledby="media-preview-title">
-                <div class="media-preview-content">
-                    <header class="media-preview-header">
-                        <div>
-                            <span>${escapeHtml(translate('preview.heading'))}</span>
-                            <h2 id="media-preview-title">${escapeHtml(title)}</h2>
-                        </div>
-                        <button type="button" class="media-preview-close" title="${escapeAttr(translate('preview.close'))}" aria-label="${escapeAttr(translate('preview.close'))}">
-                            <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
-                        </button>
-                    </header>
-                    <div class="media-preview-player">${player}</div>
-                </div>
-            </div>
-        `);
-        $('body').append(modal);
-        modal.find('.media-preview-close').focus();
     }
 
     function closeSubtitleQa() {
@@ -3147,6 +3079,9 @@ $(function () {
     });
 
     $(document).on("keydown", function(event) {
+        if (document.querySelector('.media-preview-dialog[open]')) {
+            return;
+        }
         if (event.key === 'Tab' && $('body').hasClass('history-drawer-open')) {
             trapHistoryDrawerFocus(event);
         } else if (event.key === 'Escape' && $('.media-preview-modal').length) {

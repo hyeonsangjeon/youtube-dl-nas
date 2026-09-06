@@ -37,4 +37,15 @@ The project board is the source of truth for priority, status, and target releas
 - Persist preflight state and resolved metadata in the database-free queue across container restarts.
 - Localize checking, countdown, undo, warning, and duplicate receipt states in English, Korean, Simplified Chinese, and Polish.
 
+## Shipped In 26.0906
+
+- Add safe nested collection folders, shared file memberships, date-aware preview and idempotent batch approval.
+- Integrate authenticated MCP on the existing public port with named, revocable connection tokens.
+- Harmonize Downloads, Collections, and AI Connect across desktop, mobile, and four languages.
+- Propagate fatal worker persistence failures to supervised process restart, and retain memberships across Retry and redownload.
+- Run image smoke and same-platform footprint checks before image publication.
+
+The six primary native-client end-to-end certification remains open. Shipping
+the implementation does not mark that remaining roadmap work complete.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).

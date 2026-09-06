@@ -55,7 +55,7 @@ def stable_public_source_network(monkeypatch):
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0830"
+    assert health.json["version"] == "26.0906"
     assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")
@@ -1579,6 +1579,7 @@ def test_completed_process_wins_over_late_cancel_request():
          patch.object(server, "fetch_media_metadata", return_value={"title": "Completed item"}), \
          patch.object(server, "find_existing_download", return_value=None), \
          patch.object(server, "build_youtube_dl_cmd", return_value=["yt-dlp"]), \
+         patch.object(server, "prepare_transfer_directory"), \
          patch.object(server, "build_completed_history_item", return_value={"status": "completed"}), \
          patch.object(server.subprocess, "Popen", return_value=FakeProcess()):
         server.download(job)

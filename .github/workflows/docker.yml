@@ -8,6 +8,10 @@ on:
       - "Auth.json"
       - "requirements.txt"
       - "run.sh"
+      - "runtime.py"
+      - "mcp_server.py"
+      - "nginx.conf.template"
+      - "collections_backend.py"
       - "subber"
       - "upd_schedule.py"
       - "i18n.py"
@@ -27,6 +31,10 @@ on:
       - "Auth.json"
       - "requirements.txt"
       - "run.sh"
+      - "runtime.py"
+      - "mcp_server.py"
+      - "nginx.conf.template"
+      - "collections_backend.py"
       - "subber"
       - "upd_schedule.py"
       - "i18n.py"
@@ -36,10 +44,16 @@ on:
       - "static/**"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
+    inputs:
+      smoke_only:
+        description: "Run container and footprint checks without publishing images"
+        type: boolean
+        default: true
 
 env:
   DOCKERHUB_IMAGE: modenaf360/youtube-dl-nas
   GHCR_IMAGE: ghcr.io/hyeonsangjeon/youtube-dl-nas
+  BASELINE_IMAGE: modenaf360/youtube-dl-nas:26.0830
 
 jobs:
   smoke:
@@ -68,37 +82,223 @@ jobs:
 
       - name: Start container and verify runtime
         run: |
-          mkdir -p "$RUNNER_TEMP/ydlnas-downloads" "$RUNNER_TEMP/ydlnas-state"
+          mkdir -p .ci-runtime-smoke/downloads .ci-runtime-smoke/state
           docker run -d --name youtube-dl-nas-smoke \
             -p 127.0.0.1:18080:8080 \
             -e MY_ID=smoke \
             -e MY_PW=smoke-password \
+            -e YDLNAS_API_TOKEN=smoke-compatibility-token \
             -e TERMS_ACCEPTED=Y \
+            -e PUID=1000 \
+            -e PGID=1000 \
             -e YTDLP_AUTO_UPDATE=false \
             -e NLPTUTTI_AUTO_UPDATE=false \
-            -v "$RUNNER_TEMP/ydlnas-downloads:/downfolder" \
-            -v "$RUNNER_TEMP/ydlnas-state:/usr/src/app/metadata" \
+            -v "$PWD/.ci-runtime-smoke/downloads:/downfolder" \
+            -v "$PWD/.ci-runtime-smoke/state:/usr/src/app/metadata" \
             youtube-dl-nas:smoke
 
+          ready=false
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:18080/health > "$RUNNER_TEMP/health.json"; then
+            if curl --fail --silent --show-error http://127.0.0.1:18080/health > .ci-runtime-smoke/health.json \
+              && curl --fail --silent --show-error http://127.0.0.1:18080/youtube-dl/mcp/health > .ci-runtime-smoke/mcp-health.json; then
+              ready=true
               break
             fi
             sleep 2
           done
+          test "$ready" = true
 
           python - <<'PY'
           import json
-          import os
 
-          path = os.path.join(os.environ["RUNNER_TEMP"], "health.json")
-          with open(path, encoding="utf-8") as health_file:
+          with open(".ci-runtime-smoke/health.json", encoding="utf-8") as health_file:
               health = json.load(health_file)
           assert health["status"] == "ok", health
           assert health["app"] == "youtube-dl-nas", health
           assert health["storage"]["state"] in {"ok", "warning", "critical"}, health
+          with open(".ci-runtime-smoke/mcp-health.json", encoding="utf-8") as health_file:
+              assert json.load(health_file) == {"status": "ok"}
           PY
           curl --fail --silent --show-error --location --output /dev/null http://127.0.0.1:18080/
+          curl --fail --silent --show-error --output /dev/null http://127.0.0.1:18080/manifest.webmanifest
+          docker exec youtube-dl-nas-smoke python /usr/src/app/runtime.py --healthcheck
+          docker exec youtube-dl-nas-smoke nginx -t -c /usr/src/app/.runtime/nginx.conf -p /usr/src/app/.runtime
+
+      - name: Verify SDK transport, revocation, loopback listeners and WebSocket upgrade
+        run: |
+          docker exec -i youtube-dl-nas-smoke python - <<'PY'
+          import asyncio
+          import base64
+          import os
+          import socket
+          from datetime import timedelta
+          from pathlib import Path
+
+          import httpx
+          from mcp import ClientSession
+          from mcp.client.streamable_http import streamable_http_client
+
+          base = "http://127.0.0.1:8080"
+          endpoint = base + "/youtube-dl/mcp"
+          api = "/youtube-dl/api/v1"
+
+          async def check():
+              async with httpx.AsyncClient(base_url=base, trust_env=False, timeout=5) as dashboard:
+                  login = await dashboard.post("/login", data={"id": "smoke", "myPw": "smoke-password"})
+                  assert login.status_code in (302, 303)
+                  assert (await dashboard.get(endpoint)).status_code == 401
+                  issued = await dashboard.post(
+                      api + "/connections", json={"name": "Docker smoke"},
+                      headers={"X-Forwarded-Proto": "https", "Origin": "https://127.0.0.1:8080"},
+                  )
+                  issued.raise_for_status()
+                  connection = issued.json()
+                  token = connection["token"]
+                  async with httpx.AsyncClient(
+                      trust_env=False, timeout=5, headers={"Authorization": "Bearer " + token}
+                  ) as client:
+                      async with streamable_http_client(endpoint, http_client=client) as (reader, writer, session_id):
+                          async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=5)) as session:
+                              await session.initialize()
+                              assert session_id() is None
+                              tools = {tool.name for tool in (await session.list_tools()).tools}
+                              assert {"get_capabilities", "list_library", "preview_collection", "commit_collection"} <= tools
+                              result = await session.call_tool("get_capabilities")
+                              assert result.structuredContent["api_version"] == "1"
+                              assert not (await session.call_tool("list_collections")).isError
+                      revoked = await dashboard.delete(api + "/connections/" + connection["connection"]["id"])
+                      revoked.raise_for_status()
+                      notification = await client.post(endpoint, json={
+                          "jsonrpc": "2.0", "method": "notifications/initialized",
+                      }, headers={"Accept": "application/json, text/event-stream"})
+                      assert notification.status_code == 401
+                      client.headers["Authorization"] = "Bearer " + os.environ["YDLNAS_API_TOKEN"]
+                      async with streamable_http_client(endpoint, http_client=client) as (reader, writer, _):
+                          async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=5)) as session:
+                              await session.initialize()
+                              assert not (await session.call_tool("get_downloads")).isError
+                  cookies = "; ".join(f"{cookie.name}={cookie.value}" for cookie in dashboard.cookies.jar)
+                  with socket.create_connection(("127.0.0.1", 8080), timeout=3) as ws:
+                      key = base64.b64encode(os.urandom(16)).decode()
+                      request = (
+                          "GET /websocket HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n"
+                          "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                          f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
+                          f"Cookie: {cookies}\r\n\r\n"
+                      )
+                      ws.sendall(request.encode())
+                      assert ws.recv(4096).split(b"\r\n", 1)[0].split()[1] == b"101"
+
+          asyncio.run(asyncio.wait_for(check(), timeout=45))
+          listeners = set()
+          for line in Path("/proc/net/tcp").read_text().splitlines()[1:]:
+              fields = line.split()
+              if fields[3] == "0A":
+                  address, port = fields[1].split(":")
+                  listeners.add((address, int(port, 16)))
+          assert ("00000000", 8080) in listeners, listeners
+          assert ("0100007F", 8081) in listeners, listeners
+          assert ("0100007F", 8082) in listeners, listeners
+          assert ("00000000", 8081) not in listeners and ("00000000", 8082) not in listeners
+          PY
+
+      - name: Compare image size and idle RSS with the previous release
+        run: |
+          docker pull --platform linux/amd64 "$BASELINE_IMAGE"
+          mkdir -p .ci-runtime-smoke/baseline-downloads .ci-runtime-smoke/baseline-state
+          docker run -d --name youtube-dl-nas-baseline --network none \
+            -e MY_ID=smoke -e MY_PW=smoke-password -e TERMS_ACCEPTED=Y \
+            -e PUID=1000 -e PGID=1000 \
+            -e YTDLP_AUTO_UPDATE=false -e NLPTUTTI_AUTO_UPDATE=false \
+            -v "$PWD/.ci-runtime-smoke/baseline-downloads:/downfolder" \
+            -v "$PWD/.ci-runtime-smoke/baseline-state:/usr/src/app/metadata" \
+            "$BASELINE_IMAGE"
+          ready=false
+          for attempt in $(seq 1 20); do
+            if docker exec youtube-dl-nas-baseline python -c \
+              'import json, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=2))["status"] == "ok"'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          export BASELINE_IMAGE_BYTES="$(docker image inspect "$BASELINE_IMAGE" --format '{{.Size}}')"
+          export CANDIDATE_IMAGE_BYTES="$(docker image inspect youtube-dl-nas:smoke --format '{{.Size}}')"
+          for sample in 1 2 3; do
+            docker exec -i youtube-dl-nas-baseline python < tests/fixtures/container_rss.py \
+              >> .ci-runtime-smoke/baseline-rss.txt
+            docker exec -i youtube-dl-nas-smoke python < tests/fixtures/container_rss.py \
+              >> .ci-runtime-smoke/candidate-rss.txt
+            sleep 1
+          done
+          python - <<'PY'
+          import json
+          import os
+          import statistics
+          from pathlib import Path
+
+          root = Path(".ci-runtime-smoke")
+          def median_rss(name):
+              return int(statistics.median(int(line) for line in (root / name).read_text().splitlines()))
+          report = {
+              "platform": "linux/amd64",
+              "baseline_image": os.environ["BASELINE_IMAGE"],
+              "baseline_image_bytes": int(os.environ["BASELINE_IMAGE_BYTES"]),
+              "candidate_image_bytes": int(os.environ["CANDIDATE_IMAGE_BYTES"]),
+              "baseline_idle_rss_bytes": median_rss("baseline-rss.txt"),
+              "candidate_idle_rss_bytes": median_rss("candidate-rss.txt"),
+              "rss_method": "Median of three sums of /proc process VmRSS, excluding the measurement process; startup updaters disabled in both containers.",
+          }
+          report["image_delta_bytes"] = report["candidate_image_bytes"] - report["baseline_image_bytes"]
+          report["idle_rss_delta_bytes"] = report["candidate_idle_rss_bytes"] - report["baseline_idle_rss_bytes"]
+          report["within_budget"] = report["image_delta_bytes"] <= 100_000_000 and report["idle_rss_delta_bytes"] <= 75_000_000
+          (root / "footprint.json").write_text(json.dumps(report, indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("## Container footprint (linux/amd64)\n\n")
+              summary.write("| Metric | Previous release | Candidate | Delta |\n|---|---:|---:|---:|\n")
+              for label, baseline, candidate, delta in (
+                  ("Image bytes", "baseline_image_bytes", "candidate_image_bytes", "image_delta_bytes"),
+                  ("Idle RSS bytes", "baseline_idle_rss_bytes", "candidate_idle_rss_bytes", "idle_rss_delta_bytes"),
+              ):
+                  summary.write(f"| {label} | {report[baseline]:,} | {report[candidate]:,} | {report[delta]:+,} |\n")
+              summary.write("\n" + report["rss_method"] + "\n")
+          assert report["within_budget"], "Review required: image growth exceeds 100 MB or idle RSS growth exceeds 75 MB"
+          PY
+
+      - name: Preserve runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-evidence
+          path: |
+            .ci-runtime-smoke/health.json
+            .ci-runtime-smoke/mcp-health.json
+            .ci-runtime-smoke/footprint.json
+          if-no-files-found: warn
+
+      - name: Verify core failure stops the container unsuccessfully
+        run: |
+          docker exec -i youtube-dl-nas-smoke python - <<'PY'
+          import os
+          import signal
+          from pathlib import Path
+
+          for process in Path("/proc").iterdir():
+              if not process.name.isdigit() or int(process.name) == os.getpid():
+                  continue
+              try:
+                  command = (process / "cmdline").read_bytes().split(b"\0")
+              except OSError:
+                  continue
+              if any(argument.endswith(b"/mcp_server.py") for argument in command):
+                  os.kill(int(process.name), signal.SIGTERM)
+                  break
+          else:
+              raise AssertionError("MCP core process is missing")
+          PY
+          status=$(timeout 20 docker wait youtube-dl-nas-smoke)
+          test "$status" -ne 0
 
       - name: Show container logs on failure
         if: failure()
@@ -106,11 +306,12 @@ jobs:
 
       - name: Remove smoke container
         if: always()
-        run: docker rm -f youtube-dl-nas-smoke >/dev/null 2>&1 || true
+        run: docker rm -f youtube-dl-nas-smoke youtube-dl-nas-baseline >/dev/null 2>&1 || true
 
   docker:
     name: Build Docker image
     needs: smoke
+    if: github.event_name != 'workflow_dispatch' || !inputs.smoke_only
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

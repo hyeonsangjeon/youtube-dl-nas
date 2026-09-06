@@ -18,6 +18,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
         gosu \
+        nginx \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -44,6 +45,6 @@ EXPOSE 8080
 VOLUME ["/downfolder", "/usr/src/app/metadata"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import os, urllib.request; port=os.environ.get('APP_PORT') or '8080'; urllib.request.urlopen('http://127.0.0.1:' + port + '/health', timeout=3)" || exit 1
+    CMD python /usr/src/app/runtime.py --healthcheck
 
 CMD ["/bin/bash", "/run.sh"]

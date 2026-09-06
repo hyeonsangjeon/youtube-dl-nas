@@ -3,7 +3,7 @@ import subprocess
 import html
 import ipaddress
 import math
-from queue import Queue
+from queue import Empty, Queue
 import re
 import shutil
 import signal
@@ -15,9 +15,11 @@ import shlex
 from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
-from bottle import run, Bottle, request, static_file, response, route, post, redirect, template, get, abort, HTTPError
-from threading import Event, Lock, Thread
-from bottle_websocket import GeventWebSocketServer
+from contextvars import ContextVar
+from functools import wraps
+from bottle import run, Bottle, LocalRequest, LocalResponse, request, static_file, response, route, post, redirect, template, get, abort, HTTPError, HTTPResponse
+from threading import Event, Lock, RLock, Thread, get_ident
+from bottle_websocket import DownloadWorkerFailed, GeventWebSocketServer
 from bottle_websocket import websocket
 from socket import error
 from geventwebsocket.exceptions import WebSocketError
@@ -34,6 +36,15 @@ import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from collections_backend import (
+    APIError, CollectionService, ConnectionStore, COMMIT_TIMEOUT_SECONDS,
+    PLAN_TTL_SECONDS, PREVIEW_TIMEOUT_SECONDS, PREVIEW_WORK_TIMEOUT_SECONDS, StateError,
+    atomic_json_write, batch_limit, delete_media_file, ensure_media_directory,
+    is_direct_metadata, metadata_upload_date, nonblocking_auth_io, nonblocking_io,
+    normalize_date_policy, open_media_file,
+    policy_rejection, read_state, reject_client_paths, relative_media_path,
+    safe_media_path, valid_collection_target,
+)
 
 DOWNFOLDER_DIR = os.environ.get("DOWNLOAD_DIR", "./downfolder")
 STATE_DIR = os.path.abspath(os.environ.get("STATE_DIR", "./metadata"))
@@ -41,8 +52,10 @@ AUTH_FILE = os.environ.get("AUTH_FILE", "Auth.json")
 APP_STATE_FILE = os.path.join(STATE_DIR, "app_state.json")
 HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
+COLLECTIONS_STATE_FILE = os.path.join(STATE_DIR, "collections.json")
+CONNECTIONS_STATE_FILE = os.path.join(STATE_DIR, "connections.json")
 APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0830")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0906")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -85,10 +98,11 @@ YTDLP_ITEM_TEMPLATE = (
     '"uploader":%(uploader|"")j,"channel":%(channel|"")j,'
     '"thumbnail":%(thumbnail|"")j,"duration":%(duration|0)j,'
     '"id":%(id|"")j,"extractor_key":%(extractor_key|"")j,'
-    '"webpage_url":%(webpage_url|"")j,"original_url":%(original_url|"")j}'
+    '"webpage_url":%(webpage_url|"")j,"original_url":%(original_url|"")j,'
+    '"upload_date":%(upload_date|"")j}'
 )
 GENERIC_INSTAGRAM_TITLE_PATTERN = re.compile(r"^Video by .+$", re.IGNORECASE)
-QUEUE_STATE_VERSION = 4
+QUEUE_STATE_VERSION = 5
 PREFLIGHT_GRACE_SECONDS = 3.0
 PREFLIGHT_RECEIPT_TTL_SECONDS = 60.0
 QUEUE_JOB_STATES = {"queued", "checking", "ready", "downloading"}
@@ -196,6 +210,37 @@ ERROR_CODE_BY_MESSAGE = {
 REFERENCE_TOO_LARGE_PATTERN = re.compile(r"^Reference transcript exceeds (\d+) characters$")
 
 os.makedirs(STATE_DIR, exist_ok=True)
+auth_state_lock = RLock()
+
+
+def configure_request_context():
+    if getattr(LocalRequest, "_ydlnas_contextvars", False):
+        return
+
+    def context_property(name):
+        missing = object()
+        context = ContextVar(name, default=missing)
+
+        def get_value(_instance):
+            value = context.get()
+            if value is missing:
+                raise RuntimeError("Request context not initialized.")
+            return value
+
+        return property(get_value, lambda _instance, value: context.set(value), lambda _instance: context.set(missing))
+
+    # The vendored gevent adapter does not monkey-patch threading.local. Isolate
+    # HTTP greenlets without replacing the worker's native queues and locks.
+    LocalRequest.environ = context_property("ydlnas_request")
+    for name in ("_status_line", "_status_code", "_cookies", "_headers", "body"):
+        setattr(LocalResponse, name, context_property("ydlnas_response_" + name))
+    LocalRequest._ydlnas_contextvars = True
+    request.bind({})
+    response.bind()
+
+
+configure_request_context()
+
 
 def get_error_details(msg):
     code = ERROR_CODE_BY_MESSAGE.get(msg)
@@ -266,6 +311,10 @@ def sanitize_diagnostic_text(value):
         return "process timed out"
     text = ANSI_ESCAPE_PATTERN.sub("", str(value or "")).strip()
     text = DIAGNOSTIC_URL_PATTERN.sub("[url]", text)
+    text = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [redacted]", text)
+    text = re.sub(r"\bydlnas_[A-Za-z0-9_-]+", "[redacted]", text)
+    if API_TOKEN:
+        text = text.replace(API_TOKEN, "[redacted]")
     known_paths = {
         AUTH_FILE,
         DOWNFOLDER_DIR,
@@ -334,19 +383,26 @@ def load_json_file(path, default=None):
 
 
 def atomic_write_json(path, payload, ensure_ascii=False):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    temp_path = path + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as output_file:
-        json.dump(payload, output_file, indent=2, ensure_ascii=ensure_ascii)
-    os.replace(temp_path, path)
+    try:
+        atomic_json_write(path, payload, ensure_ascii=ensure_ascii)
+    except OSError as error:
+        raise StateError("Persistent state could not be saved") from error
 
+@nonblocking_auth_io
 def save_app_state(updates):
-    state = load_json_file(APP_STATE_FILE, {})
-    state.update(updates)
-    atomic_write_json(APP_STATE_FILE, state, ensure_ascii=True)
-    return state
+    with auth_state_lock:
+        state = load_json_file(APP_STATE_FILE, {})
+        state.update(updates)
+        atomic_write_json(APP_STATE_FILE, state, ensure_ascii=True)
+        return state
 
+@nonblocking_auth_io
 def load_auth_data():
+    with auth_state_lock:
+        return _load_auth_data()
+
+
+def _load_auth_data():
     data = load_json_file(AUTH_FILE, {})
     for key, value in list(data.items()):
         if isinstance(value, str) and re.fullmatch(r"\{\{[^{}]+\}\}", value.strip()):
@@ -776,6 +832,7 @@ def source_address_is_allowed(address):
     return parsed.is_global
 
 
+@nonblocking_io
 def resolve_source_addresses(hostname, port):
     try:
         records = socket.getaddrinfo(
@@ -901,15 +958,36 @@ def validate_download_request(url, resolution, resolve_source=True):
 
     return "Unsupported resolution"
 
-def get_actual_filename(item):
-    filename = item.get('filename') if isinstance(item, dict) else None
-    filepath = item.get('filepath') if isinstance(item, dict) else None
-
-    if filename and filename != "unknown":
-        return os.path.basename(filename)
-    if filepath and filepath != "unknown":
-        return os.path.basename(filepath)
+def output_relative_path(filepath):
+    if not isinstance(filepath, str) or not filepath or filepath == "unknown" or "\\" in filepath:
+        return ""
+    root = os.path.abspath(DOWNFOLDER_DIR)
+    candidate = os.path.abspath(filepath)
+    try:
+        if os.path.commonpath([root, candidate]) == root:
+            relative = os.path.relpath(candidate, root).replace(os.sep, "/")
+            return relative if safe_downfolder_path(relative) else ""
+    except ValueError:
+        return ""
+    if not os.path.isabs(filepath) and safe_downfolder_path(filepath):
+        return filepath
     return ""
+
+
+def get_relative_path(item):
+    if not isinstance(item, dict):
+        return ""
+    if "relative_path" in item:
+        return relative_media_path(item["relative_path"]) or ""
+    filename = item.get("filename")
+    if filename and filename != "unknown":
+        return relative_media_path(filename) or ""
+    return output_relative_path(item.get("filepath"))
+
+
+def get_actual_filename(item):
+    relative = get_relative_path(item)
+    return relative.rsplit("/", 1)[-1] if relative else ""
 
 
 def get_media_identity(metadata):
@@ -934,17 +1012,7 @@ def get_media_display_title(metadata, fallback):
 
 
 def safe_downfolder_path(filename):
-    if not filename:
-        return None
-
-    root = os.path.abspath(DOWNFOLDER_DIR)
-    candidate = os.path.abspath(os.path.join(root, os.path.basename(filename)))
-    try:
-        if os.path.commonpath([root, candidate]) != root:
-            return None
-    except ValueError:
-        return None
-    return candidate
+    return safe_media_path(DOWNFOLDER_DIR, filename)
 
 def get_nlptutti_version():
     try:
@@ -1081,17 +1149,21 @@ def build_mounted_file_item(filename):
     if not file_path or not os.path.isfile(file_path):
         return None
 
-    stat_result = os.stat(file_path)
+    try:
+        stat_result = os.stat(file_path)
+    except OSError:
+        return None
     return normalize_history_item({
         "uuid": get_mounted_file_uuid(filename),
         "timestamp": datetime.fromtimestamp(stat_result.st_mtime).isoformat(),
         "url": "",
         "resolution": "mounted",
-        "title": os.path.splitext(filename)[0] or filename,
+        "title": os.path.splitext(os.path.basename(filename))[0] or filename,
         "channel": "Mounted folder",
         "status": "file_only",
-        "filepath": os.path.join(DOWNFOLDER_DIR, filename),
-        "filename": filename,
+        "filepath": filename,
+        "relative_path": filename,
+        "filename": os.path.basename(filename),
         "progress": 100,
         "source": "mounted_folder",
         "metadata_status": "missing",
@@ -1099,30 +1171,32 @@ def build_mounted_file_item(filename):
     })
 
 def list_mounted_file_items():
-    if not os.path.isdir(DOWNFOLDER_DIR):
+    if not os.path.isdir(DOWNFOLDER_DIR) or os.path.islink(DOWNFOLDER_DIR):
         return []
 
     items = []
     try:
-        filenames = os.listdir(DOWNFOLDER_DIR)
-        media_stems = {
-            os.path.splitext(filename)[0].casefold()
-            for filename in filenames
-            if os.path.splitext(filename)[1].casefold() in VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
-        }
-        for filename in filenames:
-            if filename in SKIPPED_DOWNFOLDER_NAMES or filename.startswith("."):
-                continue
-            stem, extension = os.path.splitext(filename)
-            if extension.casefold() in THUMBNAIL_EXTENSIONS and stem.casefold() in media_stems:
-                continue
-            file_path = safe_downfolder_path(filename)
-            if not file_path or not os.path.isfile(file_path):
-                continue
-            item = build_mounted_file_item(filename)
-            if item:
-                items.append(item)
-    except Exception as e:
+        for directory, directories, filenames in os.walk(DOWNFOLDER_DIR, followlinks=False):
+            directories[:] = [
+                name for name in directories if not name.startswith(".")
+                and safe_downfolder_path(os.path.relpath(os.path.join(directory, name), DOWNFOLDER_DIR))
+            ]
+            media_stems = {
+                os.path.splitext(filename)[0].casefold()
+                for filename in filenames
+                if os.path.splitext(filename)[1].casefold() in VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
+            }
+            for filename in filenames:
+                if filename in SKIPPED_DOWNFOLDER_NAMES or filename.startswith("."):
+                    continue
+                stem, extension = os.path.splitext(filename)
+                if extension.casefold() in THUMBNAIL_EXTENSIONS and stem.casefold() in media_stems:
+                    continue
+                relative = os.path.relpath(os.path.join(directory, filename), DOWNFOLDER_DIR).replace(os.sep, "/")
+                item = build_mounted_file_item(relative)
+                if item:
+                    items.append(item)
+    except OSError as e:
         print(f"Failed to scan mounted folder files: {sanitize_diagnostic_text(e)}")
         return []
 
@@ -1141,18 +1215,35 @@ def normalize_history_item(item):
     if not item.get('timestamp'):
         item['timestamp'] = ""
 
+    relative_path = get_relative_path(item)
     filename = get_actual_filename(item)
-    file_path = safe_downfolder_path(filename)
+    file_path = safe_downfolder_path(relative_path)
     file_exists = bool(file_path and os.path.isfile(file_path))
-    file_size_bytes = os.path.getsize(file_path) if file_exists else 0
+    try:
+        file_size_bytes = os.path.getsize(file_path) if file_exists else 0
+    except OSError:
+        file_exists, file_size_bytes = False, 0
 
     item.setdefault('url', '')
     item.setdefault('resolution', '')
     item.setdefault('title', '')
     item.setdefault('channel', '')
     item.setdefault('thumbnail', '')
-    if not item.get('thumbnail_file'):
-        item['thumbnail_file'] = find_thumbnail_sidecar(filename)
+    thumbnail = item.get("thumbnail_relative_path") or item.get("thumbnail_file")
+    if thumbnail:
+        thumbnail = relative_media_path(thumbnail) or ""
+        if "/" not in thumbnail and "/" in relative_path:
+            thumbnail = relative_path.rsplit("/", 1)[0] + "/" + thumbnail
+        if (
+            os.path.splitext(thumbnail)[0] != os.path.splitext(relative_path)[0]
+            or os.path.splitext(thumbnail)[1].casefold() not in THUMBNAIL_EXTENSIONS
+            or not safe_downfolder_path(thumbnail)
+        ):
+            thumbnail = ""
+    else:
+        thumbnail = find_thumbnail_sidecar(relative_path)
+    item["thumbnail_file"] = thumbnail
+    item["thumbnail_relative_path"] = thumbnail
     item.setdefault('duration_seconds', 0)
     item.setdefault('media_id', '')
     item.setdefault('extractor', '')
@@ -1160,15 +1251,22 @@ def normalize_history_item(item):
     item.setdefault('section_start', 0)
     item.setdefault('status', 'unknown')
     item.setdefault('failure_code', '')
-    item.setdefault('filepath', '')
+    item["relative_path"] = relative_path
+    item["filepath"] = relative_path
     item.setdefault('source', 'history')
     item.setdefault('metadata_status', 'saved' if item.get('source') != 'mounted_folder' else 'missing')
     item['filename'] = filename
     item['file_exists'] = file_exists
     item['file_size_bytes'] = file_size_bytes
+    if relative_path and item["status"] in {"completed", "file_only", "missing"}:
+        item["status"] = ("file_only" if item.get("source") == "mounted_folder" else "completed") if file_exists else "missing"
     thumbnail_path = safe_downfolder_path(item.get('thumbnail_file'))
     item['thumbnail_file_exists'] = bool(thumbnail_path and os.path.isfile(thumbnail_path))
-    item['thumbnail_file_size_bytes'] = os.path.getsize(thumbnail_path) if item['thumbnail_file_exists'] else 0
+    try:
+        item['thumbnail_file_size_bytes'] = os.path.getsize(thumbnail_path) if item['thumbnail_file_exists'] else 0
+    except OSError:
+        item["thumbnail_file_exists"] = False
+        item["thumbnail_file_size_bytes"] = 0
     item['thumbnail_local_url'] = f"/static/thumbnail/{item['uuid']}" if item['thumbnail_file_exists'] else ""
     item['download_type'] = infer_download_type(item.get('resolution', ''), filename)
     item.setdefault('progress', 0)
@@ -1251,9 +1349,10 @@ def find_thumbnail_sidecar(filename):
     if extension.casefold() in THUMBNAIL_EXTENSIONS:
         return ""
     for thumbnail_extension in THUMBNAIL_EXTENSIONS:
-        candidate = stem + thumbnail_extension
-        if os.path.isfile(candidate):
-            return os.path.basename(candidate)
+        relative = os.path.splitext(filename)[0] + thumbnail_extension
+        candidate = safe_downfolder_path(relative)
+        if candidate and os.path.isfile(candidate):
+            return relative
     return ""
 
 
@@ -1269,6 +1368,8 @@ def normalize_queue_job(item, restored=False):
     else:
         return None
 
+    if any(key in job for key in ("filepath", "relative_path", "physical_path", "target_path", "target_directory")):
+        return None
     url = str(job.get("url") or "").strip()
     resolution = str(job.get("resolution") or "").strip()
     if validate_download_request(url, resolution, resolve_source=False):
@@ -1306,6 +1407,21 @@ def normalize_queue_job(item, restored=False):
     except (TypeError, ValueError):
         duration_seconds = 0
 
+    collection_id = job.get("collection_id") or ""
+    batch_id = job.get("batch_id") or ""
+    target_directory = job.get("target_relative_directory") or ""
+    try:
+        date_policy = normalize_date_policy(job.get("date_policy"))
+    except APIError:
+        return None
+    if collection_id or batch_id or target_directory or date_policy is not None:
+        if (
+            not valid_collection_target(collection_id, target_directory)
+            or not isinstance(batch_id, str) or not batch_id
+            or date_policy is None
+        ):
+            return None
+
     return {
         "id": job_id,
         "url": url,
@@ -1330,6 +1446,11 @@ def normalize_queue_job(item, restored=False):
         "media_id": str(job.get("media_id") or "").strip(),
         "extractor": str(job.get("extractor") or "").strip(),
         "preflight_warning": str(job.get("preflight_warning") or "").strip(),
+        "upload_date": metadata_upload_date(job),
+        "collection_id": collection_id,
+        "batch_id": batch_id,
+        "target_relative_directory": target_directory,
+        "date_policy": date_policy,
     }
 
 
@@ -1385,6 +1506,11 @@ def public_queue_job(job, position=None):
         "media_id": job["media_id"],
         "extractor": job["extractor"],
         "preflight_warning": job["preflight_warning"],
+        "upload_date": job["upload_date"],
+        "collection_id": job["collection_id"] or None,
+        "batch_id": job["batch_id"] or None,
+        "target_relative_directory": job["target_relative_directory"],
+        "date_policy": job["date_policy"],
     }
     if position is not None:
         public_job["position"] = position
@@ -1401,18 +1527,47 @@ def pending_queue_jobs():
 
 
 def persist_queue_state():
-    try:
-        with queue_state_lock:
-            active = normalize_queue_job(active_queue_job) if active_queue_job else None
-            pending = pending_queue_jobs()
-            atomic_write_json(QUEUE_STATE_FILE, {
-                "version": QUEUE_STATE_VERSION,
-                "updated_at": datetime.now().isoformat(),
-                "active": active,
-                "pending": pending,
-            })
-    except Exception as error:
-        print(f"Failed to save queue state: {sanitize_diagnostic_text(error)}")
+    with queue_state_lock:
+        active = normalize_queue_job(active_queue_job) if active_queue_job else None
+        write_queue_snapshot(active, pending_queue_jobs())
+
+
+def write_queue_snapshot(active, pending):
+    require_usable_queue()
+    atomic_write_json(QUEUE_STATE_FILE, {
+        "version": QUEUE_STATE_VERSION,
+        "updated_at": datetime.now().isoformat(),
+        "active": active,
+        "pending": pending,
+    })
+
+
+def apply_collection_queue_journal(jobs, terminal_job_ids=()):
+    with queue_operation_lock, queue_state_lock:
+        active = normalize_queue_job(active_queue_job) if active_queue_job else None
+        pending = pending_queue_jobs()
+        kept = [job for job in pending if job["id"] not in terminal_job_ids]
+        present = {job["id"] for job in kept}
+        if active:
+            present.add(active["id"])
+        additions = []
+        for item in jobs:
+            job = normalize_queue_job(item)
+            if not job:
+                raise StateError("Invalid reserved queue job")
+            if job["id"] not in present:
+                present.add(job["id"])
+                additions.append(job)
+        write_queue_snapshot(active, kept + additions)
+        with dl_q.mutex:
+            sentinels = [item for item in dl_q.queue if item is None]
+            dl_q.queue.clear()
+            dl_q.queue.extend(kept + additions + sentinels)
+            dl_q.unfinished_tasks = max(0, dl_q.unfinished_tasks - (len(pending) - len(kept))) + len(additions)
+            dl_q.not_empty.notify_all()
+            if dl_q.unfinished_tasks == 0:
+                dl_q.all_tasks_done.notify_all()
+            dl_q.not_full.notify_all()
 
 
 def load_persisted_queue():
@@ -1421,12 +1576,15 @@ def load_persisted_queue():
     with queue_state_lock:
         if queue_state_loaded:
             return queue_restore_count
-        queue_state_loaded = True
 
-    payload = load_json_file(QUEUE_STATE_FILE, {})
+    payload = read_state(QUEUE_STATE_FILE, {})
+    if not isinstance(payload, dict) or payload.get("version", 1) not in range(1, QUEUE_STATE_VERSION + 1):
+        raise StateError("Invalid queue state version")
+    if "pending" in payload and not isinstance(payload["pending"], list):
+        raise StateError("Invalid pending queue state")
     candidates = []
     if isinstance(payload, dict):
-        if payload.get("active"):
+        if payload.get("active") is not None:
             candidates.append(payload["active"])
         if isinstance(payload.get("pending"), list):
             candidates.extend(payload["pending"])
@@ -1435,17 +1593,17 @@ def load_persisted_queue():
     seen_job_ids = set()
     for item in candidates:
         job = normalize_queue_job(item, restored=True)
-        if not job or job["id"] in seen_job_ids:
+        if not job:
+            raise StateError("Invalid persisted queue job")
+        if job["id"] in seen_job_ids:
             continue
         seen_job_ids.add(job["id"])
         job["attempts"] += 1
         restored_jobs.append(job)
 
-    for job in restored_jobs:
-        dl_q.put(job)
-
+    apply_collection_queue_journal(restored_jobs)
     queue_restore_count = len(restored_jobs)
-    persist_queue_state()
+    queue_state_loaded = True
     if restored_jobs:
         print(f"Restored {len(restored_jobs)} queued download(s)")
     return queue_restore_count
@@ -1454,8 +1612,18 @@ def load_persisted_queue():
 def set_active_queue_job(job):
     global active_queue_job
     with queue_state_lock:
-        active_queue_job = normalize_queue_job(job)
-    persist_queue_state()
+        candidate = normalize_queue_job(job)
+        write_worker_queue_snapshot(candidate)
+        active_queue_job = candidate
+
+
+def write_worker_queue_snapshot(active):
+    try:
+        write_queue_snapshot(active, pending_queue_jobs())
+    except StateError:
+        # Latch the failure before releasing the state lock to other queue writers.
+        mark_worker_failed()
+        raise
 
 
 def begin_preflight(job):
@@ -1481,14 +1649,11 @@ def update_active_queue_job(job, **updates):
     if not candidate:
         return None
 
-    changed = False
     with queue_state_lock:
         active = normalize_queue_job(active_queue_job) if active_queue_job else None
         if active and active["id"] == candidate["id"]:
+            write_worker_queue_snapshot(candidate)
             active_queue_job = candidate
-            changed = True
-    if changed:
-        persist_queue_state()
     return candidate
 
 
@@ -1507,8 +1672,8 @@ def wait_for_preflight_window(job):
 def clear_active_queue_job():
     global active_queue_job
     with queue_state_lock:
+        write_worker_queue_snapshot(None)
         active_queue_job = None
-    persist_queue_state()
 
 
 def same_queue_request(first, second):
@@ -1516,8 +1681,13 @@ def same_queue_request(first, second):
     second = normalize_queue_job(second)
     if not first or not second:
         return False
+    known_media = bool(first["media_id"] and first["extractor"] and second["media_id"] and second["extractor"])
+    same_media = (
+        first["media_id"] == second["media_id"]
+        and first["extractor"].casefold() == second["extractor"].casefold()
+    ) if known_media else False
     return (
-        first["normalized_url"] == second["normalized_url"]
+        (same_media if known_media else first["normalized_url"] == second["normalized_url"])
         and first["resolution"] == second["resolution"]
         and first["playlist_mode"] == second["playlist_mode"]
         and first["write_thumbnail"] == second["write_thumbnail"]
@@ -1556,6 +1726,7 @@ def existing_download_summary(item):
         "uuid": item.get("uuid"),
         "title": item.get("title") or item.get("filename") or "Existing download",
         "filename": item.get("filename"),
+        "relative_path": item.get("relative_path"),
         "resolution": item.get("resolution"),
         "timestamp": item.get("timestamp"),
         "status": item.get("status"),
@@ -1570,6 +1741,10 @@ def existing_download_summary(item):
         "file_size_bytes": item.get("file_size_bytes"),
         "download_type": item.get("download_type"),
         "metadata_status": item.get("metadata_status"),
+        "media_id": item.get("media_id"),
+        "extractor": item.get("extractor"),
+        "upload_date": item.get("upload_date"),
+        "thumbnail_file": item.get("thumbnail_file"),
     }
 
 
@@ -1592,6 +1767,7 @@ def set_recent_preflight_receipt(existing, job):
     return receipt
 
 
+@nonblocking_io
 def get_recent_preflight_receipt():
     global recent_preflight_receipt
 
@@ -1610,15 +1786,17 @@ def find_existing_download(
     extractor="",
     require_thumbnail=False,
     section_mode="full",
+    items=None,
 ):
     normalized_url = normalize_media_url(url)
     requested_type = get_download_type(resolution)
     requested_section_mode = normalize_section_mode(section_mode) or "full"
     requested_section_start = extract_shared_timestamp(url) if requested_section_mode == "from_timestamp" else 0
-    items = download_manager.normalized_history() + list_mounted_file_items()
+    normalized_items = items is not None
+    items = items if normalized_items else download_manager.combined_history()
 
     for item in items:
-        item = normalize_history_item(item)
+        item = item if normalized_items else normalize_history_item(item)
         if not item.get("file_exists"):
             continue
         if require_thumbnail and not item.get("thumbnail_file_exists"):
@@ -1634,10 +1812,16 @@ def find_existing_download(
         mounted_type_matches = item_resolution == "mounted" and item_type == requested_type
         if not profile_matches and not mounted_type_matches:
             continue
+        if media_id and extractor and item.get("media_id") and item.get("extractor") and (
+            str(item["media_id"]) != str(media_id) or str(item["extractor"]).casefold() != str(extractor).casefold()
+        ):
+            continue
 
         item_url = normalize_media_url(item.get("url"))
         if normalized_url and item_url and normalized_url == item_url:
-            return existing_download_summary(item)
+            existing = existing_download_summary(item)
+            if existing["file_exists"]:
+                return existing
 
         if media_id and extractor:
             identity_matches = (
@@ -1648,13 +1832,24 @@ def find_existing_download(
                 item.get("filename"), media_id, extractor
             )
             if identity_matches or filename_matches:
-                return existing_download_summary(item)
+                existing = existing_download_summary(item)
+                if existing["file_exists"]:
+                    return existing
     return None
 
 
+@nonblocking_io
 def remove_queued_job(job_id):
     removed = None
     with queue_operation_lock:
+        candidate = next((job for job in pending_queue_jobs() if job["id"] == job_id), None)
+        if candidate:
+            collections_service.record_job_end(candidate, "canceled", "queue_removed")
+            with queue_state_lock:
+                write_queue_snapshot(
+                    normalize_queue_job(active_queue_job) if active_queue_job else None,
+                    [job for job in pending_queue_jobs() if job["id"] != job_id],
+                )
         with dl_q.mutex:
             kept = []
             for item in list(dl_q.queue):
@@ -1672,9 +1867,6 @@ def remove_queued_job(job_id):
                     dl_q.all_tasks_done.notify_all()
                 dl_q.not_full.notify_all()
 
-        if removed:
-            persist_queue_state()
-
     if removed:
         download_manager.broadcast_to_all_clients(
             f"[QUEUE_UPDATED], {json.dumps({'removed_job_id': job_id})}"
@@ -1683,13 +1875,49 @@ def remove_queued_job(job_id):
     return None
 
 
+def require_usable_queue():
+    if worker_failed_event.is_set():
+        raise StateError("Download worker failed; process restart is required")
+
+
+def mark_worker_failed():
+    already_failed = worker_failed_event.is_set()
+    worker_failed_event.set()
+    shutdown_event.set()
+    if not already_failed:
+        print("Download worker failed; stopping the web process for durable queue recovery", flush=True)
+
+
+def download_worker_thread():
+    try:
+        dl_worker()
+    except Exception:
+        # dl_worker has latched the failure; the web server must exit, not this thread alone.
+        mark_worker_failed()
+        return
+    if not shutdown_event.is_set():
+        mark_worker_failed()
+
+
 def start_download_thread_if_needed():
     global download_thread
-    if download_thread is None or not download_thread.is_alive():
-        download_thread = Thread(target=dl_worker, name="download-worker", daemon=True)
-        download_thread.start()
+    with download_thread_lock:
+        require_usable_queue()
+        if shutdown_event.is_set():
+            raise StateError("Download service is stopping")
+        if download_thread is not None and not download_thread.is_alive():
+            mark_worker_failed()
+            require_usable_queue()
+        if download_thread is None:
+            download_thread = Thread(target=download_worker_thread, name="download-worker", daemon=True)
+            try:
+                download_thread.start()
+            except RuntimeError as error:
+                mark_worker_failed()
+                raise StateError("Download worker could not start") from error
 
 
+@nonblocking_io
 def enqueue_download(
     url,
     resolution,
@@ -1699,6 +1927,7 @@ def enqueue_download(
     playlist_mode="single",
     write_thumbnail=False,
     section_mode="full",
+    _collection_context=None,
 ):
     job = create_queue_job(
         url,
@@ -1713,9 +1942,22 @@ def enqueue_download(
         raise ValueError("Invalid download request")
 
     with queue_operation_lock:
+        require_usable_queue()
+        if shutdown_event.is_set():
+            raise StateError("Download service is stopping")
+        if _collection_context:
+            job = normalize_queue_job({
+                **job,
+                **{key: _collection_context[key] for key in ("collection_id", "batch_id", "target_relative_directory", "date_policy")},
+                **{key: value for key, value in (_collection_context.get("request") or {}).items() if key in {"media_id", "extractor"}},
+            })
+            if not job:
+                raise APIError("unsafe_path")
         if not force:
             duplicate_job = find_queued_duplicate(job)
             if duplicate_job:
+                if _collection_context:
+                    collections_service.bind_retry_to_job(_collection_context, duplicate_job["id"])
                 return {
                     "queued": False,
                     "duplicate": True,
@@ -1724,7 +1966,7 @@ def enqueue_download(
                 }
 
             existing = None
-            if job["playlist_mode"] == "single":
+            if job["playlist_mode"] == "single" and not _collection_context:
                 existing = find_existing_download(
                     job["url"],
                     job["resolution"],
@@ -1752,8 +1994,14 @@ def enqueue_download(
             }
 
         queue_position = dl_q.qsize() + 1
+        if _collection_context:
+            collections_service.reserve_retry(job, _collection_context)
+        with queue_state_lock:
+            write_queue_snapshot(
+                normalize_queue_job(active_queue_job) if active_queue_job else None,
+                pending_queue_jobs() + [job],
+            )
         dl_q.put(job)
-        persist_queue_state()
 
     start_download_thread_if_needed()
     download_manager.broadcast_to_all_clients(
@@ -1766,6 +2014,7 @@ def enqueue_download(
         "queue_count": queue_position,
     }
 
+@nonblocking_io
 def get_queued_downloads():
     queued_items = []
     for position, job in enumerate(pending_queue_jobs(), start=1):
@@ -1845,9 +2094,11 @@ def build_queue_receipt(result, profile, client=""):
 # single use global download manager
 class GlobalDownloadManager:
     def __init__(self):
+        self.history_lock = RLock()
         self.current_download = None  # presently active download information
         self.download_history = []  # history of download info
         self.connected_clients = set() #every websocket clients
+        self.client_hubs = {}
         self.is_downloading = False
         self.process_lock = Lock()
         self.active_process = None
@@ -1856,46 +2107,65 @@ class GlobalDownloadManager:
         self.history_file = HISTORY_FILE
         self.load_history()
     
+    @nonblocking_io
     def load_history(self):
-        """Load saved history"""        
-        if os.path.exists(self.history_file):
-            try:
-                with open(self.history_file, 'r', encoding='utf-8') as f:
-                    self.download_history = json.load(f)
-                if not isinstance(self.download_history, list):
-                    self.download_history = []
-                print(f"Loaded {len(self.download_history)} history items")
-            except Exception as e:
-                print(f"Failed to load history: {sanitize_diagnostic_text(e)}")
-                self.download_history = []
+        with self.history_lock:
+            history = read_state(self.history_file, [])
+            if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+                raise StateError("Invalid download history")
+            upgraded = False
+            for item in history:
+                if "relative_path" not in item:
+                    item["relative_path"] = get_relative_path(item)
+                    upgraded = True
+                if item.get("filepath") and item["filepath"] != item["relative_path"]:
+                    item["filepath"] = item["relative_path"]
+                    upgraded = True
+            if upgraded:
+                atomic_write_json(self.history_file, history)
+            self.download_history = history
     
-    def save_history(self):        
+    @nonblocking_io
+    def save_history(self):
         """Save history to file"""
-        try:
+        with self.history_lock:
             atomic_write_json(self.history_file, self.download_history)
-        except Exception as e:
-            print(f"Failed to save history: {sanitize_diagnostic_text(e)}")
     
+    @nonblocking_io
     def clear_all_history(self):
         """Clear all history"""
-        self.download_history = []
-        self.save_history()
+        with queue_operation_lock:
+            if self is download_manager:
+                collections_service.observe_history(self.normalized_history())
+            with self.history_lock:
+                previous = self.download_history
+                self.download_history = []
+                try:
+                    self.save_history()
+                except (OSError, StateError):
+                    self.download_history = previous
+                    raise
         self.broadcast_to_all_clients("[HISTORY_CLEARED], all")
         return True
     
+    @nonblocking_io
     def delete_history_item(self, uuid):
         """Delete a history item with a specific UUID"""
-        try:
-            original_len = len(self.download_history)
-            self.download_history = [item for item in self.download_history if item.get('uuid') != uuid]
-            if len(self.download_history) == original_len:
-                return False
-            self.save_history()
-            self.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
-            return True
-        except Exception as e:
-            print(f"Failed to delete history item: {sanitize_diagnostic_text(e)}")
-            return False
+        with queue_operation_lock:
+            if self is download_manager:
+                collections_service.observe_history(self.normalized_history())
+            with self.history_lock:
+                previous = self.download_history
+                self.download_history = [item for item in previous if item.get('uuid') != uuid]
+                if len(self.download_history) == len(previous):
+                    return False
+                try:
+                    self.save_history()
+                except (OSError, StateError):
+                    self.download_history = previous
+                    raise
+        self.broadcast_to_all_clients(f"[HISTORY_DELETED], {uuid}")
+        return True
 
     def get_history_item(self, uuid):
         for item in self.download_history:
@@ -1903,27 +2173,48 @@ class GlobalDownloadManager:
                 return item
         return None
 
+    @nonblocking_io
     def normalized_history(self):
-        return [normalize_history_item(item) for item in self.download_history]
+        with self.history_lock:
+            return [normalize_history_item(item) for item in self.download_history]
 
+    @nonblocking_io
     def combined_history(self):
         normalized_history = self.normalized_history()
+        known_ids = {item["uuid"] for item in normalized_history}
+        known_paths = {item["relative_path"] for item in normalized_history if item["relative_path"]}
+        service = globals().get("collections_service")
+        if service and self is download_manager:
+            for snapshot in service.media_snapshots():
+                item = normalize_history_item(snapshot)
+                if item["uuid"] in known_ids or (item["relative_path"] and item["relative_path"] in known_paths):
+                    continue
+                normalized_history.append(item)
+                known_ids.add(item["uuid"])
+                if item["relative_path"]:
+                    known_paths.add(item["relative_path"])
         history_filenames = {
-            item.get('filename')
+            item.get('relative_path')
             for item in normalized_history
-            if item.get('filename')
+            if item.get('relative_path')
         }
         mounted_files = [
             item
             for item in list_mounted_file_items()
-            if item.get('filename') not in history_filenames
+            if item.get('relative_path') not in history_filenames
         ]
         return normalized_history + mounted_files
 
+    @nonblocking_io
     def get_combined_history_item(self, item_uuid):
         for item in self.normalized_history():
             if item.get('uuid') == item_uuid:
                 return item
+        service = globals().get("collections_service")
+        if service and self is download_manager:
+            for item in service.media_snapshots():
+                if item.get("uuid") == item_uuid:
+                    return normalize_history_item(item)
         return get_mounted_file_item(item_uuid)
     
     def set_current_download(self, download_info):
@@ -2050,9 +2341,7 @@ class GlobalDownloadManager:
         if not candidate.get("file_exists"):
             return None
 
-        candidate_filename = str(candidate.get("filename") or "").casefold()
-        candidate_media_id = str(candidate.get("media_id") or "")
-        candidate_extractor = str(candidate.get("extractor") or "").casefold()
+        candidate_filename = str(candidate.get("relative_path") or "")
         for index, existing in enumerate(self.download_history):
             existing = normalize_history_item(existing)
             if not existing.get("file_exists"):
@@ -2060,22 +2349,26 @@ class GlobalDownloadManager:
 
             same_file = bool(
                 candidate_filename
-                and candidate_filename == str(existing.get("filename") or "").casefold()
+                and candidate_filename == str(existing.get("relative_path") or "")
             )
-            same_media = bool(
-                candidate_media_id
-                and candidate_extractor
-                and candidate_media_id == str(existing.get("media_id") or "")
-                and candidate_extractor == str(existing.get("extractor") or "").casefold()
-                and candidate.get("resolution") == existing.get("resolution")
-                and candidate.get("section_mode") == existing.get("section_mode")
-                and int(candidate.get("section_start") or 0) == int(existing.get("section_start") or 0)
-            )
-            if same_file or same_media:
+            if same_file:
                 return index
         return None
 
     def complete_downloads(self, completion_items):
+        with queue_operation_lock:
+            with self.history_lock:
+                previous = list(self.download_history)
+                try:
+                    completed = self._complete_downloads(completion_items)
+                except (OSError, StateError):
+                    self.download_history = previous
+                    raise
+            if self is download_manager:
+                collections_service.observe_history(completed)
+            return completed
+
+    def _complete_downloads(self, completion_items):
         """Persist one queue job's outputs while de-duplicating physical files."""
         completed = []
         for completion_info in completion_items:
@@ -2111,6 +2404,10 @@ class GlobalDownloadManager:
 
     def skip_duplicate(self, existing, job):
         """Finish an active queue item without downloading an existing NAS file again."""
+        if self is download_manager:
+            collections_service.record_job_end(
+                job, "completed", existing={**existing, "upload_date": job.get("upload_date") or existing.get("upload_date")},
+            )
         payload = set_recent_preflight_receipt(existing, job)
         if self.current_download:
             self.current_download["status"] = "duplicate"
@@ -2119,6 +2416,8 @@ class GlobalDownloadManager:
 
     def cancel_preflight(self, job):
         """Undo a queued request before file transfer without adding a history row."""
+        if self is download_manager:
+            collections_service.record_job_end(job, "canceled", "preflight_canceled")
         payload = {"job": public_queue_job(job)}
         self.reset_active_runtime()
         self.broadcast_to_all_clients(
@@ -2131,6 +2430,11 @@ class GlobalDownloadManager:
     
     def add_client(self, ws):
         """Add a new client connection"""
+        from gevent import Greenlet, get_hub, getcurrent
+        from gevent.lock import Semaphore
+
+        if isinstance(getcurrent(), Greenlet):
+            self.client_hubs[ws] = (get_hub(), get_ident(), Semaphore())
         self.connected_clients.add(ws)
         print(f"Client connected. Total clients: {len(self.connected_clients)}")
 
@@ -2157,19 +2461,21 @@ class GlobalDownloadManager:
     def remove_client(self, ws):
         """Remove client connection"""
         self.connected_clients.discard(ws)
+        self.client_hubs.pop(ws, None)
         print(f"Client disconnected. Total clients: {len(self.connected_clients)}")
     
     def broadcast_to_all_clients(self, message):
         """Broadcast message to all connected clients"""
         disconnected_clients = set()
         
-        for client in self.connected_clients:
+        for client in list(self.connected_clients):
             if not safe_websocket_send(client, message):
                 disconnected_clients.add(client)
 
         # Remove disconnected clients
         for client in disconnected_clients:
             self.connected_clients.discard(client)
+            self.client_hubs.pop(client, None)
     
     def get_current_state(self):
         """Return current state"""
@@ -2196,13 +2502,32 @@ def safe_websocket_send(ws, message):
     """Send message only if WebSocket is connected"""
     if ws is None:
         return False
+    owner = download_manager.client_hubs.get(ws)
+    if owner and get_ident() != owner[1]:
+        def deliver():
+            if not safe_websocket_send(ws, message):
+                download_manager.remove_client(ws)
+
+        def schedule():
+            from gevent import spawn
+            spawn(deliver)
+
+        try:
+            owner[0].loop.run_callback_threadsafe(schedule)
+            return True
+        except RuntimeError:
+            return False
     
     try:
         # Check WebSocket connection status
         if hasattr(ws, 'closed') and ws.closed:
             return False
         
-        ws.send(message)
+        if owner:
+            with owner[2]:
+                ws.send(message)
+        else:
+            ws.send(message)
         return True
     except WebSocketError:
         return False
@@ -2313,13 +2638,10 @@ def accept_terms():
 
 @get('/youtube-dl')
 def dl_queue_main():
-    try:
-        data = load_auth_data()
-        if data.get("TERMS_ACCEPTED") != "Y":
-            redirect('/terms')
-    except Exception as e:
-        print(f"Error checking terms acceptance: {sanitize_diagnostic_text(e)}")
-        redirect('/terms')
+    next_path = request.path + ("?" + request.query_string if request.query_string else "")
+    data = load_auth_data()
+    if data.get("TERMS_ACCEPTED") != "Y":
+        redirect("/terms?next=" + quote(next_path, safe=""))
 
     if is_cookie_authenticated(data):
         shared_url = ""
@@ -2329,18 +2651,293 @@ def dl_queue_main():
             "./static/template/index.tpl",
             userNm=data["MY_ID"],
             app_version=APP_VERSION,
-            locale_next="/youtube-dl",
+            locale_next=next_path,
             shared_url_json=json.dumps(shared_url),
+            page="downloads",
+            collection_id="",
         )
 
-    redirect("/")
+    redirect("/?next=" + quote(next_path, safe=""))
+
+
+def render_dashboard_page(page, collection_id=""):
+    data = load_auth_data()
+    next_path = safe_next_path(request.path)
+    if data.get("TERMS_ACCEPTED") != "Y":
+        redirect("/terms?next=" + quote(next_path, safe=""))
+    if not is_cookie_authenticated(data):
+        redirect("/?next=" + quote(next_path, safe=""))
+    return render_localized_template(
+        "./static/template/index.tpl",
+        page=page,
+        collection_id=collection_id,
+        userNm=data["MY_ID"],
+        app_version=APP_VERSION,
+        locale_next=next_path,
+        shared_url_json='""',
+    )
+
+
+@get("/youtube-dl/collections")
+@get("/youtube-dl/collections/<collection_id>")
+def collections_page(collection_id=""):
+    return render_dashboard_page("collections", collection_id)
+
+
+@get("/youtube-dl/ai-connect")
+def ai_connect_page():
+    return render_dashboard_page("ai-connect")
+
+
+def bearer_authenticated():
+    authorization = request.headers.get("Authorization", "")
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].casefold() != "bearer":
+        return False
+    supplied = parts[1]
+    if API_TOKEN and hmac.compare_digest(supplied.encode("utf-8"), API_TOKEN.encode("utf-8")):
+        return True
+    return connections_store.validate(supplied)
+
+
+def validate_browser_origin():
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return
+    fetch_site = request.headers.get("Sec-Fetch-Site", "").casefold()
+    if fetch_site == "cross-site":
+        raise APIError("cross_origin_request", 403)
+    origin = request.headers.get("Origin") or request.headers.get("Referer")
+    if not origin:
+        if fetch_site == "same-site":
+            raise APIError("cross_origin_request", 403)
+        return
+    try:
+        supplied = urlsplit(origin)
+        expected = urlsplit(request.url)
+        source = (supplied.scheme.lower(), supplied.hostname, supplied.port or (443 if supplied.scheme == "https" else 80))
+        target = (expected.scheme.lower(), expected.hostname, expected.port or (443 if expected.scheme == "https" else 80))
+        if supplied.username or supplied.password or source != target:
+            raise APIError("cross_origin_request", 403)
+    except ValueError as error:
+        raise APIError("cross_origin_request", 403) from error
+
+
+def api_v1(cookie_only=False, bearer_only=False):
+    def decorate(handler):
+        @wraps(handler)
+        def guarded(*args, **kwargs):
+            response.set_header("Cache-Control", "no-store")
+            response.set_header("Pragma", "no-cache")
+            try:
+                cookie = False if bearer_only else is_cookie_authenticated()
+                if cookie_only:
+                    authenticated = cookie
+                else:
+                    authenticated = cookie or bearer_authenticated()
+                if not authenticated:
+                    raise APIError("unauthorized", 401)
+                if cookie:
+                    validate_browser_origin()
+                return handler(*args, **kwargs)
+            except APIError as error:
+                response.status = error.status
+                return {"success": False, "code": error.code, "msg": error.code}
+            except (StateError, OSError):
+                response.status = 503
+                return {"success": False, "code": "state_unavailable", "msg": "state_unavailable"}
+        return guarded
+    return decorate
+
+
+def v1_payload():
+    if request.content_type != "application/json":
+        raise APIError("json_body_required", 415)
+    if not isinstance(request.json, dict):
+        raise APIError("invalid_request")
+    payload = request.json
+    reject_client_paths(payload)
+    return payload
+
+
+@get("/youtube-dl/api/v1/capabilities")
+@api_v1()
+def v1_capabilities():
+    return {
+        "api_version": "1",
+        "batch_limit": batch_limit(),
+        "plan_ttl_seconds": PLAN_TTL_SECONDS,
+        "preview_timeout_seconds": PREVIEW_TIMEOUT_SECONDS,
+        "preview_work_timeout_seconds": PREVIEW_WORK_TIMEOUT_SECONDS,
+        "commit_timeout_seconds": COMMIT_TIMEOUT_SECONDS,
+        "features": ["collections", "preview_commit", "date_policy", "connection_tokens", "safe_relative_paths"],
+        "direct_urls_only": True,
+        "unknown_dates_require_approval": True,
+    }
+
+
+@get("/youtube-dl/api/v1/profiles")
+@api_v1()
+def v1_profiles():
+    profiles = [
+        "best", "compatible-mp4", "2160p", "1440p", "1080p", "720p", "480p", "360p",
+        "audio-m4a", "audio-mp3", "audio-opus", "audio", "vtt|en", "srt|en", "vtt|ko", "srt|ko",
+    ]
+    return {"profiles": [{"id": profile, "download_type": get_download_type(profile)} for profile in profiles]}
+
+
+@get("/youtube-dl/api/v1/library")
+@api_v1()
+def v1_library():
+    download_manager.load_history()
+    collections_service.reconcile()
+    items = download_manager.combined_history()
+    query = str(request.query.get("q") or "").strip().casefold()
+    if query:
+        items = [
+            item for item in items
+            if query in " ".join(str(item.get(key) or "") for key in ("title", "channel", "url", "relative_path")).casefold()
+        ]
+    try:
+        limit = min(500, max(1, int(request.query.get("limit") or 200)))
+    except ValueError:
+        raise APIError("invalid_limit")
+    return {"items": items[:limit], "total": len(items)}
+
+
+@get("/youtube-dl/api/v1/downloads")
+@api_v1()
+def v1_downloads():
+    return get_download_snapshot()
+
+
+@nonblocking_io
+def get_download_snapshot():
+    with queue_state_lock:
+        active = public_queue_job(active_queue_job) if active_queue_job else None
+    return {
+        "queue": get_queued_downloads(),
+        "active": download_manager.current_download or active,
+        "storage": get_storage_status(),
+    }
+
+
+@post("/youtube-dl/api/v1/downloads")
+@api_v1()
+def v1_enqueue():
+    payload = v1_payload()
+    if set(payload) - {"url", "resolution", "force", "playlist_mode", "write_thumbnail", "section_mode", "client", "client_version"}:
+        raise APIError("invalid_download_options")
+    url, resolution = payload.get("url"), payload.get("resolution", "best")
+    for error in (
+        validate_download_request(url, resolution),
+        validate_playlist_request(url, payload.get("playlist_mode"), explicit=True),
+        validate_section_request(url, payload.get("section_mode")),
+    ):
+        if error:
+            raise APIError(get_error_details(error)[0] or "invalid_request")
+    result = enqueue_download(
+        url, resolution, "api",
+        force=parse_boolean(payload.get("force")),
+        playlist_mode=normalize_playlist_mode(payload.get("playlist_mode"), url),
+        write_thumbnail=parse_boolean(payload.get("write_thumbnail")),
+        section_mode=normalize_section_mode(payload.get("section_mode")),
+    )
+    receipt = build_queue_receipt(result, resolution, client="api-v1")
+    if receipt.get("blocked"):
+        response.status = 507
+    return receipt
+
+
+@get("/youtube-dl/api/v1/collections")
+@api_v1()
+def v1_collections():
+    return {"collections": collections_service.list_collections()}
+
+
+@get("/youtube-dl/api/v1/collections/<collection_id>")
+@api_v1()
+def v1_collection(collection_id):
+    return collections_service.get_collection(collection_id)
+
+
+@route("/youtube-dl/api/v1/collections/<collection_id>", method="PATCH")
+@api_v1()
+def v1_update_collection(collection_id):
+    return {"collection": collections_service.update_collection(collection_id, v1_payload())}
+
+
+@route("/youtube-dl/api/v1/collections/<collection_id>", method="DELETE")
+@api_v1()
+def v1_delete_collection(collection_id):
+    collections_service.delete_collection(collection_id)
+    return {"success": True}
+
+
+@post("/youtube-dl/api/v1/plans")
+@api_v1()
+def v1_plan_preview():
+    from gevent import Timeout
+
+    payload = v1_payload()
+    deadline = time.monotonic() + PREVIEW_WORK_TIMEOUT_SECONDS
+    with Timeout(PREVIEW_WORK_TIMEOUT_SECONDS, APIError("preview_timeout", 504)):
+        return {"plan": collections_service.preview(payload, deadline=deadline)}
+
+
+@get("/youtube-dl/api/v1/plans/<plan_id>")
+@api_v1()
+def v1_plan(plan_id):
+    return {"plan": collections_service.get_plan(plan_id)}
+
+
+@post("/youtube-dl/api/v1/plans/<plan_id>/commit")
+@api_v1()
+def v1_commit_plan(plan_id):
+    return collections_service.commit(plan_id, v1_payload())
+
+
+@get("/youtube-dl/api/v1/batches/<batch_id>")
+@api_v1()
+def v1_batch(batch_id):
+    return {"batch": collections_service.get_batch(batch_id)}
+
+
+@get("/youtube-dl/api/v1/connections")
+@api_v1(cookie_only=True)
+def v1_connections():
+    return {"connections": connections_store.list()}
+
+
+@post("/youtube-dl/api/v1/connections")
+@api_v1(cookie_only=True)
+def v1_create_connection():
+    payload = v1_payload()
+    if set(payload) - {"name"}:
+        raise APIError("invalid_connection")
+    return connections_store.create(payload.get("name", ""))
+
+
+@route("/youtube-dl/api/v1/connections/<connection_id>", method="DELETE")
+@api_v1(cookie_only=True)
+def v1_revoke_connection(connection_id):
+    connections_store.revoke(connection_id)
+    return {"success": True}
+
+
+@get("/youtube-dl/api/v1/mcp/auth")
+@api_v1(bearer_only=True)
+def v1_mcp_auth():
+    return {"authenticated": True}
 
 @get('/health')
 def health_check():
     response.content_type = "application/json"
     storage = get_storage_status()
+    unavailable = shutdown_event.is_set() or worker_failed_event.is_set()
+    response.status = 503 if unavailable else 200
+    response.set_header("Cache-Control", "no-store")
     return {
-        "status": "ok",
+        "status": "unavailable" if unavailable else "ok",
         "app": "youtube-dl-nas",
         "version": APP_VERSION,
         "queue_count": dl_q.qsize(),
@@ -2348,6 +2945,7 @@ def health_check():
             "persistent": True,
             "restored_count": queue_restore_count,
             "state_file": os.path.basename(QUEUE_STATE_FILE),
+            "worker_state": "failed" if worker_failed_event.is_set() else ("stopping" if unavailable else "ready"),
         },
         "storage": storage,
         "subtitle_qa": {
@@ -2475,6 +3073,11 @@ def q_put():
         return error_response
 
     payload = get_request_json()
+    try:
+        reject_client_paths(payload)
+    except APIError as error:
+        response.status = 400
+        return {"success": False, "code": error.code, "msg": error.code}
     url = payload.get("url")
     resolution = payload.get("resolution")
     force = parse_boolean(payload.get("force"))
@@ -2567,6 +3170,11 @@ def q_put_rest():
     data = load_auth_data()
     if not is_api_authenticated(payload, data):
         return json_error("Invalid password, account, or API token.", 403)
+    try:
+        reject_client_paths(payload)
+    except APIError as error:
+        response.status = 400
+        return {"success": False, "code": error.code, "msg": error.code}
 
     if not isinstance(requested_resolution, str) or not requested_resolution.strip():
         return json_error("Resolution is required", 400)
@@ -2692,21 +3300,21 @@ def delete_history_file(uuid):
     item = download_manager.get_history_item(uuid)
     is_mounted_file = False
     if not item:
-        item = get_mounted_file_item(uuid)
+        item = download_manager.get_combined_history_item(uuid)
         is_mounted_file = bool(item)
 
     if not item:
         return json_error("History item not found", 404)
 
     normalized = normalize_history_item(item)
-    file_path = safe_downfolder_path(normalized.get('filename'))
+    file_path = safe_downfolder_path(normalized.get('relative_path'))
     if not file_path:
         return json_error("Valid file path not found", 404)
     if not os.path.isfile(file_path):
         return json_error("Physical file not found", 404)
 
     try:
-        os.remove(file_path)
+        delete_media_file(DOWNFOLDER_DIR, normalized["relative_path"])
     except Exception as e:
         print(f"Failed to delete file: {sanitize_diagnostic_text(e)}")
         return json_error("Failed to delete physical file", 500)
@@ -2716,7 +3324,7 @@ def delete_history_file(uuid):
     thumbnail_path = safe_downfolder_path(thumbnail_filename)
     if thumbnail_path and os.path.isfile(thumbnail_path):
         try:
-            os.remove(thumbnail_path)
+            delete_media_file(DOWNFOLDER_DIR, thumbnail_filename)
             deleted_sidecars.append(thumbnail_filename)
         except OSError as error:
             print(f"Failed to delete thumbnail sidecar: {sanitize_diagnostic_text(error)}")
@@ -2728,7 +3336,7 @@ def delete_history_file(uuid):
         related_uuids = [
             history_item.get('uuid')
             for history_item in list(download_manager.download_history)
-            if get_actual_filename(history_item) == normalized.get('filename')
+            if get_relative_path(history_item) == normalized.get('relative_path')
         ]
         for history_uuid in related_uuids:
             if history_uuid:
@@ -2750,22 +3358,30 @@ def retry_history_item(uuid):
 
     item = download_manager.get_history_item(uuid)
     if not item:
+        item = download_manager.get_combined_history_item(uuid)
+    if not item:
         return json_error("History item not found", 404)
 
-    url = item.get("url")
-    resolution = item.get("resolution")
+    collection_context = collections_service.retry_context(item)
+    retry_request = item
+    if collection_context and validate_download_request(item.get("url"), item.get("resolution"), resolve_source=False):
+        retry_request = collection_context.get("request") or item
+    url = retry_request.get("url")
+    resolution = retry_request.get("resolution")
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
 
+    extra_options = {"_collection_context": collection_context} if collection_context else {}
     result = enqueue_download(
         url,
         resolution,
         "web",
         ws_addr.wsClassVal,
-        playlist_mode=normalize_playlist_mode(item.get("playlist_mode"), url),
-        write_thumbnail=parse_boolean(item.get("write_thumbnail")),
-        section_mode=normalize_section_mode(item.get("section_mode")),
+        playlist_mode=normalize_playlist_mode(retry_request.get("playlist_mode"), url),
+        write_thumbnail=parse_boolean(retry_request.get("write_thumbnail")),
+        section_mode=normalize_section_mode(retry_request.get("section_mode")),
+        **extra_options,
     )
     receipt = build_queue_receipt(result, resolution, client="web")
     if receipt.get("blocked"):
@@ -2817,16 +3433,19 @@ def subtitle_qa(uuid):
     if normalized.get("download_type") != "subtitle" or extension not in SUBTITLE_EXTENSIONS:
         return json_error("Subtitle QA supports SRT, VTT, ASS, and SSA files", 400)
 
-    file_path = safe_downfolder_path(filename)
+    file_path = safe_downfolder_path(normalized["relative_path"])
     if not file_path or not os.path.isfile(file_path):
         return json_error("Subtitle file not found", 404)
     if os.path.getsize(file_path) > SUBTITLE_QA_MAX_FILE_BYTES:
         return json_error("Subtitle file is too large to analyze", 413)
 
     try:
-        with open(file_path, "r", encoding="utf-8-sig", errors="replace") as subtitle_file:
-            transcription = extract_subtitle_text(subtitle_file.read(), extension)
-    except OSError as error:
+        with open_media_file(DOWNFOLDER_DIR, normalized["relative_path"]) as subtitle_file:
+            contents = subtitle_file.read(SUBTITLE_QA_MAX_FILE_BYTES + 1)
+            if len(contents) > SUBTITLE_QA_MAX_FILE_BYTES:
+                return json_error("Subtitle file is too large to analyze", 413)
+            transcription = extract_subtitle_text(contents.decode("utf-8-sig", errors="replace"), extension)
+    except (OSError, APIError) as error:
         print(f"Failed to read subtitle file for QA: {sanitize_diagnostic_text(error)}")
         return json_error("Subtitle file could not be read", 500)
 
@@ -2852,27 +3471,59 @@ def subtitle_qa(uuid):
     }
     
 def dl_worker():
+    try:
+        require_usable_queue()
+        run_download_queue()
+    except Exception:
+        mark_worker_failed()
+        raise
+
+
+def run_download_queue():
     while not shutdown_event.is_set():
-        item = dl_q.get()
         job = None
+        idle = False
+        with queue_operation_lock:
+            try:
+                item = dl_q.get_nowait()
+            except Empty:
+                idle = True
+                item = None
+            if item is not None:
+                job = normalize_queue_job(item)
+                if job:
+                    job = begin_preflight(job)
+                    try:
+                        set_active_queue_job(job)
+                    except StateError:
+                        shutdown_event.set()
+                        dl_q.task_done()
+                        raise
+        if idle:
+            shutdown_event.wait(0.1)
+            continue
         try:
             if item is None:
                 return
-            job = normalize_queue_job(item)
             if not job:
                 print("Skipping invalid queued download")
                 continue
-            job = begin_preflight(job)
-            set_active_queue_job(job)
+            if collections_service.job_is_terminal(job["id"]):
+                continue
             download(job)
+        except StateError:
+            shutdown_event.set()
+            raise
         except Exception as e:
             print(f"Download worker error: {sanitize_diagnostic_text(e)}")
         finally:
-            if job is not None and not shutdown_event.is_set():
-                clear_active_queue_job()
-            dl_q.task_done()
+            try:
+                if job is not None and not shutdown_event.is_set():
+                    clear_active_queue_job()
+            finally:
+                dl_q.task_done()
 
-def build_ytdlp_common_args(data=None):
+def build_ytdlp_common_args(data=None, include_extra_args=True):
     data = data or load_auth_data()
     args = ["yt-dlp", "--retry-sleep", "1", "--newline"]
     if data.get("PROXY"):
@@ -2880,18 +3531,23 @@ def build_ytdlp_common_args(data=None):
     cookies_file = active_cookies_file()
     if cookies_file:
         args.extend(["--cookies", cookies_file])
-    if YTDLP_EXTRA_ARGS:
+    if YTDLP_EXTRA_ARGS and include_extra_args:
         args.extend(shlex.split(YTDLP_EXTRA_ARGS))
     return args
 
 
-def fetch_media_metadata(media_url, job_id=None):
-    command = build_ytdlp_common_args() + [
+def fetch_media_metadata(media_url, job_id=None, direct=False):
+    command = build_ytdlp_common_args(include_extra_args=not direct) + [
+        "--ignore-config", "--simulate", "--no-cache-dir",
+        "--no-write-thumbnail", "--no-write-subs", "--no-write-auto-subs", "--no-write-info-json",
+        "--no-write-playlist-metafiles",
         "--dump-single-json",
         "--playlist-items", "1",
         "--no-warnings",
-        media_url,
     ]
+    if direct:
+        command.append("--no-playlist")
+    command.append(media_url)
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -2936,13 +3592,36 @@ def build_youtube_dl_cmd(item):
         output_template = (
             f"%(title)s__from_{job['section_start']}s__%(extractor_key)s_%(id)s.%(ext)s"
         )
+    target = job["target_relative_directory"]
+    home = os.path.join(DOWNFOLDER_DIR, target) if target else DOWNFOLDER_DIR
+    if safe_media_path(DOWNFOLDER_DIR, target, allow_empty=True) is None:
+        raise APIError("unsafe_path")
     cmd = build_ytdlp_common_args() + [
         "--continue",
+        "--windows-filenames",
         "--replace-in-metadata", "title", unsafe_chars_pattern, "_",
-        "--paths", f"home:{DOWNFOLDER_DIR}",
-        "--paths", f"temp:{os.path.join(DOWNFOLDER_DIR, '.incomplete')}",
+        "--paths", f"home:{home}",
+        "--paths", f"temp:{os.path.join(home, '.incomplete')}",
         "-o", output_template,
     ]
+    policy = job["date_policy"]
+    if policy is not None:
+        cmd.append("--no-match-filter")
+        filters = []
+        optional = "?" if policy["include_unknown_date"] else ""
+        if policy["date_from"]:
+            value = policy["date_from"].replace("-", "")
+            cmd.extend(["--dateafter", value])
+            filters.append(f"upload_date >={optional} {value}")
+        if policy["date_to"]:
+            value = policy["date_to"].replace("-", "")
+            cmd.extend(["--datebefore", value])
+            filters.append(f"upload_date <={optional} {value}")
+        if not filters and not policy["include_unknown_date"]:
+            filters.append("upload_date")
+        if filters:
+            cmd.extend(["--match-filter", " & ".join(filters)])
+        cmd.extend(["--playlist-items", "1"])
     if job["force"]:
         cmd.append("--force-overwrites")
     if job["playlist_mode"] == "single":
@@ -3020,7 +3699,13 @@ def build_completed_history_item(job, output_info, fallback, item_uuid=None):
     output_info = output_info if isinstance(output_info, dict) else {}
     fallback = fallback if isinstance(fallback, dict) else {}
     filepath = str(output_info.get("filepath") or output_info.get("_filename") or fallback.get("filepath") or "")
-    filename = os.path.basename(filepath) if filepath else fallback.get("filename")
+    relative_path = output_relative_path(filepath) if filepath else get_relative_path(fallback)
+    if filepath and not relative_path:
+        raise APIError("unsafe_path")
+    target = job.get("target_relative_directory") or ""
+    if target and relative_path and os.path.dirname(relative_path) != target:
+        raise APIError("unsafe_path")
+    filename = os.path.basename(relative_path) if relative_path else ""
     media_id, extractor = get_media_identity(output_info)
     if not media_id:
         media_id = fallback.get("media_id") or ""
@@ -3029,10 +3714,16 @@ def build_completed_history_item(job, output_info, fallback, item_uuid=None):
     title = get_media_display_title(output_info, fallback.get("title") or job["url"])
     channel = output_info.get("uploader") or output_info.get("channel") or fallback.get("channel") or ""
     source_url = output_info.get("webpage_url") or output_info.get("original_url") or job["url"]
-    thumbnail_file = find_thumbnail_sidecar(filename)
+    thumbnail_file = find_thumbnail_sidecar(relative_path)
     return {
         "uuid": item_uuid or str(uuid.uuid4()),
-        "timestamp": file_download_timestamp(filepath),
+        "job_id": job["id"],
+        "collection_id": job.get("collection_id") or None,
+        "batch_id": job.get("batch_id") or None,
+        "target_relative_directory": target,
+        "date_policy": job.get("date_policy"),
+        "upload_date": metadata_upload_date(output_info) if "upload_date" in output_info else fallback.get("upload_date"),
+        "timestamp": file_download_timestamp(safe_downfolder_path(relative_path)),
         "url": source_url,
         "resolution": job["resolution"],
         "playlist_mode": job["playlist_mode"],
@@ -3047,7 +3738,8 @@ def build_completed_history_item(job, output_info, fallback, item_uuid=None):
         "media_id": media_id,
         "extractor": extractor,
         "status": "completed",
-        "filepath": filepath or "unknown",
+        "filepath": relative_path,
+        "relative_path": relative_path,
         "filename": filename,
         "progress": 100,
         "source": job["source"],
@@ -3069,6 +3761,7 @@ def download(item):
     duration_seconds = 0
     media_id = ""
     extractor = ""
+    upload_date = None
     current_progress = 5
     final_filepath = None
     filename = None
@@ -3080,6 +3773,12 @@ def download(item):
     def terminal_history_item(status, failure_code=""):
         return {
             'uuid': download_uuid,
+            'job_id': job["id"],
+            'collection_id': job["collection_id"] or None,
+            'batch_id': job["batch_id"] or None,
+            'target_relative_directory': job["target_relative_directory"],
+            'date_policy': job["date_policy"],
+            'upload_date': upload_date,
             'url': request_url,
             'resolution': resolution,
             'title': video_title,
@@ -3107,6 +3806,10 @@ def download(item):
         download_info = {
             'uuid': download_uuid,
             'job_id': job["id"],
+            'collection_id': job["collection_id"] or None,
+            'batch_id': job["batch_id"] or None,
+            'target_relative_directory': job["target_relative_directory"],
+            'date_policy': job["date_policy"],
             'url': request_url,
             'resolution': resolution,
             'source': job["source"],
@@ -3146,12 +3849,16 @@ def download(item):
         metadata = {}
         preflight_warning = ""
         try:
-            metadata = fetch_media_metadata(request_url, download_uuid)
+            metadata = (
+                fetch_media_metadata(request_url, download_uuid, direct=True)
+                if job["collection_id"] else fetch_media_metadata(request_url, download_uuid)
+            )
             video_title = get_media_display_title(metadata, video_title)
             channel_name = metadata.get("uploader") or metadata.get("channel") or ""
             thumbnail_url = metadata.get("thumbnail") or ""
             duration_seconds = metadata.get("duration") or 0
             media_id, extractor = get_media_identity(metadata)
+            upload_date = metadata_upload_date(metadata)
             if download_manager.current_download:
                 download_manager.current_download['duration_seconds'] = duration_seconds
                 download_manager.current_download['media_id'] = media_id
@@ -3179,6 +3886,7 @@ def download(item):
             media_id=media_id,
             extractor=extractor,
             preflight_warning=preflight_warning,
+            upload_date=upload_date,
         ) or job
         download_manager.update_current_download(
             status="ready",
@@ -3197,6 +3905,15 @@ def download(item):
         if download_manager.consume_cancellation(download_uuid):
             download_manager.cancel_preflight(job)
             return
+
+        if job["date_policy"] is not None:
+            rejection = (
+                policy_rejection(metadata, job["date_policy"])
+                if is_direct_metadata(metadata) else "metadata_unavailable"
+            )
+            if rejection:
+                download_manager.complete_download(terminal_history_item("skipped", rejection))
+                return
 
         if not job["force"] and job["playlist_mode"] == "single":
             existing = find_existing_download(
@@ -3230,6 +3947,7 @@ def download(item):
         download_manager.update_progress(5)
         
         cmd = build_youtube_dl_cmd(job)
+        prepare_transfer_directory(job)
         print(
             f"Starting yt-dlp job {download_uuid} "
             f"profile={resolution} playlist={job['playlist_mode']}"
@@ -3319,6 +4037,9 @@ def download(item):
 
         # Completion handling
         if return_code == 0:
+            if job["date_policy"] is not None and not completed_outputs and not subtitle_paths:
+                download_manager.complete_download(terminal_history_item("skipped", "date_policy_filtered"))
+                return
             download_manager.update_status('completed')
             download_manager.send_message(f"[Finished] downloading {display_info} completed")
             download_manager.update_progress(100)
@@ -3331,6 +4052,7 @@ def download(item):
                 "duration_seconds": duration_seconds,
                 "media_id": media_id,
                 "extractor": extractor,
+                "upload_date": upload_date,
             }
             if re.match(r"(vtt|srt)", resolution):
                 completed_outputs = [{"filepath": path} for path in subtitle_paths]
@@ -3354,6 +4076,8 @@ def download(item):
             
         print(f"Download job finished: {download_uuid}")
             
+    except StateError:
+        raise
     except Exception as e:
         if process is not None:
             download_manager.detach_process(download_uuid, process)
@@ -3364,11 +4088,89 @@ def download(item):
         if download_manager.consume_cancellation(download_uuid):
             complete_cancellation()
             return
-        failure_code = classify_download_failure(failure_diagnostics, e)
+        failure_code = e.code if isinstance(e, APIError) else classify_download_failure(failure_diagnostics, e)
         download_manager.send_message("Download error occurred")
         download_manager.complete_download(terminal_history_item("error", failure_code))
 
 import mimetypes
+from email.utils import formatdate
+
+
+def prepare_transfer_directory(job):
+    target = job.get("target_relative_directory") or ""
+    home = ensure_media_directory(DOWNFOLDER_DIR, target)
+    incomplete = (target + "/" if target else "") + ".incomplete"
+    ensure_media_directory(DOWNFOLDER_DIR, incomplete)
+    for name in os.listdir(home):
+        relative = (target + "/" if target else "") + name
+        if safe_downfolder_path(relative) is None:
+            raise APIError("unsafe_path")
+    for directory, directories, filenames in os.walk(os.path.join(home, ".incomplete"), followlinks=False):
+        for name in directories + filenames:
+            relative = os.path.relpath(os.path.join(directory, name), DOWNFOLDER_DIR).replace(os.sep, "/")
+            if safe_downfolder_path(relative) is None:
+                raise APIError("unsafe_path")
+
+
+def serve_media_file(relative_path, download_name=None):
+    try:
+        media = open_media_file(DOWNFOLDER_DIR, relative_path)
+    except (OSError, APIError):
+        abort(404, "File not found")
+    metadata = os.fstat(media.fileno())
+    size = metadata.st_size
+    headers = {
+        "Content-Type": mimetypes.guess_type(relative_path)[0] or "application/octet-stream",
+        "Content-Length": str(size),
+        "Accept-Ranges": "bytes",
+        "Last-Modified": formatdate(metadata.st_mtime, usegmt=True),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "sandbox",
+        "Content-Disposition": "inline",
+    }
+    if download_name:
+        headers["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(download_name, safe="")
+    status = 200
+    start, end = 0, size - 1
+    range_header = request.headers.get("Range")
+    if range_header:
+        match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+        if not match or not any(match.groups()) or size == 0:
+            media.close()
+            return HTTPResponse(status=416, headers={"Content-Range": f"bytes */{size}"})
+        first, last = match.groups()
+        if first:
+            start = int(first)
+            end = min(int(last), size - 1) if last else size - 1
+        else:
+            start = max(0, size - int(last))
+        if start >= size or start > end:
+            media.close()
+            return HTTPResponse(status=416, headers={"Content-Range": f"bytes */{size}"})
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        headers["Content-Length"] = str(end - start + 1)
+        status = 206
+    if request.method == "HEAD":
+        media.close()
+        return HTTPResponse(status=status, headers=headers)
+    if status == 200:
+        return HTTPResponse(body=media, status=status, headers=headers)
+
+    def stream_range():
+        try:
+            media.seek(start)
+            remaining = end - start + 1
+            while remaining:
+                block = media.read(min(65536, remaining))
+                if not block:
+                    break
+                remaining -= len(block)
+                yield block
+        finally:
+            media.close()
+
+    return HTTPResponse(body=stream_range(), status=status, headers=headers)
 
 def resolve_history_file(uuid):
     download_manager.load_history()
@@ -3376,7 +4178,8 @@ def resolve_history_file(uuid):
     if not file_info:
         abort(404, "File not found")
 
-    actual_filename = file_info.get('filename')
+    file_info = normalize_history_item(file_info)
+    actual_filename = file_info.get('relative_path')
     file_path = safe_downfolder_path(actual_filename)
     if not actual_filename or not file_path:
         abort(404, "Valid filename not found")
@@ -3396,7 +4199,7 @@ def serve_download(uuid):
         
         # Organize file names to allow safe downloads from your browser
         print(f"Serving history file {uuid}")
-        safe_download_name = re.sub(r'[\\/:*?"<>|⧸]', '-', actual_filename)
+        safe_download_name = re.sub(r'[\\/:*?"<>|⧸]', '-', os.path.basename(actual_filename))
         safe_download_name = safe_download_name.replace("'\"'\"'", "'")  # 이스케이핑된 따옴표 처리
         # Check to preserve file extensions
         original_ext = os.path.splitext(actual_filename)[1]
@@ -3406,7 +4209,7 @@ def serve_download(uuid):
         print(f"Serving history file {uuid} as an attachment")
         
         # Find the original file with actual_filename and use safe_download_name for the download name.
-        return static_file(actual_filename, root=DOWNFOLDER_DIR, download=safe_download_name)
+        return serve_media_file(actual_filename, download_name=safe_download_name)
     
         
     except HTTPError:
@@ -3426,7 +4229,7 @@ def serve_preview(uuid):
         _, actual_filename = resolve_history_file(uuid)
         response.set_header("Content-Disposition", "inline")
         response.set_header("X-Content-Type-Options", "nosniff")
-        return static_file(actual_filename, root=DOWNFOLDER_DIR)
+        return serve_media_file(actual_filename)
     except HTTPError:
         raise
     except Exception as e:
@@ -3452,7 +4255,7 @@ def serve_thumbnail(uuid):
         abort(404, "Thumbnail not found")
     response.set_header("Content-Disposition", "inline")
     response.set_header("X-Content-Type-Options", "nosniff")
-    return static_file(thumbnail_filename, root=DOWNFOLDER_DIR)
+    return serve_media_file(thumbnail_filename)
     
 
 # WebSocket handler
@@ -3504,33 +4307,52 @@ def websocket_handler(ws):
 # Global variable initialization
 dl_q = Queue()
 download_thread = None
+download_thread_lock = Lock()
 queue_state_lock = Lock()
-queue_operation_lock = Lock()
+queue_operation_lock = RLock()
 shutdown_event = Event()
+worker_failed_event = Event()
 active_queue_job = None
 queue_restore_count = 0
 queue_state_loaded = False
 preflight_receipt_lock = Lock()
 recent_preflight_receipt = None
+collections_service = CollectionService(globals(), COLLECTIONS_STATE_FILE)
+connections_store = ConnectionStore(CONNECTIONS_STATE_FILE)
 
 def run_server():
     global port, proxy
+    require_usable_queue()
     shutdown_event.clear()
     data = load_auth_data()
-    if data.get("APP_PORT"):
+    if os.environ.get("YDLNAS_WEB_PORT"):
+        port = int(os.environ["YDLNAS_WEB_PORT"])
+    elif data.get("APP_PORT"):
         port = data["APP_PORT"]
     if data.get("PROXY"):
         proxy = data["PROXY"]
 
     load_persisted_queue()
+    collections_service.reconcile()
     start_download_thread_if_needed()
     try:
-        run(host="0.0.0.0", port=port, server=GeventWebSocketServer)
+        run(
+            host=os.environ.get("YDLNAS_WEB_HOST", "0.0.0.0"), port=port,
+            server=GeventWebSocketServer, worker_failed_event=worker_failed_event,
+        )
     finally:
         shutdown_event.set()
         dl_q.put(None)
         if download_thread and download_thread.is_alive():
             download_thread.join(timeout=5)
 
+def main():
+    try:
+        run_server()
+    except DownloadWorkerFailed:
+        # Do not let unrelated executor threads delay the supervised process restart.
+        os._exit(1)
+
+
 if __name__ == "__main__":
-    run_server()
+    main()

@@ -7,7 +7,7 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0830` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0906` · **Architectures:** `linux/amd64`, `linux/arm64`
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -54,6 +54,24 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 
 ## Dashboard
 
+### MCP Collections
+
+Release `26.0906` adds topic collections and **AI Connect** alongside the existing
+Downloads screen. Preview researched direct URLs, check dates and duplicates,
+and approve one idempotent batch. New media is grouped in safe nested collection
+folders; existing files can be linked without copying or moving them.
+
+Create and revoke named connection tokens from the dashboard. The official
+Python MCP SDK runs in the normal container behind nginx at
+`/youtube-dl/mcp`, sharing the existing external port and preserving WebSocket
+and PWA routes. No companion image or MCP enable flag is required.
+
+Follow the
+[MCP guide and compatibility notes](https://github.com/hyeonsangjeon/youtube-dl-nas/tree/master/docs/mcp)
+for client setup and the actual validation scope. Six native-client end-to-end
+certification is not claimed. Use HTTPS or a VPN for remote MCP access; bearer
+tokens are not encrypted by plain HTTP.
+
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history" width="23%">
 
@@ -81,6 +99,7 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 | `YDLNAS_ALLOW_PRIVATE_SOURCES` | No | `false` | Explicitly allow trusted private or local source URLs |
 | `YDLNAS_STORAGE_WARNING_GB` | No | `10` | Free-space warning threshold in GiB; `0` disables it |
 | `YDLNAS_STORAGE_CRITICAL_GB` | No | `2` | Pause new queue additions below this free space; `0` disables it |
+| `YDLNAS_MCP_BATCH_LIMIT` | No | `25` | Candidates per collection preview, clamped to 1–100 |
 | `NLPTUTTI_AUTO_UPDATE` | No | `true` | Install or upgrade `nlptutti` at new-container startup for Subtitle QA |
 | `NLPTUTTI_UPDATE_TIMEOUT` | No | `180` | Runtime package-update timeout in seconds |
 | `YDLNAS_API_TOKEN` | No | Empty | Optional Bearer token; ID/password remains supported |
@@ -112,14 +131,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current tested default-branch image |
-| `26.0830` | Current pinned release |
+| `26.0906` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0830` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0906` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0830
+docker pull modenaf360/youtube-dl-nas:26.0906
 ```
 
 ## Health Check

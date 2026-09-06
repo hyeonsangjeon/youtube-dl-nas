@@ -22,9 +22,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Python compile check
-        run: python -m py_compile youtube-dl-server.py upd_schedule.py
+        run: python -m py_compile youtube-dl-server.py upd_schedule.py runtime.py mcp_server.py collections_backend.py
       - name: JavaScript syntax check
-        run: node --check static/logical_js/logic.js
+        run: |
+          for script in static/logical_js/*.js; do
+            node --check "$script"
+          done
       - name: Shell and integration asset checks
         run: |
           bash -n run.sh
@@ -33,6 +36,8 @@ jobs:
           python integrations/apple-shortcuts/build_shortcut.py --check
           unzip -t integrations/http-shortcuts/youtube-dl-nas-http-shortcut.zip
       - name: HTTP regression tests
-        run: pytest -q
+        run: |
+          mkdir -p .ci-test-scratch
+          TMPDIR="$PWD/.ci-test-scratch" pytest -q --basetemp="$PWD/.ci-test-scratch/pytest"
       - name: Docker Compose validation
         run: docker compose --env-file .env.example config --quiet

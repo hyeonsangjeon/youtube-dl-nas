@@ -7,13 +7,13 @@ __pycache__/
 .DS_Store
 .env
 .venv/
+.runtime/
 venv/
 node_modules/
 npm-debug.log*
 
 downfolder/
-metadata/download_history.json
-metadata/app_state.json
+metadata/
 config/
 downloads/
 

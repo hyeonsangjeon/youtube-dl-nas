@@ -13,6 +13,41 @@ The authenticated dashboard manages individual video, audio, and subtitle downlo
 
 Use the language selector before sign-in or in the dashboard header to choose English, Korean, Simplified Chinese, or Polish. The app detects a supported browser language on first use, falls back to English, and remembers your selection.
 
+## Collections And AI Connect
+
+Release `26.0906` keeps **Downloads**, **Collections**, and **AI Connect** in one
+navigation bar on both desktop and mobile. Keep the existing download and
+metadata volumes mounted when upgrading.
+
+In **Collections**, choose **Collect URLs**, enter a name and purpose, and paste
+one direct media URL per line. Publication-date bounds are optional; the default
+batch limit is 25. **Preview candidates** checks metadata, date policy, existing
+files, and queued work without starting downloads or creating a media folder.
+Out-of-range candidates cannot be selected. Unknown publication dates start
+unchecked and need your explicit selection.
+
+Choose a suggested existing collection or create a new one, then **Approve and
+collect** once. A preview lasts 30 minutes. Retrying an approved commit returns
+the same batch. Existing files are linked, not copied, and matching queued jobs
+gain collection membership rather than being submitted again.
+
+A collection shows its purpose, publication-date criteria, immutable folder,
+item count, stored size, and live batch states. List and grid views share the
+dashboard's preview and download behavior; **Details → Manage in Downloads**
+opens the existing history actions. Files removed outside the app are shown as
+missing rather than being silently dropped from the collection.
+
+**Edit collection** changes its display name and purpose, not the physical
+folder. **Remove collection** removes only organization metadata: files,
+folders, and approved downloads are not deleted or canceled. **Clear Rows** in
+Downloads also preserves collections, memberships, and batches.
+
+In **AI Connect**, name a connection, copy the token shown once, and choose a
+client's setup instructions. Revoke each connection independently when no
+longer needed. AI clients search the web; this server receives direct URLs and
+does validation, duplicate detection, grouping, and queueing.
+See [MCP setup and security boundaries](../mcp/).
+
 ## New Download
 
 1. Choose **Video**, **Audio**, or **Subtitle**.
@@ -76,6 +111,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0830` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0906` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

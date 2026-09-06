@@ -1,4 +1,6 @@
 <!DOCTYPE html>
+% page = get('page', 'downloads')
+% collection_id = get('collection_id', '')
 <html lang="{{locale}}">
 
 <head>
@@ -13,13 +15,15 @@
     <link rel="icon" href="/youtube-dl/static/pwa/icon-192.png">
     <link rel="apple-touch-icon" href="/youtube-dl/static/pwa/icon-192.png">
 
-    <title>youtube-dl NAS</title>
+    <title>{{(t('workspace.collections') + ' - ') if page == 'collections' else (t('workspace.ai_connect') + ' - ') if page == 'ai-connect' else ''}}youtube-dl NAS</title>
 
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
-    <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
+    <link href="/youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
+    <link href="/youtube-dl/static/css/workspace.css?v={{app_version}}" rel="stylesheet">
 </head>
 
-<body class="dashboard-page">
+<body class="dashboard-page" data-page="{{page}}" data-collection-id="{{collection_id}}">
+<a class="skip-navigation" href="#main-content">{{t('workspace.skip_navigation')}}</a>
 
 <div class="site-wrapper">
     <div class="site-wrapper-inner">
@@ -53,8 +57,24 @@
                 </div>
             </header>
 
+            <nav class="workspace-nav" aria-label="{{t('workspace.navigation')}}">
+                <a href="/youtube-dl"{{!' aria-current="page"' if page == 'downloads' else ''}}>
+                    <span class="glyphicon glyphicon-download-alt" aria-hidden="true"></span>
+                    {{t('workspace.downloads')}}
+                </a>
+                <a href="/youtube-dl/collections"{{!' aria-current="page"' if page == 'collections' else ''}}>
+                    <span class="glyphicon glyphicon-folder-open" aria-hidden="true"></span>
+                    {{t('workspace.collections')}}
+                </a>
+                <a href="/youtube-dl/ai-connect"{{!' aria-current="page"' if page == 'ai-connect' else ''}}>
+                    <span class="glyphicon glyphicon-link" aria-hidden="true"></span>
+                    {{t('workspace.ai_connect')}}
+                </a>
+            </nav>
+
+            % if page == 'downloads':
             <div class="dashboard-layout">
-                <main class="dashboard-main">
+                <main id="main-content" class="dashboard-main" tabindex="-1">
                     <section class="panel download-composer">
                         <div class="panel-heading-row">
                             <div>
@@ -496,6 +516,11 @@
                     </div>
                 </aside>
             </div>
+            % elif page == 'collections':
+                % include('static/template/collections.tpl')
+            % elif page == 'ai-connect':
+                % include('static/template/ai-connect.tpl')
+            % end
 
             <div class="mastfoot">
                 <div class="inner">
@@ -521,9 +546,15 @@
     window.YDLNAS_I18N = {{!translations_json}};
     window.YDLNAS_SHARED_URL = {{!shared_url_json}};
 </script>
-<script src="youtube-dl/static/logical_js/download-profile.js?v={{app_version}}"></script>
-<script src="youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
-<script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/media-ui.js?v={{app_version}}"></script>
+% if page == 'downloads':
+<script src="/youtube-dl/static/logical_js/download-profile.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
+% else:
+<script src="/youtube-dl/static/logical_js/mcp-clients.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/workspace.js?v={{app_version}}"></script>
+% end
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {

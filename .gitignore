@@ -2,7 +2,7 @@ target/
 .env
 config/
 downloads/
-metadata/app_state.json
+metadata/*.json
 .DS_STORE
 .settings/*
 javadocs/*
@@ -12,6 +12,7 @@ logs/
 .idea
 __pycache__/
 .venv/
+.runtime/
 .devcontainer/
 # IntelliJ IDEA
 **/.idea

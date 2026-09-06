@@ -8,12 +8,34 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Wait for this tag's verified image publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          run_id=""
+          for attempt in $(seq 1 60); do
+            run_id=$(gh run list --workflow docker.yml --event push --commit "$GITHUB_SHA" \
+              --limit 20 --json databaseId,headBranch | \
+              jq -r --arg tag "$GITHUB_REF_NAME" '[.[] | select(.headBranch == $tag)][0].databaseId // empty')
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$run_id" ]; then
+            echo "The Docker Image workflow for this tag did not start" >&2
+            exit 1
+          fi
+          gh run watch "$run_id" --interval 15 --exit-status
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -22,4 +44,5 @@ jobs:
           integrations/http-shortcuts/youtube-dl-nas-http-shortcut.zip
           integrations/apple-shortcuts/Download-to-NAS.shortcut
           --generate-notes
+          --verify-tag
           --title "youtube-dl-nas $GITHUB_REF_NAME"

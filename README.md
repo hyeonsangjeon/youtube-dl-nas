@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0830` (`2026-08-30`)
+Current release: `26.0906` (`2026-09-06`)
 
 ## Start Here
 
@@ -24,6 +24,7 @@ Current release: `26.0830` (`2026-08-30`)
 | Choose a NAS or Docker deployment path | [Deployment paths](examples/) |
 | Upgrade an existing container or diagnose a problem | [Operations guide](https://hyeonsangjeon.github.io/youtube-dl-nas/operations/) |
 | Send links from Android, iPhone, or iPad | [Mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) |
+| Organize researched URLs and connect an AI client | [MCP Collections guide](docs/mcp/) |
 | Review the newest changes | [Latest release](https://github.com/hyeonsangjeon/youtube-dl-nas/releases/latest) |
 | Report a reproducible problem | [Issue form](https://github.com/hyeonsangjeon/youtube-dl-nas/issues/new/choose) |
 
@@ -86,6 +87,42 @@ Open **Options** to save thumbnail sidecars, choose the profile used when this d
 
 Playlist Guard defaults a normal video URL containing a playlist parameter to **Current video only**. Pure playlist and channel URLs require an explicit **First 10** or **All items** choice. Every completed output receives its own Files & History row.
 
+### Collections And AI Connect
+
+Release `26.0906` adds **Downloads**, **Collections**, and **AI Connect** to the
+same authenticated dashboard. Existing download and metadata volumes remain
+compatible; keep both mounted when upgrading.
+
+Open **Collections → Collect URLs** to preview a bounded set of direct media
+URLs, optionally filter by publication date, and approve the selected items
+once. Known out-of-range items cannot be included; unknown dates require an
+explicit selection. Previews expire after 30 minutes. Repeating an approved
+commit returns the same batch rather than queueing it twice.
+
+New collection downloads go under
+`/downfolder/collections/<immutable-slug--short-id>/`. Existing files stay where
+they are and can be linked to several collections without copying. Collections
+show their purpose, date policy, folder, stored size, batch progress, and missing
+files. Renaming or removing a collection changes only organization metadata.
+Clearing history preserves files, collections, memberships, and batches.
+
+Open **AI Connect** to create a named connection, copy its one-time token, and
+select client setup instructions. The MCP endpoint is
+`https://YOUR_NAS/youtube-dl/mcp`, on the same address and port as the dashboard.
+The normal image includes the official Python MCP SDK and an nginx front end;
+there is no extra container, published port, or MCP feature flag.
+
+The AI client searches the web and proposes URLs; the NAS validates candidates,
+checks duplicates, and queues approved work. MCP exposes no file-deletion tool
+or arbitrary filesystem path. Use HTTPS or a VPN for remote access.
+See the [MCP setup, API, and release-gate guide](docs/mcp/) for client-specific
+configuration and the distinction between protocol coverage and native-client QA.
+
+![MCP connection, candidate preview, approval, and collection workflow](pic/mcp-collections-demo.gif)
+
+The short demonstration uses labelled synthetic local media, not real web
+research or a claim of native-client verification.
+
 ### Subtitle QA
 
 Subtitle QA reads the selected subtitle file directly from `/downfolder` and compares its spoken text with the reference transcript you provide. The result includes character accuracy (CRR), character error rate (CER), word error rate (WER), edit counts, and optional keyword preservation. Lower CER/WER and higher character accuracy are better.
@@ -94,7 +131,7 @@ The feature supports downloaded or mounted `.srt`, `.vtt`, `.ass`, and `.ssa` fi
 
 ### Mounted Files And Metadata
 
-Files already present in `/downfolder` are scanned into Files & History even if they were not downloaded by this app version. Those rows show `Mounted folder` and `No metadata` because source URL, channel, and quality details are not available.
+Files already present in `/downfolder`, including safe nested paths, are scanned into Files & History even if they were not downloaded by this app version. Those rows show `Mounted folder` and `No metadata` because source URL, channel, and quality details are not available.
 
 Clearing history rows does not delete files. Kept files are reloaded from `/downfolder` and shown again as mounted files. Use the file delete action only when you want to remove the physical file.
 
@@ -192,6 +229,7 @@ docker run -d \
 | `-e YDLNAS_ALLOW_PRIVATE_SOURCES` | Advanced opt-in for downloads from private or local network addresses. Defaults to `false`. |
 | `-e YDLNAS_STORAGE_WARNING_GB` | Free-space warning threshold in GiB. Defaults to `10`; set `0` to disable. |
 | `-e YDLNAS_STORAGE_CRITICAL_GB` | Free-space threshold that pauses new queue additions. Defaults to `2`; set `0` to disable. |
+| `-e YDLNAS_MCP_BATCH_LIMIT` | Maximum candidates per MCP or dashboard collection preview. Defaults to `25`, clamped to `1`–`100`. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
@@ -366,6 +404,11 @@ docker run --rm \
 
 The GitHub Actions workflow builds and starts the Docker image for pull requests, verifies the live `/health` response and sign-in page, and publishes nothing. A version tag repeats that runtime smoke test before publishing multi-architecture `linux/amd64` and `linux/arm64` images to both Docker Hub (`modenaf360/youtube-dl-nas`) and GHCR (`ghcr.io/hyeonsangjeon/youtube-dl-nas`). One tag build updates `latest`, the pinned release tag, and its immutable `sha-` tag together.
 
+Manual workflow runs default to smoke-only mode. The smoke compares image
+size and idle process RSS with the previous release on the same platform;
+growth above 100 MB or 75 MB respectively blocks publication for review.
+The GitHub release waits for that tag's successful image publication.
+
 Configure these repository secrets before publishing to Docker Hub:
 
 - `DOCKERHUB_USERNAME`
@@ -377,7 +420,19 @@ That keeps pull requests build-verified and avoids rebuilding the same release o
 
 ## Architecture
 
-The application is a Python Bottle server running inside a Debian-based Python container. Browser and REST requests enter the same single-worker queue, whose active and pending jobs are atomically mirrored to the metadata volume without a database. Completed files are written to `/downfolder`. A failure-isolated scheduler checks for current `yt-dlp` and matching EJS components at startup and hourly by default. Each new container also installs or upgrades `nlptutti` before the app starts; a package-index failure leaves the download queue running but temporarily disables Subtitle QA. Deno supplies the JavaScript runtime used by current YouTube extraction challenges.
+The application runs inside one Debian-based Python container. nginx owns
+the public port and routes browser, REST, WebSocket, and MCP requests to
+loopback-only Bottle/gevent and MCP ASGI services. Bottle remains the sole
+writer for the single-worker queue and atomic JSON state. Completed files
+are written below `/downfolder`, including immutable collection directories.
+
+The supervisor stops the container when a core service or the enabled updater
+daemon dies. A fatal worker persistence error makes health unavailable and
+terminates the web process so restart recovery uses durable queue state.
+Startup package checks may fail without blocking the application; the updater
+checks `yt-dlp` and matching EJS components hourly by default and attempts
+`nlptutti` installation or upgrade at each container start. Deno supplies the
+JavaScript runtime used by current YouTube extraction challenges.
 
 - Web server: [`bottle`](https://github.com/bottlepy/bottle)
 - WebSocket: [`bottle-websocket`](https://github.com/zeekay/bottle-websocket)

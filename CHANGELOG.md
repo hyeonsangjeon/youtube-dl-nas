@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0906 - 2026-09-06
+
+### Added
+
+- Added persistent topic collections with immutable nested download folders, shared file memberships, missing-file visibility, and metadata-only collection editing and removal.
+- Added versioned collection, library, download, preview-plan, and batch APIs. Bounded previews enforce publication-date policy, expire after 30 minutes, suggest existing collections, and commit idempotently with restart recovery.
+- Added always-on Streamable HTTP MCP using the official Python SDK. An nginx front end serves the dashboard, WebSocket, and MCP endpoint on the existing public port while the web application remains the sole state writer.
+- Added dashboard-issued named MCP connections with hashed tokens, one-time secret display, per-request authentication, immediate revocation, and existing `YDLNAS_API_TOKEN` compatibility.
+- Added cohesive Downloads, Collections, and AI Connect navigation, a manual preview-and-approve flow, live collection and batch views, client setup snippets, and four-language interface copy.
+
+### Changed
+
+- Preserve original root files and use validated relative paths for nested scans, media previews, downloads, sidecars, retries, and file actions.
+- Keep files, collections, memberships, and batches when clearing history, and make that boundary explicit in the confirmation.
+- Share media-preview and formatting helpers between Downloads and Collections, use a keyboard-accessible native preview dialog, and support deep links back to download details.
+- Supervise the web, MCP, nginx, and enabled updater processes together; check both public web health and MCP readiness.
+
+### Fixed
+
+- Treat a fatal queue-worker state failure as an unhealthy web process and exit nonzero for supervised restart. Publish active-queue transitions only after persistence succeeds; never restart the failed worker against memory-only state.
+- Rebind reused-file memberships and their batch entries when a missing file is retried, including already queued replacements, multiple collections, and older history identifiers.
+- Reuse an existing membership when the same media and download profile/scope are collected again after file removal. Preserve each batch's date policy and keep distinct media identities and profiles separate.
+
+### Documentation
+
+- Added MCP client setup, the research-preview-approve workflow, API and token boundaries, and an explicit release-gate checklist. Native-client and image measurements must not be inferred from protocol tests alone.
+- Publish container smoke and same-platform footprint evidence with the image workflow. Native setup examples are documented for six primary clients, but a complete six-client end-to-end certification is not claimed for this release.
+
 ## 26.0830 - 2026-08-30
 
 ### Added
