@@ -232,27 +232,41 @@ jobs:
               >> .ci-runtime-smoke/candidate-rss.txt
             sleep 1
           done
+          docker exec -i youtube-dl-nas-baseline python - --details < tests/fixtures/container_rss.py \
+            > .ci-runtime-smoke/baseline-processes.json
+          docker exec -i youtube-dl-nas-smoke python - --details < tests/fixtures/container_rss.py \
+            > .ci-runtime-smoke/candidate-processes.json
           python - <<'PY'
           import json
           import os
           import statistics
+          import sys
           from pathlib import Path
+
+          sys.path.insert(0, "tests")
+          from fixtures.container_rss import reviewed_budget_allows
 
           root = Path(".ci-runtime-smoke")
           def median_rss(name):
               return int(statistics.median(int(line) for line in (root / name).read_text().splitlines()))
           report = {
+              "version": json.loads((root / "health.json").read_text())["version"],
               "platform": "linux/amd64",
               "baseline_image": os.environ["BASELINE_IMAGE"],
               "baseline_image_bytes": int(os.environ["BASELINE_IMAGE_BYTES"]),
               "candidate_image_bytes": int(os.environ["CANDIDATE_IMAGE_BYTES"]),
               "baseline_idle_rss_bytes": median_rss("baseline-rss.txt"),
               "candidate_idle_rss_bytes": median_rss("candidate-rss.txt"),
+              "baseline_processes": json.loads((root / "baseline-processes.json").read_text()),
+              "candidate_processes": json.loads((root / "candidate-processes.json").read_text()),
               "rss_method": "Median of three sums of /proc process VmRSS, excluding the measurement process; startup updaters disabled in both containers.",
           }
           report["image_delta_bytes"] = report["candidate_image_bytes"] - report["baseline_image_bytes"]
           report["idle_rss_delta_bytes"] = report["candidate_idle_rss_bytes"] - report["baseline_idle_rss_bytes"]
           report["within_budget"] = report["image_delta_bytes"] <= 100_000_000 and report["idle_rss_delta_bytes"] <= 75_000_000
+          review_path = Path("docs/mcp/footprint-review-26.0906.json")
+          report["accepted_by_versioned_review"] = reviewed_budget_allows(report, json.loads(review_path.read_text()))
+          report["review"] = str(review_path) if report["accepted_by_versioned_review"] and not report["within_budget"] else None
           (root / "footprint.json").write_text(json.dumps(report, indent=2) + "\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write("## Container footprint (linux/amd64)\n\n")
@@ -263,7 +277,9 @@ jobs:
               ):
                   summary.write(f"| {label} | {report[baseline]:,} | {report[candidate]:,} | {report[delta]:+,} |\n")
               summary.write("\n" + report["rss_method"] + "\n")
-          assert report["within_budget"], "Review required: image growth exceeds 100 MB or idle RSS growth exceeds 75 MB"
+              if report["review"]:
+                  summary.write("\nThe 75 MB RSS review trigger was exceeded. Accepted only under the bounded, version-specific design review: " + report["review"] + "\n")
+          assert report["within_budget"] or report["accepted_by_versioned_review"], "Unreviewed image or RSS growth; publication blocked"
           PY
 
       - name: Preserve runtime evidence

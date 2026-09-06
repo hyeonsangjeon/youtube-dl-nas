@@ -408,6 +408,9 @@ Manual workflow runs default to smoke-only mode. The smoke compares image
 size and idle process RSS with the previous release on the same platform;
 growth above 100 MB or 75 MB respectively blocks publication for review.
 The GitHub release waits for that tag's successful image publication.
+`26.0906` has a [bounded RSS design review](docs/mcp/footprint-review-26.0906.json):
+its first measurement was 157 MB total idle RSS, 107 MB above the previous
+release. This overhead is disclosed, not reported as passing the 75 MB trigger.
 
 Configure these repository secrets before publishing to Docker Hub:
 

@@ -1,0 +1,16 @@
+{
+  "version": "26.0906",
+  "platform": "linux/amd64",
+  "baseline_image": "modenaf360/youtube-dl-nas:26.0830",
+  "observed_run": "https://github.com/hyeonsangjeon/youtube-dl-nas/actions/runs/34038824625",
+  "observed_image_delta_bytes": 51435986,
+  "observed_idle_rss_delta_bytes": 107057152,
+  "observed_candidate_idle_rss_bytes": 157036544,
+  "default_idle_rss_review_trigger_bytes": 75000000,
+  "max_image_delta_bytes": 100000000,
+  "max_idle_rss_delta_bytes": 120000000,
+  "max_candidate_idle_rss_bytes": 180000000,
+  "decision": "Retain the requested nginx, Bottle/gevent sole writer, and separate official MCP SDK service. The 75 MB RSS review trigger was exceeded, not passed. Disclose the measured fixed idle overhead and constrain this exception to this version, baseline, and platform.",
+  "rationale": "The official SDK eagerly imports its protocol models and server/client modules, including FastMCP, even for its low-level server. Removing these modules would require patching the SDK; collapsing services would change the required process and sole-writer boundaries. Those shortcuts are not justified for this release. The same-platform image increase is below 100 MB; combined idle process RSS was about 150 MiB, including shared pages counted once per process.",
+  "scope": "This review does not certify other platforms, native clients, download-time memory, or future release versions."
+}

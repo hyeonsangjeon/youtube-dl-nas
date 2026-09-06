@@ -32,6 +32,7 @@ All notable changes to this project are documented here.
 
 - Added MCP client setup, the research-preview-approve workflow, API and token boundaries, and an explicit release-gate checklist. Native-client and image measurements must not be inferred from protocol tests alone.
 - Publish container smoke and same-platform footprint evidence with the image workflow. Native setup examples are documented for six primary clients, but a complete six-client end-to-end certification is not claimed for this release.
+- Document the measured official-SDK/process overhead: the first Linux/AMD64 image comparison grew by 51.4 MB and idle process RSS by 107.1 MB. The exceeded RSS review trigger has a bounded, version-specific design review rather than an unqualified budget-pass claim.
 
 ## 26.0830 - 2026-08-30
 

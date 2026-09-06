@@ -486,6 +486,16 @@ the [Docker Image workflow](https://github.com/hyeonsangjeon/youtube-dl-nas/acti
 before image publication; the run summary and `runtime-smoke-evidence` artifact
 contain those results. The GitHub release waits for successful image publication.
 
+The first same-platform measurement for `26.0906` found **51.4 MB image
+growth** and **107.1 MB additional idle process RSS**, with **157.0 MB total
+idle RSS**. The 75 MB RSS review trigger was exceeded, not passed. The
+[version-specific design review](footprint-review-26.0906.json) retains the
+required separate official SDK service rather than patching SDK internals or
+weakening the single-writer/process boundaries. Its exception is limited to
+this version and platform, at most 120 MB additional RSS and 180 MB total idle
+RSS; future versions do not inherit it. Download-time memory is additional,
+and summed process RSS includes shared pages once per process.
+
 **The six primary native clients are not all end-to-end certified in this
 release.** The maintainer authorized publication with this limitation disclosed.
 Installed CLI/configuration checks, SDK tests, and host import-only memory

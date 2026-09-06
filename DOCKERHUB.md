@@ -72,6 +72,12 @@ for client setup and the actual validation scope. Six native-client end-to-end
 certification is not claimed. Use HTTPS or a VPN for remote MCP access; bearer
 tokens are not encrypted by plain HTTP.
 
+The Linux/AMD64 preflight measured about **157 MB total idle process RSS**,
+including the always-on MCP service. Allow additional memory for downloads and
+Subtitle QA. The [footprint review](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/docs/mcp/footprint-review-26.0906.json)
+documents the increase over `26.0830`; it is not a claim that ARM64 or
+download-time memory was measured.
+
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history" width="23%">
 
