@@ -142,6 +142,9 @@ def nginx_config(config):
         "PID_PATH": quote_path("nginx.pid"),
         "BODY_PATH": quote_path("client-body"),
         "PROXY_PATH": quote_path("proxy"),
+        "FASTCGI_PATH": quote_path("fastcgi"),
+        "UWSGI_PATH": quote_path("uwsgi"),
+        "SCGI_PATH": quote_path("scgi"),
         "APP_PORT": config.app_port,
         "WEB_PORT": config.web_port,
         "MCP_PORT": config.mcp_port,
@@ -155,7 +158,7 @@ def prepare_runtime(config, env):
     paths = [
         config.download_dir, config.download_dir / ".incomplete", config.state_dir,
         config.runtime_dir,
-        *(config.runtime_dir / name for name in ("client-body", "proxy", "home", "cache", "scratch")),
+        *(config.runtime_dir / name for name in ("client-body", "proxy", "fastcgi", "uwsgi", "scgi", "home", "cache", "scratch")),
     ]
     for path in paths:
         path.mkdir(parents=True, exist_ok=True)

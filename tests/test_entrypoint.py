@@ -6,13 +6,14 @@ import subprocess
 import sys
 import threading
 import time
+from unittest.mock import MagicMock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from runtime import (
-    PROXY_READ_TIMEOUT_SECONDS, ConfigurationError, RuntimeConfig, nginx_config, process_specs, public_health,
+    PROXY_READ_TIMEOUT_SECONDS, ConfigurationError, RuntimeConfig, nginx_config, prepare_runtime, process_specs, public_health,
 )
 
 
@@ -357,6 +358,29 @@ def test_nginx_configuration_preserves_websocket_all_routes_and_private_auth(tmp
     assert "client_max_body_size 0;" in rendered
     for name in ("static", "pwa", "youtube-dl/download", "terms"):
         assert f"location /{name}" not in rendered  # All legacy paths fall through unchanged.
+
+
+def test_all_nginx_temp_directories_are_prepared_for_the_unprivileged_runtime(tmp_path, monkeypatch):
+    app_dir = make_fake_app(tmp_path)
+    env = entrypoint_env(tmp_path, app_dir)
+    env.update(PUID="1000", PGID="1000")
+    config = RuntimeConfig.from_env(env)
+    chown = MagicMock()
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "chown", chown)
+    previous_mask = os.umask(0o022)
+    try:
+        rendered = prepare_runtime(config, env).read_text()
+    finally:
+        os.umask(previous_mask)
+    for directive, name in (
+        ("client_body_temp_path", "client-body"), ("proxy_temp_path", "proxy"),
+        ("fastcgi_temp_path", "fastcgi"), ("uwsgi_temp_path", "uwsgi"), ("scgi_temp_path", "scgi"),
+    ):
+        path = config.runtime_dir / name
+        assert path.is_dir()
+        assert f'{directive} "{path}";' in rendered
+        chown.assert_any_call(path, 1000, 1000, follow_symlinks=False)
 
 
 def test_auth_json_public_port_fallback_and_runtime_privilege_commands(monkeypatch):

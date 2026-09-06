@@ -23,6 +23,7 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- Keep every nginx temporary directory inside the prepared runtime directory so Debian images start correctly with a non-root `PUID`/`PGID`.
 - Treat a fatal queue-worker state failure as an unhealthy web process and exit nonzero for supervised restart. Publish active-queue transitions only after persistence succeeds; never restart the failed worker against memory-only state.
 - Rebind reused-file memberships and their batch entries when a missing file is retried, including already queued replacements, multiple collections, and older history identifiers.
 - Reuse an existing membership when the same media and download profile/scope are collected again after file removal. Preserve each batch's date policy and keep distinct media identities and profiles separate.

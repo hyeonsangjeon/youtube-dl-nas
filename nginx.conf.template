@@ -11,6 +11,9 @@ http {
     server_tokens off;
     client_body_temp_path @@BODY_PATH@@;
     proxy_temp_path @@PROXY_PATH@@;
+    fastcgi_temp_path @@FASTCGI_PATH@@;
+    uwsgi_temp_path @@UWSGI_PATH@@;
+    scgi_temp_path @@SCGI_PATH@@;
     proxy_http_version 1.1;
     proxy_buffering off;
     proxy_request_buffering off;
