@@ -1,6 +1,6 @@
 worker_processes 1;
 pid @@PID_PATH@@;
-error_log /dev/stderr warn;
+error_log stderr warn;
 
 events {
     worker_connections 1024;

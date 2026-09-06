@@ -354,6 +354,8 @@ def test_nginx_configuration_preserves_websocket_all_routes_and_private_auth(tmp
     assert "map $http_x_forwarded_proto $public_scheme" in rendered
     assert "proxy_set_header X-Forwarded-Proto $public_scheme;" in rendered
     assert "access_log off;" in rendered
+    assert "error_log stderr warn;" in rendered
+    assert "/dev/stderr" not in rendered
     assert "listen 9090;" in rendered
     assert "client_max_body_size 0;" in rendered
     for name in ("static", "pwa", "youtube-dl/download", "terms"):
