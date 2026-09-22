@@ -1,9 +1,11 @@
 """Durable collection plans, media membership, and scoped connection credentials."""
 
+import base64
 import copy
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import secrets
@@ -21,6 +23,8 @@ from urllib.parse import unquote
 
 STATE_VERSION = 1
 PLAN_TTL_SECONDS = 1800
+EXPIRED_PLAN_RETENTION_SECONDS = 86400
+CONNECTION_USAGE_INTERVAL_SECONDS = 60
 PREVIEW_TIMEOUT_SECONDS = 900
 PREVIEW_WORK_TIMEOUT_SECONDS = 840
 COMMIT_TIMEOUT_SECONDS = 120
@@ -86,6 +90,59 @@ def nonblocking_auth_io(function):
 
 def utc_timestamp(timestamp=None):
     return datetime.fromtimestamp(time.time() if timestamp is None else timestamp, timezone.utc).isoformat()
+
+
+def library_page(items, *, query="", limit=200, order="newest", cursor=None):
+    if order not in {"newest", "oldest"}:
+        raise APIError("invalid_sort")
+    query = query.strip().casefold()
+    context = hashlib.sha256(json.dumps([query, order]).encode()).hexdigest()
+    anchor = None
+    if cursor:
+        try:
+            if len(cursor) > 2048:
+                raise ValueError()
+            decoded = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
+            anchor = decoded["after"]
+            if (
+                decoded["version"] != 1 or decoded["context"] != context
+                or not isinstance(anchor, list) or len(anchor) != 3
+                or type(anchor[0]) is not int or anchor[0] not in (0, 1)
+                or type(anchor[1]) not in (int, float) or not math.isfinite(anchor[1])
+                or not isinstance(anchor[2], str)
+            ):
+                raise ValueError()
+        except (ValueError, TypeError, KeyError, UnicodeError):
+            raise APIError("invalid_cursor") from None
+
+    def sort_key(item):
+        try:
+            stamp = datetime.fromisoformat(str(item.get("timestamp") or "")).timestamp()
+            if not math.isfinite(stamp):
+                raise ValueError()
+        except (ValueError, OverflowError, OSError):
+            return [1, 0, str(item.get("uuid") or item.get("relative_path") or "")]
+        return [0, -stamp if order == "newest" else stamp, str(item.get("uuid") or item.get("relative_path") or "")]
+
+    matching = [
+        item for item in items
+        if not query or query in " ".join(
+            str(item.get(key) or "") for key in ("title", "channel", "url", "relative_path")
+        ).casefold()
+    ]
+    ordered = sorted((sort_key(item), index, item) for index, item in enumerate(matching))
+    remaining = [(key, item) for key, _, item in ordered if anchor is None or key > anchor]
+    selected = remaining[:limit]
+    has_more = len(remaining) > limit
+    next_cursor = None
+    if has_more:
+        next_cursor = base64.urlsafe_b64encode(json.dumps({
+            "version": 1, "context": context, "after": selected[-1][0],
+        }, separators=(",", ":")).encode()).decode()
+    return {
+        "items": [item for _, item in selected], "total": len(matching),
+        "has_more": has_more, "next_cursor": next_cursor, "sort": order,
+    }
 
 
 def batch_limit():
@@ -426,8 +483,15 @@ class ConnectionStore:
                     matched = item
             if matched is None:
                 return False
-            matched["last_used_at"] = utc_timestamp()
-            atomic_json_write(self.path, state)
+            now = time.time()
+            try:
+                last_used = datetime.fromisoformat(matched["last_used_at"]).timestamp()
+            except (TypeError, ValueError, OverflowError, OSError):
+                last_used = None
+            # Always reload credentials; only usage telemetry is coalesced.
+            if last_used is None or not 0 <= now - last_used < CONNECTION_USAGE_INTERVAL_SECONDS:
+                matched["last_used_at"] = utc_timestamp(now)
+                atomic_json_write(self.path, state)
             return True
 
 
@@ -441,6 +505,21 @@ class CollectionService:
         })
         self._validate_state()
         self.signature = self._signature()
+        cleaned = copy.deepcopy(self.state)
+        if self._prune_plans(cleaned):
+            self._save(cleaned)
+
+    @staticmethod
+    def _prune_plans(state):
+        referenced = {batch["plan_id"] for batch in state["batches"].values()}
+        cutoff = time.time() - EXPIRED_PLAN_RETENTION_SECONDS
+        expired = [
+            key for key, plan in state["plans"].items()
+            if not plan.get("batch_id") and key not in referenced and plan["expires_at_epoch"] <= cutoff
+        ]
+        for key in expired:
+            del state["plans"][key]
+        return bool(expired)
 
     def _signature(self):
         try:
@@ -508,6 +587,7 @@ class CollectionService:
 
     def _save(self, state):
         self._require_current()
+        self._prune_plans(state)
         try:
             atomic_json_write(self.path, state)
         except OSError as error:
@@ -1152,6 +1232,7 @@ class CollectionService:
         state = copy.deepcopy(self.state)
         history = self.server["download_manager"].normalized_history()
         changed = self._apply_history(state, history)
+        changed = self._prune_plans(state) or changed
         queue = self._queue()
         jobs = []
         terminal_job_ids = set()

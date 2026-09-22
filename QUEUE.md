@@ -48,4 +48,13 @@ The project board is the source of truth for priority, status, and target releas
 The six primary native-client end-to-end certification remains open. Shipping
 the implementation does not mark that remaining roadmap work complete.
 
+## 26.0922 Maintenance
+
+- Added complete MCP/REST library traversal with cursor pagination and download-time sorting.
+- Coalesced connection usage writes while preserving immediate token revocation.
+- Added bounded retention for expired unapproved plans without removing committed recovery journals.
+- Clarified server health versus client authentication in AI Connect in all four languages.
+- Native Codex CLI and Claude Code completed discovery, preview, separate approval, actual download, idempotent replay, and completed-state checks against one normal test container.
+- VS Code/Copilot, Cursor, Gemini CLI, and OpenCode still need native end-to-end verification. Keep the six-client card In Progress; see `docs/mcp/validation-26.0922.md`.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).

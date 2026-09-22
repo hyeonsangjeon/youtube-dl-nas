@@ -40,7 +40,7 @@ from collections_backend import (
     APIError, CollectionService, ConnectionStore, COMMIT_TIMEOUT_SECONDS,
     PLAN_TTL_SECONDS, PREVIEW_TIMEOUT_SECONDS, PREVIEW_WORK_TIMEOUT_SECONDS, StateError,
     atomic_json_write, batch_limit, delete_media_file, ensure_media_directory,
-    is_direct_metadata, metadata_upload_date, nonblocking_auth_io, nonblocking_io,
+    is_direct_metadata, library_page, metadata_upload_date, nonblocking_auth_io, nonblocking_io,
     normalize_date_policy, open_media_file,
     policy_rejection, read_state, reject_client_paths, relative_media_path,
     safe_media_path, valid_collection_target,
@@ -55,7 +55,7 @@ QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
 COLLECTIONS_STATE_FILE = os.path.join(STATE_DIR, "collections.json")
 CONNECTIONS_STATE_FILE = os.path.join(STATE_DIR, "connections.json")
 APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0906")
+APP_VERSION = os.environ.get("APP_VERSION", "26.0922")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -2769,7 +2769,7 @@ def v1_capabilities():
         "preview_timeout_seconds": PREVIEW_TIMEOUT_SECONDS,
         "preview_work_timeout_seconds": PREVIEW_WORK_TIMEOUT_SECONDS,
         "commit_timeout_seconds": COMMIT_TIMEOUT_SECONDS,
-        "features": ["collections", "preview_commit", "date_policy", "connection_tokens", "safe_relative_paths"],
+        "features": ["collections", "preview_commit", "date_policy", "connection_tokens", "safe_relative_paths", "library_pagination"],
         "direct_urls_only": True,
         "unknown_dates_require_approval": True,
     }
@@ -2791,17 +2791,14 @@ def v1_library():
     download_manager.load_history()
     collections_service.reconcile()
     items = download_manager.combined_history()
-    query = str(request.query.get("q") or "").strip().casefold()
-    if query:
-        items = [
-            item for item in items
-            if query in " ".join(str(item.get(key) or "") for key in ("title", "channel", "url", "relative_path")).casefold()
-        ]
     try:
         limit = min(500, max(1, int(request.query.get("limit") or 200)))
     except ValueError:
         raise APIError("invalid_limit")
-    return {"items": items[:limit], "total": len(items)}
+    return library_page(
+        items, query=str(request.query.get("q") or ""), limit=limit,
+        order=request.query.get("sort") or "newest", cursor=request.query.get("cursor"),
+    )
 
 
 @get("/youtube-dl/api/v1/downloads")

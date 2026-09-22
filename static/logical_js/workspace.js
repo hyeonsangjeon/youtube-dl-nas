@@ -386,6 +386,23 @@
                 </article>`;
             }).join('') : emptyMarkup(t('connect.no_connections'), t('connect.no_connections_hint')));
         }
+        async function refreshMcpHealth() {
+            const controller = new AbortController();
+            const timer = win.setTimeout(function() { controller.abort(); }, 10000);
+            try {
+                const result = await win.fetch('/youtube-dl/mcp/health', {
+                    credentials: 'omit', cache: 'no-store', signal: controller.signal
+                });
+                if (!result.ok || (await result.json()).status !== 'ok') { throw new Error('mcp_unavailable'); }
+                text('mcp-service-status', t('connect.ready'));
+                byId('mcp-service-status').className = 'connection-chip status-completed';
+            } catch (error) {
+                text('mcp-service-status', t('connect.unavailable'));
+                byId('mcp-service-status').className = 'connection-chip status-failed';
+            } finally {
+                win.clearTimeout(timer);
+            }
+        }
         async function refresh() {
             if (state.loading) { return; }
             state.loading = true;
@@ -407,6 +424,7 @@
                     state.connections = result.connections;
                     renderConnections();
                     hidden('connections-loading', true);
+                    await refreshMcpHealth();
                 }
                 state.initialized = true;
                 text('connection-status', t('connection.online'));
@@ -737,21 +755,6 @@
                 });
             });
             win.addEventListener('pagehide', clearSecret);
-            const healthController = new AbortController();
-            const healthTimer = win.setTimeout(function() { healthController.abort(); }, 10000);
-            win.fetch('/youtube-dl/mcp/health', { credentials: 'omit', cache: 'no-store', signal: healthController.signal }).then(function(response) {
-                if (!response.ok) { throw new Error('mcp_unavailable'); }
-                return response.json();
-            }).then(function(body) {
-                if (body.status !== 'ok') { throw new Error('mcp_unavailable'); }
-                text('mcp-service-status', t('connect.ready'));
-                byId('mcp-service-status').className = 'connection-chip status-completed';
-            }).catch(function() {
-                text('mcp-service-status', t('connect.unavailable'));
-                byId('mcp-service-status').className = 'connection-chip status-failed';
-            }).finally(function() {
-                win.clearTimeout(healthTimer);
-            });
         }
         refresh().catch(report);
         let poll;

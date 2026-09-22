@@ -53,7 +53,7 @@ on:
 env:
   DOCKERHUB_IMAGE: modenaf360/youtube-dl-nas
   GHCR_IMAGE: ghcr.io/hyeonsangjeon/youtube-dl-nas
-  BASELINE_IMAGE: modenaf360/youtube-dl-nas:26.0830
+  BASELINE_IMAGE: modenaf360/youtube-dl-nas:26.0906
 
 jobs:
   smoke:
