@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
@@ -72,6 +73,14 @@ def test_library_cursor_is_bound_to_search_and_order_and_handles_empty_results(c
 
 @pytest.mark.parametrize("cursor", ["not-base64", "a" * 2049, "W10=", "bnVsbA==", "e30=", base64.b64encode(json.dumps({"version": 1, "context": "bad", "after": [0, float("inf"), "id"]}).encode()).decode()])
 def test_library_rejects_malformed_cursor_without_server_error(client, cursor):
+    assert client.get(BASE + "/library", params={"cursor": cursor}, headers=AUTH, status=400).json["code"] == "invalid_cursor"
+
+
+def test_library_rejects_cursor_with_oversized_numeric_timestamp(client):
+    cursor = base64.urlsafe_b64encode(json.dumps({
+        "version": 1, "context": hashlib.sha256(json.dumps(["", "newest"]).encode()).hexdigest(),
+        "after": [0, 10 ** 400, "item"],
+    }).encode()).decode()
     assert client.get(BASE + "/library", params={"cursor": cursor}, headers=AUTH, status=400).json["code"] == "invalid_cursor"
 
 
