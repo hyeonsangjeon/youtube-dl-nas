@@ -39,7 +39,7 @@ not mean the job was enqueued again.
 
 ## Local Verification
 
-- Full Python/HTTP/JavaScript-backed regression suite: **451 passed** on Python
+- Full Python/HTTP/JavaScript-backed regression suite: **452 passed** on Python
   3.11. One existing WebOb `cgi` deprecation warning remains.
 - Real container: web and MCP health, non-root runtime, 11-tool discovery,
   two cursor pages, immediate revoked-token rejection (401), and authenticated
@@ -58,6 +58,16 @@ The local ARM64 candidate image measured 291,257,280 bytes. A post-restart idle
 sample summed to 151,990,272 bytes of process RSS with startup updaters disabled.
 This is a single-platform observation, not a peak-memory guarantee or an AMD64
 comparison; summed RSS can count shared pages more than once.
+
+## Known Configuration Constraint
+
+The same-configuration restart and image replacement checks passed. An additional
+policy-change check found an existing limitation: disabling
+`YDLNAS_ALLOW_PRIVATE_SOURCES` after saving collections containing private-source
+requests can prevent startup because persisted requests are validated against
+the new policy. This release does not change that behavior. Keep the existing
+source-policy setting during upgrade; separating persisted-state loading from
+admission checks is tracked for a focused follow-up with network-safety tests.
 
 ## Publication Checks
 

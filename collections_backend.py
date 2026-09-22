@@ -112,7 +112,7 @@ def library_page(items, *, query="", limit=200, order="newest", cursor=None):
                 or not isinstance(anchor[2], str)
             ):
                 raise ValueError()
-        except (ValueError, TypeError, KeyError, UnicodeError):
+        except (ValueError, TypeError, KeyError, UnicodeError, OverflowError):
             raise APIError("invalid_cursor") from None
 
     def sort_key(item):

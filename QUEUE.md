@@ -57,4 +57,13 @@ the implementation does not mark that remaining roadmap work complete.
 - Native Codex CLI and Claude Code completed discovery, preview, separate approval, actual download, idempotent replay, and completed-state checks against one normal test container.
 - VS Code/Copilot, Cursor, Gemini CLI, and OpenCode still need native end-to-end verification. Keep the six-client card In Progress; see `docs/mcp/validation-26.0922.md`.
 
+## Follow-up Found During 26.0922 Validation
+
+- Allow existing collections to load after `YDLNAS_ALLOW_PRIVATE_SOURCES` is
+  disabled, while still rejecting new private-source requests and checking
+  retries and redirects against the current policy. Currently, persisted
+  private-source requests can cause startup to fail after this setting changes.
+  Same-configuration upgrades pass. Add dedicated migration and policy tests
+  before changing validation boundaries.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).
