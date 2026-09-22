@@ -84,12 +84,12 @@ def test_library_rejects_cursor_with_oversized_numeric_timestamp(client):
     assert client.get(BASE + "/library", params={"cursor": cursor}, headers=AUTH, status=400).json["code"] == "invalid_cursor"
 
 
-def test_connection_usage_writes_once_per_minute_and_revocation_is_immediate(isolated_backend, monkeypatch):
+@pytest.mark.parametrize("now", [1750000000.1234567, 1750000000.1234562])
+def test_connection_usage_writes_once_per_minute_and_revocation_is_immediate(isolated_backend, monkeypatch, now):
     store = server.connections_store
     issued = store.create("Temporary test")
     writes = MagicMock(wraps=backend.atomic_json_write)
     monkeypatch.setattr(backend, "atomic_json_write", writes)
-    now = backend.time.time()
     monkeypatch.setattr(backend.time, "time", lambda: now)
     with ThreadPoolExecutor(max_workers=8) as executor:
         assert all(executor.map(store.validate, [issued["token"]] * 20))

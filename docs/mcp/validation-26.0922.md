@@ -39,7 +39,7 @@ not mean the job was enqueued again.
 
 ## Local Verification
 
-- Full Python/HTTP/JavaScript-backed regression suite: **452 passed** on Python
+- Full Python/HTTP/JavaScript-backed regression suite: **453 passed** on Python
   3.11. One existing WebOb `cgi` deprecation warning remains.
 - Real container: web and MCP health, non-root runtime, 11-tool discovery,
   two cursor pages, immediate revoked-token rejection (401), and authenticated

@@ -483,14 +483,16 @@ class ConnectionStore:
                     matched = item
             if matched is None:
                 return False
-            now = time.time()
+            # Compare at the same microsecond precision as the persisted timestamp.
+            now_timestamp = utc_timestamp()
+            now = datetime.fromisoformat(now_timestamp).timestamp()
             try:
                 last_used = datetime.fromisoformat(matched["last_used_at"]).timestamp()
             except (TypeError, ValueError, OverflowError, OSError):
                 last_used = None
             # Always reload credentials; only usage telemetry is coalesced.
             if last_used is None or not 0 <= now - last_used < CONNECTION_USAGE_INTERVAL_SECONDS:
-                matched["last_used_at"] = utc_timestamp(now)
+                matched["last_used_at"] = now_timestamp
                 atomic_json_write(self.path, state)
             return True
 
