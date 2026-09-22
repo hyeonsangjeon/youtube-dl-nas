@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.0922 - 2026-09-22
+
+### Improved
+
+- MCP and REST library lookup now support cursor pagination beyond 500 files, with newest/oldest download-time ordering and deterministic ties. Missing dates sort last; mounted files keep their modification-time provenance.
+- Library cursors are bound to the search and sort order. Newly completed downloads do not shift subsequent pages or repeat already returned rows; restart traversal to include items inserted before the cursor.
+- Named MCP tokens still check persisted credentials and revocation on every request, but coalesce last-authentication writes to at most once per minute. No authentication cache or database was added.
+- Expired, unapproved previews are removed after a 24-hour inspection grace period during startup, reconciliation, or a later state write. Approved plans, stable receipts, batches, and recovery journals are preserved.
+- AI Connect now distinguishes server readiness from actual client authentication in all four languages and refreshes server health after outages without a full page reload.
+
+### Verification And Documentation
+
+- Added regression coverage for multi-page libraries, tied and missing timestamps, concurrent library changes, malformed cursors, token write coalescing, immediate revocation, clock rollback, and safe preview cleanup.
+- Updated README, the MCP manual, Docker Hub overview, and the client-validation record. Native-client results are reported separately from protocol tests; six-client certification is not implied.
+- Container footprint comparison now uses the previous stable MCP release, `26.0906`; its version-specific RSS exception does not authorize an exception for this release.
+
+### Upgrade
+
+- Pull `26.0922` or `latest` and recreate the container while keeping both existing mounts. No environment changes or manual migration are required. Startup and hourly `yt-dlp` updates and startup `nlptutti` updates remain unchanged.
+
 ## 26.0906 - 2026-09-06
 
 ### Added

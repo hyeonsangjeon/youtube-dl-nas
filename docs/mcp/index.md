@@ -5,7 +5,7 @@ title: MCP Collections and AI Connect
 
 # MCP Collections and AI Connect
 
-**Available in 26.0906.** Keep the existing download and metadata volumes when
+**Available since 26.0906; updated in 26.0922.** Keep the existing download and metadata volumes when
 upgrading. Client configuration examples are not evidence that every client
 has passed an end-to-end certification.
 
@@ -57,6 +57,12 @@ safe prefix, creation date, last use, and revocation state. **Revoke** blocks
 subsequent requests immediately. It does not cancel batches you already
 approved. Dashboard sessions alone do not authenticate MCP, and MCP tokens
 cannot manage connection tokens or log in to the dashboard.
+
+**MCP server ready** reports service health, not a connected AI client.
+**Waiting for client authentication** changes only after that connection's token
+successfully authenticates. The last-authentication timestamp is persisted at
+most once per minute; revocation is checked on every request and is immediate.
+This is historical authentication evidence, not an online-presence indicator.
 
 An existing `YDLNAS_API_TOKEN` remains compatible. It is configured by the
 administrator and is not a dashboard-issued connection, so rotate it in the
@@ -274,6 +280,11 @@ collections based on normalized names and descriptions. It creates no media
 folder or download job. The pending plan itself is saved for 30 minutes so the
 same preview can be inspected and then committed once.
 
+After expiry, unapproved previews remain inspectable for 24 hours, then are
+removed at startup, reconciliation, or the next state write. A recently expired
+commit returns `410 plan_expired`; a pruned preview returns `404 plan_not_found`.
+Approved plans and their receipts are retained for idempotency and recovery.
+
 | Preview state | What approval can do |
 | --- | --- |
 | New download | Add one job to the queue |
@@ -369,6 +380,22 @@ MCP tool names are `get_capabilities`, `list_profiles`, `list_library`,
 tool additionally requires `confirm: true` after approval; this MCP-only
 confirmation field is not sent to the REST endpoint.
 
+### Browse The Whole Library
+
+`list_library` and `GET /library` accept `q`, `limit` (1-500), `sort` (`newest`
+by default, or `oldest`), and an optional `cursor`. The response includes `items`,
+`total`, `sort`, `has_more`, and `next_cursor`. Pass `next_cursor` unchanged with
+the same search and sort order until `has_more` is false. Cursors are opaque;
+URL-encode them when constructing REST requests. Invalid or mismatched cursors
+return `400 invalid_cursor`.
+
+Ordering uses recorded download time, never source publication date. Mounted
+files retain their file modification time; absent or invalid dates sort last.
+Equal timestamps use media identity as a deterministic tie-breaker. This is a
+live traversal, not a frozen snapshot: files added before the cursor appear when
+starting a fresh traversal, without shifting already visited pages. Renamed,
+removed, or externally modified files may change search results during traversal.
+
 | Method and path | Result |
 | --- | --- |
 | `GET /capabilities` | API version, limits, plan lifetime, supported behavior |
@@ -462,6 +489,11 @@ universal Plus, Pro, or workspace support.
 ## Validation And Client Compatibility
 
 ### Local Evidence And Remaining Gates
+
+For the current maintenance release, see the
+[26.0922 validation record](validation-26.0922.md), including native Codex and
+Claude Code runs and the four primary clients still awaiting verification.
+The following original evidence and footprint review describe `26.0906`.
 
 The implementation has been exercised through a real local nginx front end,
 Bottle/gevent, the official MCP SDK/ASGI service, and the normal supervisor.

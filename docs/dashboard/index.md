@@ -111,6 +111,6 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0906` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.0922` images support `linux/amd64` and `linux/arm64`.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

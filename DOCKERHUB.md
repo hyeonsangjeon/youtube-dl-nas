@@ -7,7 +7,12 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0906` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.0922` · **Architectures:** `linux/amd64`, `linux/arm64`
+
+**New in this release:** complete MCP library browsing with cursor pagination,
+download-date sorting, fewer token activity writes, automatic abandoned-preview
+cleanup, and clearer client authentication status. Keep both existing volumes
+when upgrading; no new configuration or database is required.
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -72,11 +77,13 @@ for client setup and the actual validation scope. Six native-client end-to-end
 certification is not claimed. Use HTTPS or a VPN for remote MCP access; bearer
 tokens are not encrypted by plain HTTP.
 
-The Linux/AMD64 preflight measured about **157 MB total idle process RSS**,
+The `26.0906` Linux/AMD64 preflight measured about **157 MB total idle process RSS**,
 including the always-on MCP service. Allow additional memory for downloads and
 Subtitle QA. The [footprint review](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/docs/mcp/footprint-review-26.0906.json)
 documents the increase over `26.0830`; it is not a claim that ARM64 or
-download-time memory was measured.
+download-time memory was measured. See the
+[26.0922 validation record](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/docs/mcp/validation-26.0922.md)
+for current release checks and native-client coverage.
 
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history" width="23%">
@@ -136,15 +143,15 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 
 | Tag | Use |
 | --- | --- |
-| `latest` | Current tested default-branch image |
-| `26.0906` | Current pinned release |
+| `latest` | Current verified stable release |
+| `26.0922` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0906` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0922` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0906
+docker pull modenaf360/youtube-dl-nas:26.0922
 ```
 
 ## Health Check

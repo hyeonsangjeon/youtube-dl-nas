@@ -105,7 +105,7 @@ async def sdk_session(client, url=URL):
         async with streamable_http_client(url, http_client=client) as (reader, writer, session_id):
             async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=4)) as session:
                 initialized = await session.initialize()
-                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.0906")
+                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.0922")
                 assert session_id() is None
                 yield session
 
@@ -149,10 +149,22 @@ async def test_official_sdk_initializes_lists_schemas_and_reads_every_resource()
             assert not response.isError, response
             assert key in response.structuredContent
     library = next(request for request in backend.calls if request.url.path.endswith("/library"))
-    assert dict(library.url.params) == {"q": "rain & snow", "limit": "5"}
+    assert dict(library.url.params) == {"q": "rain & snow", "limit": "5", "sort": "newest"}
     assert not backend.writes()
     assert len([request for request in backend.calls if request.url.path.endswith("/mcp/auth")]) >= 11
     assert all(request.headers.get("authorization") == HEADERS["Authorization"] for request in backend.calls)
+
+
+@pytest.mark.anyio
+async def test_library_cursor_and_order_reach_backend_unchanged():
+    backend = FakeBackend()
+    async with asgi_client(backend, HEADERS) as client, sdk_session(client) as session:
+        result = await session.call_tool("list_library", {
+            "q": "saved", "limit": 2, "sort": "oldest", "cursor": "opaque==",
+        })
+        assert not result.isError
+    library = next(request for request in backend.calls if request.url.path.endswith("/library"))
+    assert dict(library.url.params) == {"q": "saved", "limit": "2", "sort": "oldest", "cursor": "opaque=="}
 
 
 @pytest.mark.anyio

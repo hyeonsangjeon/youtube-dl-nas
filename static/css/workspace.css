@@ -762,6 +762,15 @@
   overflow-wrap: anywhere;
 }
 
+.connection-row > div {
+  min-width: 0;
+}
+
+.connection-row > .workspace-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .connection-row p {
   margin: 4px 0 0;
   color: var(--workspace-muted);

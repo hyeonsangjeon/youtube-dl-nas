@@ -14,7 +14,13 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0906` (`2026-09-06`)
+Current release: `26.0922` (`2026-09-22`)
+
+**This release:** AI clients can browse the entire NAS library with stable
+pagination and newest/oldest download sorting. MCP token activity writes are
+coalesced, abandoned previews are cleaned up, and AI Connect distinguishes
+server readiness from actual client authentication. Existing volumes and
+mobile sharing remain unchanged. [Changelog](CHANGELOG.md#260922---2026-09-22)
 
 ## Start Here
 
@@ -41,6 +47,7 @@ Current release: `26.0906` (`2026-09-06`)
 ## Highlights
 
 - Queue video, audio, or subtitle downloads from a browser.
+- Connect an AI client to research, preview, and approve topic collections on the same NAS address, with paginated library lookup and no embedded LLM service.
 - Choose an explicit Compatible MP4 profile when a client requires H.264 video and AAC audio; existing Best and resolution profiles keep their current behavior.
 - Keep the last successfully queued dashboard profile ready on each device without auto-submitting the next URL.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
@@ -117,6 +124,14 @@ checks duplicates, and queues approved work. MCP exposes no file-deletion tool
 or arbitrary filesystem path. Use HTTPS or a VPN for remote access.
 See the [MCP setup, API, and release-gate guide](docs/mcp/) for client-specific
 configuration and the distinction between protocol coverage and native-client QA.
+
+Library tools now return `next_cursor` and `has_more` so a client can inspect more
+than 500 stored files. Sorting uses recorded download time, not publication date;
+mounted-only files retain their filesystem modification time. AI Connect shows
+the last successful client authentication separately from server health, with
+usage timestamps recorded at most once per minute. See the
+[26.0922 validation record](docs/mcp/validation-26.0922.md) for tested clients and
+remaining coverage.
 
 ![MCP connection, candidate preview, approval, and collection workflow](pic/mcp-collections-demo.gif)
 
