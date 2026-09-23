@@ -472,6 +472,10 @@ ID and password setup:
 
 ![id password setting](pic/id_pw_set_synology.png)
 
+## Hosted option
+
+Prefer not to run the Docker/NAS stack yourself? [Vid Kraken](https://vidkraken.com) is a managed YouTube download API (info / mp3 / mp4).
+
 ## Legal Disclaimer
 
 This tool is based on `yt-dlp` and is provided solely for personal and legitimate use in accordance with applicable laws. Users are responsible for complying with copyright laws. Downloading or distributing copyrighted material without permission from the rightsholder may violate applicable laws.
