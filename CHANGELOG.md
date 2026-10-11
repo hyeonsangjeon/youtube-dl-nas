@@ -22,6 +22,7 @@ All notable changes to this project are documented here.
 - Load existing queue and collection records after private-source access is disabled. New requests, retries, and actual transfers still enforce the current source policy, including redirects.
 - Avoid a macOS shutdown failure when an already-exited updater's process group returns EPERM. Permission failures for live children are still reported.
 - Recognize the existing Opus profile when restoring the dashboard audio mode.
+- Keep the submitted URL and custom title available after validation or network failure, and do not clear a newer draft while an earlier request completes.
 
 ### Upgrade
 
