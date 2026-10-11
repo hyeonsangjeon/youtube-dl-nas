@@ -50,9 +50,9 @@
                         {{userNm}}
                     </span>
                     <span id="connection-status" class="connection-chip status-pending">{{t('dashboard.connecting')}}</span>
-                    <a class="logout-btn" href="/logout" title="{{t('dashboard.logout')}}">
+                    <a class="logout-btn" href="/logout" title="{{t('dashboard.logout')}}" aria-label="{{t('dashboard.logout')}}">
                         <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
-                        {{t('dashboard.logout')}}
+                        <span class="logout-label">{{t('dashboard.logout')}}</span>
                     </a>
                 </div>
             </header>
@@ -288,6 +288,19 @@
                                     <span id="playlist-guard-badge" class="options-alert" hidden>{{t('composer.playlist_detected')}}</span>
                                 </summary>
                                 <div class="composer-options-grid">
+                                    <label class="form-field" for="filename-style">
+                                        <span>{{t('composer.filename_style')}}</span>
+                                        <select id="filename-style" class="form-control admin-control">
+                                            <option value="default">{{t('composer.filename_default')}}</option>
+                                            <option value="channel-title">{{t('composer.filename_channel')}}</option>
+                                            <option value="date-title">{{t('composer.filename_date')}}</option>
+                                        </select>
+                                    </label>
+                                    <label class="form-field" for="filename-title">
+                                        <span>{{t('composer.filename_title')}}</span>
+                                        <input id="filename-title" type="text" maxlength="80" class="form-control admin-control" autocomplete="off" placeholder="{{t('composer.filename_original')}}">
+                                        <small>{{t('composer.filename_hint')}}</small>
+                                    </label>
                                     <label id="playlist-scope-field" class="form-field" hidden>
                                         <span>{{t('composer.playlist_scope')}}</span>
                                         <select id="playlist-mode" class="form-control admin-control">
@@ -443,6 +456,11 @@
                                     <span class="glyphicon glyphicon-search" aria-hidden="true"></span> {{t('history.search')}}
                                 </button>
                             </div>
+                            <button id="history-filters-toggle" type="button" class="btn btn-default history-filters-toggle" aria-expanded="false" aria-controls="history-filter-panel">
+                                <span class="glyphicon glyphicon-filter" aria-hidden="true"></span>
+                                {{t('history.filters')}} <span id="history-filter-count"></span>
+                            </button>
+                            <div id="history-filter-panel" class="history-filter-panel">
                             <select id="history-sort" class="form-control input-sm history-select" title="{{t('history.sort_title')}}">
                                 <option value="date-desc">{{t('history.sort_newest')}}</option>
                                 <option value="date-asc">{{t('history.sort_oldest')}}</option>
@@ -479,6 +497,7 @@
                                 </button>
                             </div>
                             <button id="reset-history-filters" class="btn btn-default btn-sm">{{t('history.reset')}}</button>
+                            </div>
                         </div>
                         <div class="table-responsive">
                             <div class="table-container">

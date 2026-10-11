@@ -14,7 +14,7 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.0922` (`2026-09-22`)
+Current release: `26.1012` (`2026-10-12`)
 
 **This release:** AI clients can browse the entire NAS library with stable
 pagination and newest/oldest download sorting. MCP token activity writes are
@@ -71,6 +71,9 @@ mobile sharing remain unchanged. [Changelog](CHANGELOG.md#260922---2026-09-22)
 
 ## Screenshots
 
+Release 26.1012, using synthetic demo media. The GIF walks through naming options,
+history actions, and failure recovery without adding another submission step.
+
 <p>
   <img src="pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
   <img src="pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history cards" width="23%">
@@ -91,6 +94,19 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
 
 Open **Options** to save thumbnail sidecars, choose the profile used when this device shares a URL to the installed PWA, or manage a bounded Netscape cookies file for restricted sources. **Compatible MP4** requests H.264/AAC without silently falling back to another codec; **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The share setting is stored in a signed, HTTP-only preference cookie on that device.
+
+For a new download, **Options → Filename** offers original title, channel + title,
+or request date + title, with an optional custom title. Media IDs and extensions
+are always retained. The date is the NAS queue-request date, preserved on retry,
+not the video's publication date. Existing files are never renamed by this setting,
+and choosing a different name does not bypass duplicate detection.
+
+On phones, search stays visible while **Filters** expands the less-used controls.
+Preview and download remain direct actions; **More** contains named deletion
+actions with confirmation. Idle activity takes less space. Failed items can open
+cookies settings or retry a different profile without pasting the URL again.
+**Copy safe diagnostics** includes only app/yt-dlp versions, status, failure category,
+profile, and storage state, never the source URL, filename, cookies, or raw logs.
 
 Playlist Guard defaults a normal video URL containing a playlist parameter to **Current video only**. Pure playlist and channel URLs require an explicit **First 10** or **All items** choice. Every completed output receives its own Files & History row.
 
@@ -341,6 +357,13 @@ The API returns `"duplicate": true` without adding another job when the same URL
 For a YouTube URL containing `t`, `start`, or `time_continue`, set `section_mode` to `from_timestamp` to download from that shared position; omit it or use `full` for the whole item. Smart mobile clients can authenticate and POST shared text to `/youtube-dl/share/context` first. That endpoint extracts the first URL and reports whether profile, playlist-scope, or timestamp choices are relevant before the final queue request.
 
 Queue receipts and errors retain the English `msg` field for existing integrations and also include stable `code` values. Receipts expose the selected profile and queue position; errors may include interpolation or choice `params`. The dashboard uses those fields to show errors in the selected language.
+
+Optional naming fields on `/youtube-dl/rest` and `/youtube-dl/api/v1/downloads`:
+`filename_style` accepts `default`, `channel-title`, or `date-title`;
+`filename_title` accepts a plain title (at most 80 characters / 160 UTF-8 bytes),
+not a path or yt-dlp template. Omit both to preserve the existing behavior.
+MCP `enqueue_download` accepts the same fields. They do not rename or replace an
+existing matching file. Naming for bulk collection previews remains unchanged.
 
 Supported `resolution` examples:
 

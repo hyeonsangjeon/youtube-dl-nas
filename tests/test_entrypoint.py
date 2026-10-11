@@ -301,6 +301,20 @@ def test_optional_nlptutti_once_completion_does_not_stop_cores(tmp_path):
     assert "exited unexpectedly" not in completed.stderr
 
 
+def test_darwin_exited_process_group_eperm_is_not_a_shutdown_failure(monkeypatch):
+    from runtime import Supervisor
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(os, "killpg", MagicMock(side_effect=PermissionError()))
+    process = MagicMock(pid=123, poll=MagicMock(return_value=0))
+    Supervisor.signal_group(process, signal.SIGTERM)
+    assert not Supervisor.group_alive(process)
+    process.poll.return_value = None
+    with pytest.raises(PermissionError):
+        Supervisor.signal_group(process, signal.SIGTERM)
+    with pytest.raises(PermissionError):
+        Supervisor.group_alive(process)
+
+
 def test_missing_nginx_binary_is_failure_not_success(tmp_path):
     app_dir = make_fake_app(tmp_path)
     env = entrypoint_env(tmp_path, app_dir)

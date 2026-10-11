@@ -105,7 +105,7 @@ async def sdk_session(client, url=URL):
         async with streamable_http_client(url, http_client=client) as (reader, writer, session_id):
             async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=4)) as session:
                 initialized = await session.initialize()
-                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.0922")
+                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.1012")
                 assert session_id() is None
                 yield session
 
@@ -206,6 +206,18 @@ async def test_enqueue_preview_and_approved_commit_forward_only_typed_api_bodies
     assert writes[1].extensions["timeout"]["read"] == PREVIEW_TIMEOUT_SECONDS
     assert all(request.extensions["timeout"]["read"] == COMMIT_TIMEOUT_SECONDS for request in writes[2:])
     assert all(request.extensions["timeout"]["connect"] == 2 for request in writes)
+
+
+@pytest.mark.anyio
+async def test_enqueue_filename_options_reach_backend_without_arbitrary_paths():
+    backend = FakeBackend()
+    body = {"url": "https://example.com/video", "resolution": "best",
+            "filename_style": "date-title", "filename_title": "My lesson"}
+    async with asgi_client(backend, HEADERS) as client, sdk_session(client) as session:
+        assert not (await session.call_tool("enqueue_download", body)).isError
+        assert (await session.call_tool("enqueue_download", {**body, "filepath": "/outside"})).isError
+    assert len(backend.writes()) == 1
+    assert json.loads(backend.writes()[0].content) == body
 
 
 def test_batch_deadlines_allow_bounded_preview_and_fast_local_commit():

@@ -7,14 +7,16 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.0922` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.1012` · **Architectures:** `linux/amd64`, `linux/arm64`
 
-**New in this release:** complete MCP library browsing with cursor pagination,
-download-date sorting, fewer token activity writes, automatic abandoned-preview
-cleanup, and clearer client authentication status. Keep both existing volumes
-when upgrading; no new configuration or database is required.
+**New in this release:** safe filename choices for new downloads, less crowded
+mobile controls, and direct cookies/profile recovery with privacy-safe diagnostic
+copying. Existing files keep their names and duplicate detection stays enabled.
+Keep both volumes when upgrading; no new configuration or database is required.
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
+
+Captured from 26.1012 with synthetic demo media.
 
 ## Quick Start
 
@@ -52,6 +54,8 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Authenticated, size-bounded Netscape cookies management for restricted sources, while external mounted files remain read-only.
 - Playlist Guard with explicit Current video, First 10, and All items scopes.
 - Optional JPG thumbnail sidecars with local grid previews and sidecar-aware deletion.
+- New-download naming: original title, channel + title, or request date + title, plus an optional custom title; IDs and extensions are retained.
+- Mobile search with collapsible filters and direct playback/download actions; named destructive actions live under More with confirmation.
 - REST API with normal ID/password authentication and an optional Bearer token.
 - `yt-dlp`, `yt-dlp-ejs`, and Deno updates at startup and every hour by default.
 - Current `nlptutti` installation or upgrade whenever a new container starts.
@@ -83,7 +87,7 @@ Subtitle QA. The [footprint review](https://github.com/hyeonsangjeon/youtube-dl-
 documents the increase over `26.0830`; it is not a claim that ARM64 or
 download-time memory was measured. See the
 [26.0922 validation record](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/docs/mcp/validation-26.0922.md)
-for current release checks and native-client coverage.
+for the previous release's checks and native-client coverage.
 
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
 <img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history" width="23%">
@@ -144,14 +148,14 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current verified stable release |
-| `26.0922` | Current pinned release |
+| `26.1012` | Current pinned release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.0922` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.1012` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.0922
+docker pull modenaf360/youtube-dl-nas:26.1012
 ```
 
 ## Health Check

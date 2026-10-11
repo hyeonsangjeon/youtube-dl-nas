@@ -34,6 +34,7 @@ DIRECTORY_PATTERN = re.compile(r"^collections/[a-z0-9][a-z0-9-]{0,79}--[0-9a-f]{
 REQUEST_IDENTITY_FIELDS = (
     "url", "resolution", "playlist_mode", "write_thumbnail", "section_mode", "section_start",
     "media_id", "extractor",
+    "filename_style", "filename_title", "filename_date",
 )
 
 

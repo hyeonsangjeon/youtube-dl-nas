@@ -66,6 +66,24 @@ When a URL points to a playlist or channel, Playlist Guard shows a scope selecto
 
 ## Current Activity
 
+### Filenames And Recovery
+
+Under **Options → Filename**, choose original title, channel + title, or request
+date + title. An optional custom title replaces only the title portion. The
+extractor/media ID and extension remain in every filename. Custom titles are
+limited to 80 characters and 160 UTF-8 bytes and cannot contain path separators,
+control characters, or reserved filename punctuation. Naming applies to new
+requests only; existing files are not renamed and duplicate checks still apply.
+The request date follows the NAS timezone and stays the same on retry.
+
+A failed item's details offer **Open cookies settings** for authentication
+failures and **Retry with another profile** for unavailable formats. Retrying
+keeps the original collection, date policy, and filename choices. **Copy safe
+diagnostics** shows only app/yt-dlp versions, status, failure category, profile,
+and storage state. URLs, titles, filenames, paths, cookies, and raw output are
+excluded. When the browser blocks clipboard access, select and copy the shown
+text manually.
+
 The activity panel shows the active title, channel, thumbnail, progress, transfer speed, ETA, and free space on the download volume. **Up next** lists waiting requests in processing order with their source and selected quality.
 
 When a request becomes active, Smart Preflight checks its metadata and existing NAS files while a three-second start window runs. The remove control undoes the request during this phase without adding a canceled history row. The transfer starts automatically as soon as both checks are ready; slow metadata does not incur another three-second delay. After transfer begins, the control changes to the square Stop action and retains compatible partial data.
@@ -83,12 +101,17 @@ The same normalized URL, download profile, and options cannot be queued twice ac
 - Switch between **List** and **Grid**. The selected view is remembered in the browser.
 - Search titles, channels, filenames, and metadata states.
 - Filter by status or media type. Downloads are newest first by default.
+- On phones, expand **Filters** to change order, status, or media type. Search stays visible; the badge counts non-default filters.
 - Move through results in numbered pages of 20 items.
 - Select an item to inspect its source URL, duration, resolution, size, filename, metadata state, and UUID.
 
 On desktop, the detail area opens with **Library Overview**. On compact and mobile layouts, use the statistics button in Files & History to open the same layer. It summarizes stored-file count and size, completed downloads from the last 7 days, a 14-day activity chart, media-type distribution, and recorded failures from the current history. Mounted files count toward stored-library totals but not download activity. Selecting a media type or failure group applies the existing history filters.
 
 Use **Preview** to play an existing video or audio file without downloading it again. Saved thumbnail sidecars are used in the grid and listed in item details. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file and its thumbnail sidecar.
+
+List and grid rows keep Preview and Download directly accessible. **More** opens
+the remaining named actions; deletion still asks for confirmation. Idle mobile
+activity is compact, but an **Already on NAS** receipt remains visible.
 
 When a mobile browser returns from the background, Files & History and Current Activity refresh automatically without resetting the selected view, filters, page, or detail item.
 
@@ -111,6 +134,10 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.0922` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.1012` images support `linux/amd64` and `linux/arm64`.
+Keep both existing mounts. No manual migration is required; existing filenames,
+history dates, and collections are preserved. Tightening private-source policy
+no longer prevents saved collections from loading, while transfers and retries
+still check the current policy.
 
 For phone sharing, continue to the [Mobile Share Setup](../mobile/).

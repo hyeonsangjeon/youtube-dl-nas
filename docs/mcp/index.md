@@ -415,7 +415,15 @@ removed, or externally modified files may change search results during traversal
 | `POST /connections` | Named connection and one-time token, dashboard only |
 | `DELETE /connections/<id>` | Revoke a connection, dashboard only |
 
-Example preview body:
+For a single `POST /downloads` request or MCP `enqueue_download`, optional
+`filename_style` (`default`, `channel-title`, `date-title`) and `filename_title`
+choose a new file's name without accepting arbitrary paths. Custom titles are
+limited to 80 characters / 160 UTF-8 bytes. The media ID and extension remain;
+existing files are not renamed, and naming does not bypass duplicate checks.
+The date is the first NAS queue-request date, retained through retry. These
+options do not change collection preview/commit naming.
+
+Example collection preview body:
 
 ```json
 {

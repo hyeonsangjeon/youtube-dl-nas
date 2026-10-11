@@ -55,7 +55,7 @@ QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
 COLLECTIONS_STATE_FILE = os.path.join(STATE_DIR, "collections.json")
 CONNECTIONS_STATE_FILE = os.path.join(STATE_DIR, "connections.json")
 APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
-APP_VERSION = os.environ.get("APP_VERSION", "26.0922")
+APP_VERSION = os.environ.get("APP_VERSION", "26.1012")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -108,6 +108,7 @@ PREFLIGHT_RECEIPT_TTL_SECONDS = 60.0
 QUEUE_JOB_STATES = {"queued", "checking", "ready", "downloading"}
 PLAYLIST_MODES = {"single", "first10", "all"}
 SECTION_MODES = {"full", "from_timestamp"}
+FILENAME_STYLES = {"default", "channel-title", "date-title"}
 SHARE_PROFILE_COOKIE = "ydlnas_share_profile"
 SHARE_REVIEW_COOKIE = "share_review"
 SHARE_PROFILES = {"best", "compatible-mp4", "1080p", "720p", "audio-mp3", "audio-m4a", "audio-opus", "ask"}
@@ -182,6 +183,8 @@ ERROR_CODE_BY_MESSAGE = {
     "Unsupported playlist mode": "unsupported_playlist_mode",
     "Playlist scope is required": "playlist_scope_required",
     "Unsupported timestamp mode": "unsupported_timestamp_mode",
+    "Unsupported filename style": "unsupported_filename_style",
+    "Invalid filename title": "invalid_filename_title",
     "Timestamp was not found in the shared URL": "timestamp_not_found",
     "Unsupported mobile share profile": "unsupported_share_profile",
     "Cookies file is required": "cookies_file_required",
@@ -853,7 +856,7 @@ def resolve_source_addresses(hostname, port):
     return addresses
 
 
-def validate_source_url(url, resolve=True):
+def validate_source_url(url, resolve=True, enforce_policy=True):
     if not isinstance(url, str) or not url.strip():
         return "URL is required"
 
@@ -869,6 +872,9 @@ def validate_source_url(url, resolve=True):
 
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         return "Only HTTP and HTTPS source URLs are allowed"
+
+    if not enforce_policy:
+        return None
 
     hostname = parsed.hostname.rstrip(".").lower()
     if hostname == "localhost" or hostname.endswith(".localhost"):
@@ -936,11 +942,11 @@ def validate_source_redirects(url, opener=None, max_redirects=5, timeout=4):
     return "Source URL exceeded the redirect limit"
 
 
-def validate_download_request(url, resolution, resolve_source=True):
+def validate_download_request(url, resolution, resolve_source=True, enforce_source_policy=True):
     if not isinstance(url, str) or not url.strip():
         return "URL is required"
 
-    source_error = validate_source_url(url, resolve=resolve_source)
+    source_error = validate_source_url(url, resolve=resolve_source, enforce_policy=enforce_source_policy)
     if source_error:
         return source_error
 
@@ -1356,6 +1362,37 @@ def find_thumbnail_sidecar(filename):
     return ""
 
 
+def validate_filename_options(payload):
+    style = payload.get("filename_style", "default")
+    title = payload.get("filename_title", "")
+    if not isinstance(style, str) or style not in FILENAME_STYLES:
+        return "Unsupported filename style"
+    if not isinstance(title, str):
+        return "Invalid filename title"
+    if re.search(r'[\x00-\x1f\x7f\ud800-\udfff]', title):
+        return "Invalid filename title"
+    title = title.strip()
+    if (
+        len(title) > 80 or len(title.encode("utf-8")) > 160
+        or re.search(r'[\x00-\x1f\x7f/\\:*?"<>|]', title)
+        or title in {".", ".."} or title.endswith(".")
+    ):
+        return "Invalid filename title"
+    return None
+
+
+def download_output_template(job):
+    # Only trusted tokens form a template; user text is always a literal.
+    style = job["filename_style"]
+    title = job["filename_title"].replace("%", "%%") or ("%(title)s" if style == "default" else "%(title).120B")
+    if style == "channel-title":
+        title = "%(uploader,channel|Unknown).40B - " + title
+    elif style == "date-title":
+        title = job["filename_date"] + " - " + title
+    section = f"__from_{job['section_start']}s" if job["section_mode"] == "from_timestamp" else ""
+    return title + section + "__%(extractor_key)s_%(id)s.%(ext)s"
+
+
 def normalize_queue_job(item, restored=False):
     if isinstance(item, dict):
         job = dict(item)
@@ -1372,11 +1409,22 @@ def normalize_queue_job(item, restored=False):
         return None
     url = str(job.get("url") or "").strip()
     resolution = str(job.get("resolution") or "").strip()
-    if validate_download_request(url, resolution, resolve_source=False):
+    # Decode persisted requests independently of today's admission policy. Transfers
+    # and retries revalidate that policy before contacting the source.
+    if validate_download_request(url, resolution, resolve_source=False, enforce_source_policy=False):
+        return None
+    if validate_filename_options(job):
         return None
 
     source = str(job.get("source") or "web").strip() or "web"
     created_at = str(job.get("created_at") or datetime.now().isoformat())
+    filename_date = job.get("filename_date") or created_at[:10]
+    try:
+        filename_date = datetime.strptime(filename_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except (TypeError, ValueError):
+        if job.get("filename_style") == "date-title":
+            return None
+        filename_date = ""
     job_id = str(job.get("id") or uuid.uuid4())
     try:
         attempts = max(0, int(job.get("attempts") or 0))
@@ -1429,6 +1477,9 @@ def normalize_queue_job(item, restored=False):
         "resolution": resolution,
         "source": source,
         "created_at": created_at,
+        "filename_style": job.get("filename_style", "default"),
+        "filename_title": job.get("filename_title", "").strip(),
+        "filename_date": filename_date,
         "restored": bool(restored or job.get("restored")),
         "force": parse_boolean(job.get("force")),
         "attempts": attempts,
@@ -1462,6 +1513,9 @@ def create_queue_job(
     playlist_mode="single",
     write_thumbnail=False,
     section_mode="full",
+    filename_style="default",
+    filename_title="",
+    filename_date=None,
 ):
     return normalize_queue_job({
         "id": str(uuid.uuid4()),
@@ -1473,6 +1527,9 @@ def create_queue_job(
         "playlist_mode": playlist_mode,
         "write_thumbnail": write_thumbnail,
         "section_mode": section_mode,
+        "filename_style": filename_style,
+        "filename_title": filename_title,
+        "filename_date": filename_date,
     })
 
 
@@ -1487,6 +1544,9 @@ def public_queue_job(job, position=None):
         "resolution": job["resolution"],
         "source": job["source"],
         "created_at": job["created_at"],
+        "filename_style": job["filename_style"],
+        "filename_title": job["filename_title"],
+        "filename_date": job["filename_date"],
         "restored": job["restored"],
         "playlist_mode": job["playlist_mode"],
         "write_thumbnail": job["write_thumbnail"],
@@ -1928,7 +1988,12 @@ def enqueue_download(
     write_thumbnail=False,
     section_mode="full",
     _collection_context=None,
+    filename_style="default",
+    filename_title="",
+    filename_date=None,
 ):
+    if validate_download_request(url, resolution, resolve_source=False):
+        raise ValueError("Invalid download request")
     job = create_queue_job(
         url,
         resolution,
@@ -1937,6 +2002,9 @@ def enqueue_download(
         playlist_mode=playlist_mode,
         write_thumbnail=write_thumbnail,
         section_mode=section_mode,
+        filename_style=filename_style,
+        filename_title=filename_title,
+        filename_date=filename_date,
     )
     if not job:
         raise ValueError("Invalid download request")
@@ -2822,13 +2890,14 @@ def get_download_snapshot():
 @api_v1()
 def v1_enqueue():
     payload = v1_payload()
-    if set(payload) - {"url", "resolution", "force", "playlist_mode", "write_thumbnail", "section_mode", "client", "client_version"}:
+    if set(payload) - {"url", "resolution", "force", "playlist_mode", "write_thumbnail", "section_mode", "client", "client_version", "filename_style", "filename_title"}:
         raise APIError("invalid_download_options")
     url, resolution = payload.get("url"), payload.get("resolution", "best")
     for error in (
         validate_download_request(url, resolution),
         validate_playlist_request(url, payload.get("playlist_mode"), explicit=True),
         validate_section_request(url, payload.get("section_mode")),
+        validate_filename_options(payload),
     ):
         if error:
             raise APIError(get_error_details(error)[0] or "invalid_request")
@@ -2838,6 +2907,8 @@ def v1_enqueue():
         playlist_mode=normalize_playlist_mode(payload.get("playlist_mode"), url),
         write_thumbnail=parse_boolean(payload.get("write_thumbnail")),
         section_mode=normalize_section_mode(payload.get("section_mode")),
+        filename_style=payload.get("filename_style", "default"),
+        filename_title=payload.get("filename_title", ""),
     )
     receipt = build_queue_receipt(result, resolution, client="api-v1")
     if receipt.get("blocked"):
@@ -3082,6 +3153,10 @@ def q_put():
     write_thumbnail = parse_boolean(payload.get("write_thumbnail"))
     section_mode = payload.get("section_mode")
 
+    filename_error = validate_filename_options(payload)
+    if filename_error:
+        return json_error(filename_error, 400)
+
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
@@ -3104,6 +3179,8 @@ def q_put():
         playlist_mode=normalize_playlist_mode(playlist_mode, url),
         write_thumbnail=write_thumbnail,
         section_mode=normalize_section_mode(section_mode),
+        filename_style=payload.get("filename_style", "default"),
+        filename_title=payload.get("filename_title", ""),
     )
     receipt = build_queue_receipt(result, resolution, client="web")
     if receipt.get("blocked"):
@@ -3167,6 +3244,9 @@ def q_put_rest():
     data = load_auth_data()
     if not is_api_authenticated(payload, data):
         return json_error("Invalid password, account, or API token.", 403)
+    filename_error = validate_filename_options(payload)
+    if filename_error:
+        return json_error(filename_error, 400)
     try:
         reject_client_paths(payload)
     except APIError as error:
@@ -3209,6 +3289,8 @@ def q_put_rest():
         playlist_mode=normalize_playlist_mode(playlist_mode, url),
         write_thumbnail=write_thumbnail,
         section_mode=normalize_section_mode(section_mode),
+        filename_style=payload.get("filename_style", "default"),
+        filename_title=payload.get("filename_title", ""),
     )
     receipt = build_queue_receipt(result, resolution, client=client)
     if receipt.get("blocked"):
@@ -3359,12 +3441,16 @@ def retry_history_item(uuid):
     if not item:
         return json_error("History item not found", 404)
 
+    payload = get_request_json()
+    if set(payload) - {"resolution"}:
+        return json_error("Unsupported retry options", 400)
+
     collection_context = collections_service.retry_context(item)
     retry_request = item
     if collection_context and validate_download_request(item.get("url"), item.get("resolution"), resolve_source=False):
         retry_request = collection_context.get("request") or item
     url = retry_request.get("url")
-    resolution = retry_request.get("resolution")
+    resolution = payload.get("resolution", retry_request.get("resolution"))
     validation_error = validate_download_request(url, resolution)
     if validation_error:
         return json_error(validation_error, 400)
@@ -3378,6 +3464,9 @@ def retry_history_item(uuid):
         playlist_mode=normalize_playlist_mode(retry_request.get("playlist_mode"), url),
         write_thumbnail=parse_boolean(retry_request.get("write_thumbnail")),
         section_mode=normalize_section_mode(retry_request.get("section_mode")),
+        filename_style=retry_request.get("filename_style", "default"),
+        filename_title=retry_request.get("filename_title", ""),
+        filename_date=retry_request.get("filename_date"),
         **extra_options,
     )
     receipt = build_queue_receipt(result, resolution, client="web")
@@ -3388,6 +3477,37 @@ def retry_history_item(uuid):
         receipt["msg"] = "Download queued again"
     receipt["Remaining downloading count"] = json.dumps(receipt["queue_count"])
     return receipt
+
+
+@get('/youtube-dl/history/diagnostics/<uuid>')
+def history_diagnostics(uuid):
+    _, error_response = require_cookie_auth()
+    if error_response:
+        return error_response
+    item = download_manager.get_history_item(uuid)
+    if not item:
+        return json_error("History item not found", 404)
+    # An allowlist, not a redacted log: never include URLs, titles, paths or secrets.
+    failure_codes = {code for code, _ in FAILURE_PATTERNS} | {"unknown", "source_blocked"}
+    failure_code = item.get("failure_code") if isinstance(item.get("failure_code"), str) else "unknown"
+    status = item.get("status") if isinstance(item.get("status"), str) else "unknown"
+    resolution = item.get("resolution") if isinstance(item.get("resolution"), str) else ""
+    valid_profile = resolution in VALID_RESOLUTIONS or bool(RESOLUTION_PATTERN.fullmatch(resolution)) or bool(SUBTITLE_PATTERN.fullmatch(resolution))
+    try:
+        ytdlp_version = package_version("yt-dlp")
+    except PackageNotFoundError:
+        ytdlp_version = "unavailable"
+    return {
+        "success": True,
+        "diagnostics": {
+            "app_version": APP_VERSION,
+            "yt_dlp_version": ytdlp_version,
+            "status": status if status in {"failed", "error", "canceled", "completed"} else "unknown",
+            "failure_code": failure_code if failure_code in failure_codes else "unknown",
+            "profile": resolution if valid_profile else "unknown",
+            "storage_state": get_storage_status()["state"],
+        },
+    }
 
 @get('/youtube-dl/history', method='GET')
 def get_history():
@@ -3584,11 +3704,7 @@ def build_youtube_dl_cmd(item):
         raise ValueError("Invalid download request")
 
     unsafe_chars_pattern = "[\\\\/:*?\"'<>|&+\\$%@!~=;,^#(){}\\[\\] ]"
-    output_template = YTDLP_OUTPUT_TEMPLATE
-    if job["section_mode"] == "from_timestamp":
-        output_template = (
-            f"%(title)s__from_{job['section_start']}s__%(extractor_key)s_%(id)s.%(ext)s"
-        )
+    output_template = download_output_template(job)
     target = job["target_relative_directory"]
     home = os.path.join(DOWNFOLDER_DIR, target) if target else DOWNFOLDER_DIR
     if safe_media_path(DOWNFOLDER_DIR, target, allow_empty=True) is None:
@@ -3728,6 +3844,9 @@ def build_completed_history_item(job, output_info, fallback, item_uuid=None):
         "section_mode": job["section_mode"],
         "section_start": job["section_start"],
         "title": title,
+        "filename_style": job["filename_style"],
+        "filename_title": job["filename_title"],
+        "filename_date": job["filename_date"],
         "channel": channel,
         "thumbnail": output_info.get("thumbnail") or fallback.get("thumbnail") or "",
         "thumbnail_file": thumbnail_file,
@@ -3786,6 +3905,9 @@ def download(item):
             'extractor': extractor,
             'status': status,
             'failure_code': failure_code,
+            'filename_style': job["filename_style"],
+            'filename_title': job["filename_title"],
+            'filename_date': job["filename_date"],
             'progress': current_progress,
             'source': job["source"],
             'restored': job["restored"],

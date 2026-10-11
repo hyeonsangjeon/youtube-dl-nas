@@ -661,6 +661,8 @@ $(function () {
     }
 
     function renderHistory() {
+        const filterCount = Number(historyPrefs.sort !== 'date-desc') + Number(historyPrefs.status !== 'all') + Number(historyPrefs.type !== 'all');
+        $('#history-filter-count').text(filterCount ? '(' + filterCount + ')' : '');
         if (requestedHistoryUuid && historyItems.some((item) => item.uuid === requestedHistoryUuid)) {
             historyPrefs.search = '';
             historyPrefs.type = 'all';
@@ -1068,12 +1070,18 @@ $(function () {
             'extractor', 'source_blocked', 'unknown'
         ];
         const code = supportedCodes.indexOf(item.failure_code) >= 0 ? item.failure_code : 'unknown';
+        const key = escapeAttr(item.uuid);
+        const action = code === 'auth_required' ? `<button type="button" class="btn btn-default failure-cookies">${escapeHtml(translate('failure.open_cookies'))}</button>` :
+            code === 'format_unavailable' ? `<button type="button" class="btn btn-default failure-profile" data-uuid="${key}">${escapeHtml(translate('failure.change_profile'))}</button>` : '';
         return `
             <div class="failure-guidance">
                 <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
                 <div>
                     <strong>${escapeHtml(translate(`failure.${code}.reason`))}</strong>
                     <p>${escapeHtml(translate(`failure.${code}.action`))}</p>
+                    <div class="failure-actions">${action}
+                        <button type="button" class="btn btn-default failure-diagnostics" data-uuid="${key}"><span class="glyphicon glyphicon-copy" aria-hidden="true"></span> ${escapeHtml(translate('failure.copy_diagnostics'))}</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1081,7 +1089,7 @@ $(function () {
 
     function renderActionButtons(item, context) {
         const safeUuid = escapeAttr(item.uuid);
-        const isDetail = context === 'detail';
+        const isDetail = context === 'detail' || context === 'menu';
         const mountedFile = isMountedFile(item);
         const canRetry = !mountedFile && item.url && item.resolution && (item.status === 'failed' || item.status === 'error' || item.status === 'canceled');
         const canPreview = item.file_exists && (item.download_type === 'video' || item.download_type === 'audio');
@@ -1112,6 +1120,10 @@ $(function () {
                     <span class="glyphicon glyphicon-trash"></span>${isDetail ? `<span>${escapeHtml(translate('action.delete_history'))}</span>` : ''}
                 </button>` : '';
         const detailClass = context === 'detail' ? ' detail-action-group' : '';
+        const moreButton = !isDetail && (fileDeleteButton || historyDeleteButton) ? `
+            <button type="button" class="action-btn action-more" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.more'))}" aria-label="${escapeAttr(translate('action.more'))}" aria-haspopup="dialog">
+                <span class="glyphicon glyphicon-option-horizontal" aria-hidden="true"></span>
+            </button>` : '';
 
         return `
             <div class="action-group${detailClass}">
@@ -1119,8 +1131,7 @@ $(function () {
                 ${subtitleQaButton}
                 ${downloadButton}
                 ${retryButton}
-                ${historyDeleteButton}
-                ${fileDeleteButton}
+                ${isDetail ? historyDeleteButton + fileDeleteButton : moreButton}
             </div>
         `;
     }
@@ -1918,6 +1929,7 @@ $(function () {
 
     function updateActivityPanel(downloadData) {
         const data = downloadData || null;
+        $('.activity-panel').toggleClass('is-idle', !data && queueCount === 0);
         if (!data) {
             $('#activity-title').text(queueCount > 0 ? translate('activity.waiting_queue') : translate('activity.idle'));
             $('#activity-summary').text(queueCount > 0 ? translate('activity.requests_queued') : translate('activity.no_active'));
@@ -2653,10 +2665,12 @@ $(function () {
         });
     }
 
-    function retryHistoryItem(uuid) {
-        $.ajax({
+    function retryHistoryItem(uuid, resolution) {
+        return $.ajax({
             method: "POST",
             url: `/youtube-dl/history/retry/${encodeURIComponent(uuid)}`,
+            data: JSON.stringify(resolution ? { resolution: resolution } : {}),
+            contentType: 'application/json',
             success: function(response) {
                 if (response.success) {
                     $('#progress-container').show();
@@ -2719,7 +2733,7 @@ $(function () {
     function syncModeFromResolution() {
         const selectedValue = $('#selResolution').val();
         let mode = 'video';
-        if (selectedValue === 'audio-m4a' || selectedValue === 'audio-mp3' || selectedValue === 'audio') {
+        if (selectedValue === 'audio-m4a' || selectedValue === 'audio-mp3' || selectedValue === 'audio-opus' || selectedValue === 'audio') {
             mode = 'audio';
         } else if (selectedValue === 'srt' || selectedValue === 'vtt') {
             mode = 'subtitle';
@@ -2734,7 +2748,7 @@ $(function () {
             $('#selResolution').val('audio-mp3');
         } else if (mode === 'subtitle') {
             $('#selResolution').val('vtt');
-        } else if ($('#selResolution').val() === 'audio-m4a' || $('#selResolution').val() === 'audio-mp3' || $('#selResolution').val() === 'srt' || $('#selResolution').val() === 'vtt') {
+        } else if ($('#selResolution').val() === 'audio-m4a' || $('#selResolution').val() === 'audio-mp3' || $('#selResolution').val() === 'audio-opus' || $('#selResolution').val() === 'srt' || $('#selResolution').val() === 'vtt') {
             $('#selResolution').val('best');
         }
 
@@ -2761,6 +2775,8 @@ $(function () {
         const playlistKind = updatePlaylistGuard();
         data.playlist_mode = $('#playlist-mode').val() || 'single';
         data.write_thumbnail = $('#write-thumbnail').is(':checked') && !/^(srt|vtt)/.test(data.resolution);
+        data.filename_style = $('#filename-style').val();
+        data.filename_title = $('#filename-title').val().trim();
         console.log("Selected resolution:", data.resolution);
 
         if (!data.url) {
@@ -2798,6 +2814,7 @@ $(function () {
                 }
                 if (response.queued === true) {
                     saveDownloadProfile(data.resolution);
+                    $('#filename-title').val('');
                 }
                 $('#progress-container').show();
                 updateProgress(0);
@@ -2820,6 +2837,98 @@ $(function () {
 
     $(document).on("click", "#history-search-button", function() {
         applyHistorySearch();
+    });
+
+    $(document).on('click', '#history-filters-toggle', function() {
+        const expanded = $(this).attr('aria-expanded') !== 'true';
+        $(this).attr('aria-expanded', String(expanded));
+        $('#history-filter-panel').toggleClass('is-open', expanded);
+    });
+
+    function openActionDialog(title, content) {
+        const returnFocus = document.activeElement;
+        const dialog = $(`<dialog class="download-action-dialog" aria-labelledby="download-action-title">
+            <div class="action-dialog-heading"><h3 id="download-action-title">${escapeHtml(title)}</h3>
+                <button type="button" class="action-dialog-close btn btn-default" aria-label="${escapeAttr(translate('common.close'))}"><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></button></div>
+            <div class="action-dialog-body">${content}</div></dialog>`);
+        $('body').append(dialog);
+        dialog.find('.action-dialog-close').on('click', function() { dialog[0].close(); });
+        dialog.on('click', function(event) {
+            if (event.target === dialog[0]) {
+                const box = dialog[0].getBoundingClientRect();
+                if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) { dialog[0].close(); }
+            }
+        });
+        dialog.on('close', function() {
+            dialog.remove();
+            if (returnFocus && document.contains(returnFocus)) { returnFocus.focus(); }
+        });
+        dialog[0].showModal();
+        return dialog;
+    }
+
+    $(document).on('click', '.action-more', function(event) {
+        event.stopPropagation();
+        const item = historyItems.find(function(row) { return row.uuid === $(event.currentTarget).data('uuid'); });
+        if (!item) { return; }
+        const dialog = openActionDialog(item.title || translate('common.untitled'), renderActionButtons(item, 'menu'));
+        dialog.find('.action-btn').on('click', function() { dialog[0].close(); });
+    });
+
+    $(document).on('click', '.failure-cookies', function() {
+        dismissHistoryDrawer(false);
+        $('#download-options').prop('open', true);
+        document.getElementById('cookies-management').scrollIntoView({ block: 'center' });
+        $('#cookies-status').attr('tabindex', '-1').focus();
+    });
+
+    $(document).on('click', '.failure-profile', function() {
+        const uuid = $(this).data('uuid');
+        const item = historyItems.find(function(row) { return row.uuid === uuid; });
+        if (!item) { return; }
+        const profiles = item.download_type === 'audio' ? ['audio-m4a', 'audio-mp3', 'audio-opus'] :
+            item.download_type === 'subtitle' ? ['srt|' + String(item.resolution).split('|')[1], 'vtt|' + String(item.resolution).split('|')[1]] :
+                ['best', 'compatible-mp4', '1080p', '720p', '480p'];
+        const options = profiles.map(function(profile) {
+            const label = profile === 'best' ? translate('composer.share_best') : profile === 'compatible-mp4' ? translate('composer.compatible_mp4') : profile;
+            return `<option value="${escapeAttr(profile)}"${profile === item.resolution ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        }).join('');
+        const dialog = openActionDialog(translate('failure.change_profile'), `
+            <label for="retry-profile">${escapeHtml(translate('composer.quality'))}</label>
+            <select id="retry-profile" class="form-control admin-control">${options}</select>
+            <button type="button" class="btn btn-primary retry-profile-submit">${escapeHtml(translate('action.retry'))}</button>`);
+        dialog.find('.retry-profile-submit').on('click', function() {
+            const button = $(this).prop('disabled', true);
+            retryHistoryItem(uuid, dialog.find('#retry-profile').val()).done(function(result) {
+                if (result.success) { dialog[0].close(); }
+            }).always(function() { button.prop('disabled', false); });
+        });
+        dialog.find('select').focus();
+    });
+
+    $(document).on('click', '.failure-diagnostics', function() {
+        const button = $(this).prop('disabled', true);
+        $.getJSON('/youtube-dl/history/diagnostics/' + encodeURIComponent(button.data('uuid'))).done(function(result) {
+            const value = JSON.stringify(result.diagnostics, null, 2);
+            const dialog = openActionDialog(translate('failure.copy_diagnostics'), `
+                <p>${escapeHtml(translate('failure.diagnostics_privacy'))}</p>
+                <textarea class="diagnostics-report form-control" readonly aria-label="${escapeAttr(translate('failure.copy_diagnostics'))}">${escapeHtml(value)}</textarea>
+                <p class="diagnostics-result" role="status"></p>`);
+            const report = dialog.find('textarea')[0];
+            report.focus();
+            report.select();
+            function finishCopy(copied) {
+                if (!copied) {
+                    try { copied = document.execCommand('copy'); } catch (error) { /* Local HTTP may require manual copy. */ }
+                }
+                dialog.find('.diagnostics-result').text(translate(copied ? 'failure.diagnostics_copied' : 'failure.diagnostics_select'));
+            }
+            if (window.isSecureContext && navigator.clipboard) {
+                navigator.clipboard.writeText(value).then(function() { finishCopy(true); }, function() { finishCopy(false); });
+            } else { finishCopy(false); }
+        }).fail(function(jqXHR) {
+            addMessage(getAjaxErrorMessage(jqXHR, translate('failure.diagnostics_failed')), 'error');
+        }).always(function() { button.prop('disabled', false); });
     });
 
     $(document).on("keydown", "#history-search", function(event) {
@@ -2938,7 +3047,7 @@ $(function () {
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
             return;
         }
-        if ($(event.target).closest('.action-btn, a, button').length) {
+        if ($(event.target).closest('.action-btn, a, button, select, input').length) {
             return;
         }
         event.preventDefault();
@@ -3079,7 +3188,7 @@ $(function () {
     });
 
     $(document).on("keydown", function(event) {
-        if (document.querySelector('.media-preview-dialog[open]')) {
+        if (document.querySelector('dialog[open]')) {
             return;
         }
         if (event.key === 'Tab' && $('body').hasClass('history-drawer-open')) {

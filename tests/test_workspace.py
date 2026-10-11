@@ -194,7 +194,7 @@ def test_workspace_navigation_deep_links_and_shared_media_are_wired():
     assert "media.openPreview(item, t)" in workspace
     assert "window.YDLNAS_MEDIA_UI.trapFocus(event" in logic
     assert "media.trapFocus(event, dialog)" in workspace
-    assert "document.querySelector('.media-preview-dialog[open]')" in logic
+    assert "document.querySelector('dialog[open]')" in logic
     assert "criteriaText(plan.criteria)" in workspace
 
 

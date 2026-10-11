@@ -242,6 +242,10 @@ class Supervisor:
             os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # Darwin can report EPERM for the group of an already exited child.
+            if sys.platform != "darwin" or process.poll() is None:
+                raise
 
     @staticmethod
     def group_alive(process):
@@ -249,6 +253,10 @@ class Supervisor:
             os.killpg(process.pid, 0)
             return True
         except ProcessLookupError:
+            return False
+        except PermissionError:
+            if sys.platform != "darwin" or process.poll() is None:
+                raise
             return False
 
     @staticmethod
