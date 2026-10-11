@@ -2805,6 +2805,10 @@ $(function () {
             contentType: "application/json",
             success: function(response, status) {
                 console.log("AJAX success:", response);
+                if ((response.queued || response.duplicate) && $('#url').val() === data.url) {
+                    $('#url').val('');
+                    updatePlaylistGuard();
+                }
                 if (response.duplicate) {
                     const duplicate = response.existing || response.job || {};
                     const label = duplicate.title || duplicate.filename || formatQueueUrl(data.url);
@@ -2814,7 +2818,7 @@ $(function () {
                 }
                 if (response.queued === true) {
                     saveDownloadProfile(data.resolution);
-                    $('#filename-title').val('');
+                    if ($('#filename-title').val().trim() === data.filename_title) { $('#filename-title').val(''); }
                 }
                 $('#progress-container').show();
                 updateProgress(0);
@@ -2830,8 +2834,6 @@ $(function () {
             }
         });
 
-        $('#url').val('').focus();
-        updatePlaylistGuard();
         return false;
     });
 
