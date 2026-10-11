@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.1012 - 2026-10-12
+
+### Added
+
+- Safe filename options for new dashboard, REST, and MCP downloads: original title, channel + title, or request date + title, with an optional custom title. Keep the media identity suffix and extension; preserve the original request date on retry. No arbitrary output paths, existing-file renaming, or duplicate-check bypass.
+- Failed downloads can open cookies settings, retry another compatible profile, or copy allowlisted diagnostics containing versions, status, failure category, profile, and storage state. No URLs, filenames, paths, cookies, or raw logs are included.
+
+### Improved
+
+- Keep mobile search visible, collapse optional filters with an active-filter count, and shorten empty activity panels without hiding duplicate receipts.
+- Keep preview and file download directly accessible; move destructive list/grid actions into a named More dialog with the existing confirmations. Preserve keyboard focus and the underlying detail drawer when closing a dialog.
+- Refresh desktop/mobile screenshots, the dashboard GIF, and English/Korean usage and upgrade guidance.
+
+### Fixed
+
+- Load existing queue and collection records after private-source access is disabled. New requests, retries, and actual transfers still enforce the current source policy, including redirects.
+- Avoid a macOS shutdown failure when an already-exited updater's process group returns EPERM. Permission failures for live children are still reported.
+- Recognize the existing Opus profile when restoring the dashboard audio mode.
+
+### Upgrade
+
+- Pull `26.1012` or `latest` and recreate the container with both existing mounts. No manual migration or new environment variables are required. Existing filenames and download dates remain unchanged.
+- Startup/hourly yt-dlp updates and startup nlptutti updates remain enabled by default. No database or additional service was added.
+
 ## 26.0922 - 2026-09-22
 
 ### Improved

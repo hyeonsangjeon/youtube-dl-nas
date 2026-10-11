@@ -55,7 +55,7 @@ def stable_public_source_network(monkeypatch):
 def test_health_and_manifest_are_public(app):
     health = app.get("/health")
     assert health.json["status"] == "ok"
-    assert health.json["version"] == "26.0922"
+    assert health.json["version"] == "26.1012"
     assert health.json["storage"]["state"] in {"ok", "warning", "critical", "unavailable"}
 
     manifest = app.get("/manifest.webmanifest")
@@ -240,6 +240,8 @@ def test_rest_api_keeps_id_password_auth(app):
         playlist_mode="single",
         write_thumbnail=False,
         section_mode="full",
+        filename_style="default",
+        filename_title="",
     )
 
 
@@ -383,6 +385,8 @@ def test_video_inside_playlist_defaults_to_current_video(app):
         playlist_mode="single",
         write_thumbnail=False,
         section_mode="full",
+        filename_style="default",
+        filename_title="",
     )
 
 
@@ -410,6 +414,8 @@ def test_explicit_playlist_options_reach_persistent_queue_contract(app):
         playlist_mode="first10",
         write_thumbnail=True,
         section_mode="full",
+        filename_style="default",
+        filename_title="",
     )
 
 
@@ -531,6 +537,8 @@ def test_rest_smart_share_receipt_and_timestamp_options_reach_queue(app):
         playlist_mode="single",
         write_thumbnail=False,
         section_mode="from_timestamp",
+        filename_style="default",
+        filename_title="",
     )
 
 
@@ -1671,6 +1679,9 @@ def test_canceled_history_item_can_be_queued_for_retry(app):
         playlist_mode="single",
         write_thumbnail=True,
         section_mode="full",
+        filename_style="default",
+        filename_title="",
+        filename_date=None,
     )
 
 

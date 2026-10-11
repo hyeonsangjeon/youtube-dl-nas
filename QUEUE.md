@@ -57,13 +57,17 @@ the implementation does not mark that remaining roadmap work complete.
 - Native Codex CLI and Claude Code completed discovery, preview, separate approval, actual download, idempotent replay, and completed-state checks against one normal test container.
 - VS Code/Copilot, Cursor, Gemini CLI, and OpenCode still need native end-to-end verification. Keep the six-client card In Progress; see `docs/mcp/validation-26.0922.md`.
 
-## Follow-up Found During 26.0922 Validation
+## Completed For 26.1012
 
 - Allow existing collections to load after `YDLNAS_ALLOW_PRIVATE_SOURCES` is
   disabled, while still rejecting new private-source requests and checking
-  retries and redirects against the current policy. Currently, persisted
-  private-source requests can cause startup to fail after this setting changes.
-  Same-configuration upgrades pass. Add dedicated migration and policy tests
-  before changing validation boundaries.
+  retries and redirects against the current policy. Dedicated persistence,
+  migration, retry, and transfer-boundary regression tests cover this change.
+- Add safe new-download filename choices without renaming existing files or
+  bypassing media-identity duplicate detection.
+- Collapse optional mobile filters, retain direct preview/download actions,
+  and move destructive row actions to a named More dialog.
+- Add cookies/profile recovery actions and allowlisted safe diagnostics.
+- Refresh screenshots, dashboard GIF, README, manual, and Docker Hub overview.
 
 Release details live in [CHANGELOG.md](CHANGELOG.md).

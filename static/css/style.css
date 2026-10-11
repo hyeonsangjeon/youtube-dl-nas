@@ -4404,3 +4404,62 @@ body:not(.dashboard-page) .site-wrapper-inner {
   vertical-align: top;
   padding: 20px;
 }
+
+.history-filter-panel { display: contents; }
+.history-filters-toggle { display: none; }
+.failure-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.failure-actions .btn { white-space: normal; text-align: left; }
+.download-action-dialog {
+  width: min(460px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  border: 1px solid #d8e1eb;
+  border-radius: 8px;
+  color: #1d2939;
+  background: #fff;
+  text-align: left;
+  overflow-y: auto;
+}
+.download-action-dialog::backdrop { background: rgba(16, 24, 40, .55); }
+.action-dialog-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.action-dialog-heading h3 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+.action-dialog-close { flex: 0 0 40px; width: 40px; height: 40px; }
+.action-dialog-body .action-group { display: grid; gap: 8px; }
+.action-dialog-body .action-btn { width: 100%; height: auto; min-height: 44px; justify-content: flex-start; padding: 10px 12px; gap: 10px; }
+.action-dialog-body .action-file-delete, .action-dialog-body .action-history-delete { color: #b42318; }
+.action-dialog-body .retry-profile-submit { margin-top: 16px; min-height: 44px; width: 100%; }
+.diagnostics-report { min-height: 225px; font-family: monospace; font-size: 12px; resize: vertical; }
+.diagnostics-result { margin: 12px 0 0; }
+.dashboard-main > .panel { margin-bottom: 0; }
+.message-stack:empty { display: none; }
+.activity-panel.is-idle { padding-top: 14px; padding-bottom: 14px; }
+.activity-panel.is-idle .panel-heading-row { margin-bottom: 0; }
+.activity-panel.is-idle .panel-heading-row p,
+.activity-panel.is-idle .activity-content,
+.activity-panel.is-idle .queue-section:has(#preflight-receipt[hidden]) { display: none; }
+.activity-panel.is-idle .queue-section:has(#preflight-receipt:not([hidden])) .queue-section-heading,
+.activity-panel.is-idle .queue-section:has(#preflight-receipt:not([hidden])) #queue-items { display: none; }
+
+@media (max-width: 767px) {
+  .dashboard-page .site-wrapper-inner { padding: 12px; }
+  .dashboard-page .app-header { gap: 12px; margin-bottom: 12px; }
+  .dashboard-page .app-meta { gap: 6px; }
+  .dashboard-page .app-meta .logout-btn { margin-left: auto; min-width: 40px; min-height: 40px; justify-content: center; }
+  .dashboard-page .logout-label { display: none; }
+  .dashboard-page .user-chip { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-page .dashboard-main { gap: 16px; min-width: 0; }
+  .dashboard-page .dashboard-main > .panel { min-width: 0; }
+  .dashboard-page .activity-panel .panel-heading-row { flex-wrap: wrap; }
+  .dashboard-page .composer-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dashboard-page .composer-grid .url-field { grid-column: 1 / -1; grid-row: 1; }
+  .dashboard-page .composer-grid .submit-btn { align-self: end; }
+  .dashboard-page .composer-grid .subtitle-field { grid-column: 1 / -1; }
+  .dashboard-page .history-controls { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .dashboard-page .history-search-group { grid-column: 1; }
+  .dashboard-page .history-filters-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  .dashboard-page .history-filter-panel { display: none; }
+  .dashboard-page .history-filter-panel.is-open { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dashboard-page .history-filter-panel .history-select { max-width: none; }
+  .dashboard-page .history-filter-panel .history-type-switch { flex-wrap: wrap; }
+  .dashboard-page .history-controls #reset-history-filters { grid-column: auto; }
+}
