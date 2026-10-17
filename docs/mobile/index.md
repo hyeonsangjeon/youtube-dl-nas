@@ -9,6 +9,29 @@ title: Mobile Share Setup
 
 Mobile sharing sends a URL directly from your phone to the `youtube-dl-nas` instance running on your NAS. GitHub Pages only hosts this guide and the import files; it never receives your NAS address, ID, password, token, or shared URL.
 
+<h2 id="demo">From Your Phone To Your NAS</h2>
+
+<video controls playsinline preload="none" poster="assets/android-share-demo-poster.jpg" width="360" height="640" style="display: block; width: 100%; max-width: 360px; height: auto; aspect-ratio: 9 / 16;" aria-label="25-second Android sharing demonstration with English captions">
+  <source src="assets/android-share-demo.mp4" type="video/mp4">
+  <a href="assets/android-share-demo.mp4">Watch or download the MP4 demo</a>.
+</video>
+
+[Download MP4 (8.4 MB)](assets/android-share-demo.mp4) · [GIF (2.6 MB)](assets/android-share-demo.gif)
+
+The 25-second recording shows a real Galaxy Z Flip sharing a YouTube link through
+HTTP Shortcuts, the completed download and its timestamp in Files & History, and
+playback of the saved file in the mobile browser. There is no audio; English
+captions explain each step.
+
+The shortcut was configured before recording. Waiting and navigation are shortened,
+and personal details are hidden. Recorded on `26.0922` using the HTTP Shortcuts
+path below, not the HTTPS PWA share target. This is a usage example, not a new release.
+
+Demo footage: [Big Buck Bunny, Blender Foundation](https://peach.blender.org/about/),
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), shown as cropped excerpts.
+(c) copyright 2008, Blender Foundation / [www.bigbuckbunny.org](https://www.bigbuckbunny.org/).
+Only download material you have permission to save.
+
 ## Android On HTTPS
 
 1. Open your HTTPS `youtube-dl-nas` address in Chrome.

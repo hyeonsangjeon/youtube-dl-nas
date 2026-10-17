@@ -9,6 +9,28 @@ title: 모바일 공유 설정
 
 휴대폰에서 공유한 URL은 `youtube-dl-nas`가 실행 중인 사용자의 NAS로 직접 전송됩니다. 이 GitHub Pages 매뉴얼은 NAS 주소, ID, 비밀번호, API token 또는 공유 URL을 수집하거나 중계하지 않습니다.
 
+<h2 id="demo">휴대폰에서 공유하고 NAS에 저장하기</h2>
+
+<video controls playsinline preload="none" poster="assets/android-share-demo-poster.jpg" width="360" height="640" style="display: block; width: 100%; max-width: 360px; height: auto; aspect-ratio: 9 / 16;" aria-label="영어 자막이 포함된 25초 Android 공유 시연">
+  <source src="assets/android-share-demo.mp4" type="video/mp4">
+  <a href="assets/android-share-demo.mp4">MP4 영상 보기 또는 다운로드</a>
+</video>
+
+[MP4 다운로드 (8.4 MB)](assets/android-share-demo.mp4) · [GIF (2.6 MB)](assets/android-share-demo.gif)
+
+실제 Galaxy Z Flip에서 YouTube 링크를 HTTP Shortcuts로 공유하고, NAS의 파일 목록에서
+다운로드 완료와 저장 시각을 확인한 뒤, 휴대폰 브라우저에서 저장된 파일을 재생하는 25초 영상입니다.
+음성은 없으며 단계별 영어 자막이 포함되어 있습니다.
+
+단축어 설정은 촬영 전에 완료했습니다. 대기와 화면 이동은 줄여 편집했고 개인정보는 가렸습니다.
+`26.0922`에서 아래 HTTP Shortcuts 방식으로 촬영했으며 HTTPS PWA 공유 시연은 아닙니다.
+새 릴리스 안내가 아니라 기존 기능의 사용 예시입니다.
+
+시연 영상: [Big Buck Bunny, Blender Foundation](https://peach.blender.org/about/),
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). 일부 장면을 잘라 사용했습니다.
+(c) copyright 2008, Blender Foundation / [www.bigbuckbunny.org](https://www.bigbuckbunny.org/).
+저장 권한이 있는 콘텐츠만 다운로드하세요.
+
 ## Android HTTPS 접속
 
 1. Chrome에서 HTTPS로 설정된 `youtube-dl-nas`를 엽니다.

@@ -12,6 +12,8 @@
 
 ![youtube-dl-nas dashboard demo](pic/dashboard-demo.gif)
 
+**From your phone. Saved on your NAS.** [Watch the 25-second Android sharing demo](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/#demo).
+
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
 Current release: `26.1012` (`2026-10-12`)
@@ -299,6 +301,20 @@ Signed-in administrators can open dashboard **Options** to upload, replace, or r
 `YTDLP_COOKIES_FILE` remains supported for an externally mounted file. When it is set, the dashboard reports only whether that file is readable and treats it as read-only; the external setting takes precedence over the app-managed file.
 
 ## Mobile Sharing
+
+<a href="https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/#demo">
+  <img src="docs/mobile/assets/android-share-demo-poster.jpg" alt="Watch a real Galaxy Z Flip share a YouTube link to the NAS, then play the saved file" width="280">
+</a>
+
+[Watch the 25-second demo](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/#demo) · [MP4](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/assets/android-share-demo.mp4) · [GIF](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/assets/android-share-demo.gif)
+
+Real Galaxy Z Flip footage: YouTube Share → HTTP Shortcuts → a completed NAS
+download with its timestamp → playback in the mobile browser. The shortcut was
+configured beforehand; the recording is edited for brevity and personal details
+are hidden. Recorded on `26.0922`, not a new release or an HTTPS PWA demonstration.
+Demo footage: [Big Buck Bunny, Blender Foundation](https://peach.blender.org/about/),
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/); cropped excerpts.
+(c) copyright 2008, Blender Foundation / [www.bigbuckbunny.org](https://www.bigbuckbunny.org/).
 
 - Android over HTTPS: install the dashboard as a PWA, choose a **Mobile share default** under **Options**, then select **youtube-dl NAS** from the Android share sheet.
 - Android over local HTTP: import the provided HTTP Shortcuts template, run **1. Configure NAS** once, and enter the normal dashboard URL, ID, password, and default profile.
