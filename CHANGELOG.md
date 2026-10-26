@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Security
+
+- Slow down repeated failed sign-ins per client address and account on the dashboard form and the legacy `id`/`pw` REST path: five free attempts, then delays that double from 10 seconds up to 5 minutes. Throttled requests answer HTTP 429 with `Retry-After`; Bearer-token and MCP authentication are unchanged. Behind a reverse proxy, `YDLNAS_TRUSTED_PROXIES` keys the limit on the real client instead of the proxy address, and a flood of other addresses cannot evict an active lock.
+- Expire signed dashboard sessions after `YDLNAS_SESSION_MAX_AGE_DAYS` (default 30; `0` disables), renew them on any authenticated dashboard activity once half the lifetime has passed, and invalidate every existing session when the configured ID or password changes. Sign-out now uses `POST`; cross-site `GET` links and `POST` forms to `/logout` no longer end the session.
+- Apply the same same-origin check already used by the v1 API to the dashboard's cookie-authenticated `POST` actions. Clients that send no `Origin`/`Referer` header, such as Android HTTP Shortcuts and iOS Smart Share, are unaffected; `YDLNAS_TRUSTED_ORIGINS` covers proxies that cannot forward the public host.
+
+### Changed
+
+- Serve jQuery 3.7.1, Bootstrap 3.4.1 JavaScript/CSS, and the Glyphicons fonts from the container instead of public CDNs, so the sign-in page and dashboard also load on networks without internet access.
+
+### Fixed
+
+- Preset the WSGI `SERVER_NAME` so the web server no longer performs a reverse DNS lookup before its first request; on some resolvers that lookup delayed the first response by 30 seconds or more.
+
+### Upgrade
+
+- Devices that were signed in before this upgrade sign in once more because the session cookie format changed. No volume, environment, or manual migration is required; `YDLNAS_SESSION_MAX_AGE_DAYS` is optional.
+
 ## 26.1012 - 2026-10-12
 
 ### Added

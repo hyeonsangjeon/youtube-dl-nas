@@ -81,7 +81,15 @@ def live_gevent_server():
 
     def serve():
         try:
-            web = WSGIServer(("127.0.0.1", 0), default_app(), handler_class=WebSocketHandler, log=None, error_log=None)
+            web = WSGIServer(
+                ("127.0.0.1", 0),
+                default_app(),
+                handler_class=WebSocketHandler,
+                log=None,
+                error_log=None,
+                # Same as bottle_websocket.server: skip gevent's reverse DNS lookup before the first request.
+                environ={"SERVER_NAME": "127.0.0.1"},
+            )
             web.start()
             running.update(server=web, hub=gevent.get_hub())
             ready.put(web.server_port)
@@ -1546,3 +1554,49 @@ def test_gevent_credential_state_errors_never_log_bearer_arguments(live_gevent_s
     assert status == 503 and result["code"] == "state_unavailable"
     output = capsys.readouterr()
     assert token not in output.out + output.err
+
+
+def test_websocket_closes_when_the_session_stops_validating(client, live_gevent_server, monkeypatch):
+    monkeypatch.setattr(server, "WEBSOCKET_REAUTH_INTERVAL_SECONDS", 0.1)
+    login(client)
+    port = live_gevent_server["port"]
+    connection = socket.create_connection(("127.0.0.1", port), timeout=3)
+    stream = connection.makefile("rb")
+    try:
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        connection.sendall((
+            f"GET /websocket HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nCookie: account={client.cookies['account']}\r\n\r\n"
+        ).encode("ascii"))
+        assert b"101" in stream.readline()
+        while stream.readline() != b"\r\n":
+            pass
+
+        def frame():
+            header = stream.read(2)
+            if len(header) < 2:
+                return None, b""
+            size = header[1] & 127
+            if size == 126:
+                size = int.from_bytes(stream.read(2), "big")
+            elif size == 127:
+                size = int.from_bytes(stream.read(8), "big")
+            return header[0] & 0x0F, stream.read(size)
+
+        opcode, payload = frame()
+        while opcode == 1 and b"[HISTORY_RESTORE_COMPLETE]" not in payload:
+            opcode, payload = frame()
+        assert opcode == 1
+
+        rotated = dict(server.load_auth_data(), MY_PW="rotated-secret")
+        monkeypatch.setattr(server, "load_auth_data", lambda: rotated)
+        opcode, _ = frame()
+        assert opcode in (8, None)
+    finally:
+        stream.close()
+        connection.close()
+    deadline = time.monotonic() + 2
+    while server.download_manager.connected_clients and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not server.download_manager.connected_clients

@@ -266,6 +266,9 @@ docker run -d \
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
+| `-e YDLNAS_SESSION_MAX_AGE_DAYS` | Days a signed-in dashboard session stays valid; active devices renew automatically and any ID or password change signs every device out. Defaults to `30`; set `0` to keep sessions until the secret rotates. |
+| `-e YDLNAS_TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies in front of the container, for example the Synology reverse proxy. Sign-in throttling then keys on the real client address behind them instead of sharing one limit for everyone. Empty by default. |
+| `-e YDLNAS_TRUSTED_ORIGINS` | Comma-separated public origins such as `https://nas.example.com` that may submit dashboard actions when a reverse proxy does not forward `Host`, `X-Forwarded-Host`, or `X-Forwarded-Proto`. Empty by default. |
 
 ### Docker Compose Secrets
 

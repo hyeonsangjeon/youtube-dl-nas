@@ -31,6 +31,7 @@ from i18n import (
     normalize_locale,
     select_locale,
 )
+from login_throttle import LoginThrottle
 import os
 import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
@@ -73,6 +74,43 @@ def nonnegative_float_env(name, default):
 
 
 STORAGE_WARNING_GB = nonnegative_float_env("YDLNAS_STORAGE_WARNING_GB", "10")
+# Signed dashboard sessions expire after this many days; 0 keeps them valid until the secret rotates.
+SESSION_MAX_AGE_SECONDS = int(nonnegative_float_env("YDLNAS_SESSION_MAX_AGE_DAYS", "30") * 86400)
+# Only the bundled nginx front end connects from loopback, so its X-Forwarded-For hop is trusted.
+TRUSTED_PROXY_ADDRESSES = {"127.0.0.1", "::1"}
+
+
+def parse_network_list(value):
+    networks = []
+    for item in str(value or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            print(f"Ignoring invalid network in YDLNAS_TRUSTED_PROXIES: {item}")
+    return networks
+
+
+def parse_origin_list(value):
+    origins = set()
+    for item in str(value or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = urlsplit(item)
+        if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+            print(f"Ignoring invalid origin in YDLNAS_TRUSTED_ORIGINS: {item}")
+            continue
+        origins.add((parts.scheme.lower(), parts.hostname, parts.port or (443 if parts.scheme == "https" else 80)))
+    return origins
+
+
+# Reverse proxies in front of the container; sign-in throttling walks back through them to the real client.
+TRUSTED_PROXY_NETWORKS = parse_network_list(os.environ.get("YDLNAS_TRUSTED_PROXIES", ""))
+# Public origins allowed to submit dashboard actions when a proxy does not forward Host/X-Forwarded-*.
+TRUSTED_ORIGINS = parse_origin_list(os.environ.get("YDLNAS_TRUSTED_ORIGINS", ""))
 STORAGE_CRITICAL_GB = nonnegative_float_env("YDLNAS_STORAGE_CRITICAL_GB", "2")
 VALID_RESOLUTIONS = {"best", "compatible-mp4", "audio", "audio-m4a", "audio-mp3", "audio-opus"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
@@ -172,6 +210,8 @@ FAILURE_PATTERNS = (
 ERROR_CODE_BY_MESSAGE = {
     "Unauthorized": "unauthorized",
     "Invalid password, account, or API token.": "invalid_credentials",
+    "Too many failed sign-in attempts.": "too_many_attempts",
+    "Cross-origin request rejected": "cross_origin_request",
     "URL is required": "url_required",
     "Only HTTP and HTTPS source URLs are allowed": "source_url_scheme",
     "Private or local source URLs are blocked": "private_source_url",
@@ -432,18 +472,139 @@ def _load_auth_data():
     data.setdefault("TERMS_ACCEPTED", "N")
     return data
 
+SESSION_COOKIE_VERSION = 1
+# Open WebSockets re-check their connect-time session this often so expiry or a password change ends live feeds.
+WEBSOCKET_REAUTH_INTERVAL_SECONDS = 60
+login_throttle = LoginThrottle()
+
+
+def session_now():
+    return int(time.time())
+
+
+def credential_tag(data):
+    """HMAC of the configured ID/password under the cookie secret; changing either invalidates sessions."""
+    material = "\x00".join((str(data.get("MY_ID") or ""), str(data.get("MY_PW") or ""))).encode("utf-8")
+    return hmac.new(str(data.get("SECRET_KEY") or "").encode("utf-8"), material, "sha256").hexdigest()[:32]
+
+
+def issue_session_cookie(data, user_id):
+    session = {"v": SESSION_COOKIE_VERSION, "id": user_id, "iat": session_now(), "tag": credential_tag(data)}
+    options = {
+        "secret": data.get("SECRET_KEY"),
+        "path": "/",
+        "httponly": True,
+        "samesite": "lax",
+        "secure": cookie_secure_enabled(),
+    }
+    if SESSION_MAX_AGE_SECONDS:
+        options["max_age"] = SESSION_MAX_AGE_SECONDS
+    # The signed value stays a JSON string so Bottle never unpickles anything but str.
+    response.set_cookie("account", json.dumps(session, separators=(",", ":")), **options)
+
+
+def parse_session_cookie(data):
+    raw = request.get_cookie("account", secret=data.get("SECRET_KEY"))
+    if not isinstance(raw, str):
+        return None
+    try:
+        session = json.loads(raw)
+    except ValueError:
+        return None  # legacy plain-ID cookie or garbage
+    return session if isinstance(session, dict) else None
+
+
+def read_session_cookie(data):
+    return validate_session(parse_session_cookie(data), data)
+
+
+def validate_session(session, data):
+    """Return the session when it still matches the current credentials and lifetime, else None."""
+    if not isinstance(session, dict) or session.get("v") != SESSION_COOKIE_VERSION:
+        return None
+    user_id, issued_at, tag = session.get("id"), session.get("iat"), session.get("tag")
+    expected_id = str(data.get("MY_ID") or "")
+    if not expected_id or not isinstance(user_id, str):
+        return None
+    if not hmac.compare_digest(user_id.encode("utf-8"), expected_id.encode("utf-8")):
+        return None
+    if not isinstance(tag, str) or not hmac.compare_digest(tag.encode("utf-8"), credential_tag(data).encode("utf-8")):
+        return None
+    now = session_now()
+    if isinstance(issued_at, bool) or not isinstance(issued_at, int) or issued_at > now + 300:
+        return None
+    if SESSION_MAX_AGE_SECONDS and now - issued_at > SESSION_MAX_AGE_SECONDS:
+        return None
+    return session
+
+
 def is_cookie_authenticated(data=None):
     data = data or load_auth_data()
-    user_name = request.get_cookie("account", secret=data.get("SECRET_KEY"))
-    return bool(data.get("MY_ID") and user_name == data.get("MY_ID"))
+    return read_session_cookie(data) is not None
+
+
+def refresh_session_cookie(data):
+    """Slide the expiry for active devices once a session is past half of its lifetime."""
+    session = read_session_cookie(data)
+    if session and SESSION_MAX_AGE_SECONDS and session_now() - session["iat"] > SESSION_MAX_AGE_SECONDS // 2:
+        issue_session_cookie(data, session["id"])
+
+
+def is_trusted_proxy(address):
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in network for network in TRUSTED_PROXY_NETWORKS)
+
+
+def client_address():
+    remote = request.environ.get("REMOTE_ADDR", "") or ""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if not forwarded or remote not in TRUSTED_PROXY_ADDRESSES:
+        return remote or "unknown"
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    # The bundled nginx appends the peer it accepted from; the client cannot forge that last hop.
+    # Walk back through administrator-declared proxies so throttling keys on the real client.
+    while len(hops) > 1 and is_trusted_proxy(hops[-1]):
+        hops.pop()
+    return hops[-1] if hops else (remote or "unknown")
+
+
+def login_throttle_key(account_id):
+    account = re.sub(r"\s+", " ", str(account_id or "")).strip().casefold()[:64]
+    return (client_address(), account)
+
+
+def api_authentication_error(payload, data):
+    """Return a JSON error response when the request is not authenticated, else None."""
+    if api_token_matches():
+        return None
+    if payload.get("id") is None and payload.get("pw") is None:
+        return json_error("Invalid password, account, or API token.", 403)
+    throttle_key = login_throttle_key(payload.get("id"))
+    delay = login_throttle.retry_after(throttle_key)
+    if delay:
+        response.set_header("Retry-After", str(delay))
+        return json_error("Too many failed sign-in attempts.", 429, params={"seconds": delay})
+    if is_api_authenticated(payload, data):
+        login_throttle.record_success(throttle_key)
+        return None
+    login_throttle.record_failure(throttle_key)
+    return json_error("Invalid password, account, or API token.", 403)
+
+
+def api_token_matches():
+    authorization = request.headers.get("Authorization", "")
+    if API_TOKEN and authorization.startswith("Bearer "):
+        return hmac.compare_digest(authorization[7:].strip(), API_TOKEN)
+    return False
+
 
 def is_api_authenticated(payload, data=None):
     data = data or load_auth_data()
-    authorization = request.headers.get("Authorization", "")
-    if API_TOKEN and authorization.startswith("Bearer "):
-        supplied_token = authorization[7:].strip()
-        if hmac.compare_digest(supplied_token, API_TOKEN):
-            return True
+    if api_token_matches():
+        return True
 
     request_id = payload.get("id")
     request_password = payload.get("pw")
@@ -678,6 +839,13 @@ def require_cookie_auth():
     data = load_auth_data()
     if not is_cookie_authenticated(data):
         return None, json_error("Unauthorized", 403)
+    try:
+        # Same check as the v1 API: blocks cross-site browser POSTs, passes clients without Origin/Referer.
+        validate_browser_origin()
+    except APIError as error:
+        return None, json_error("Cross-origin request rejected", error.status)
+    # Any authenticated dashboard call counts as activity for the sliding session expiry.
+    refresh_session_cookie(data)
 
     return data, None
 
@@ -2635,14 +2803,7 @@ def dl_queue_list():
         print(f"Error checking terms acceptance: {sanitize_diagnostic_text(e)}")
         redirect("/terms?next=" + quote(next_path, safe=""))
         
-    locale_next = "/?next=" + quote(next_path, safe="")
-    return render_localized_template(
-        "./static/template/login.tpl",
-        msg_key="",
-        app_version=APP_VERSION,
-        next_path=next_path,
-        locale_next=locale_next,
-    )
+    return render_login_page(next_path)
 
 @get('/login', method='POST')
 def dl_queue_login():
@@ -2651,32 +2812,46 @@ def dl_queue_login():
     req_pw = request.forms.get("myPw")
     next_path = safe_next_path(request.forms.get("next"), "/youtube-dl")
 
+    throttle_key = login_throttle_key(req_id)
+    delay = login_throttle.retry_after(throttle_key)
+    if delay:
+        response.status = 429
+        response.set_header("Retry-After", str(delay))
+        return render_login_page(next_path, "login.throttled", {"seconds": delay})
+
     credentials_configured = bool(data.get("MY_ID") and data.get("MY_PW"))
     if credentials_configured and req_id and req_pw and hmac.compare_digest(str(req_id), str(data["MY_ID"])) and hmac.compare_digest(
         str(req_pw), str(data["MY_PW"])
     ):
-        response.set_cookie(
-            "account",
-            req_id,
-            secret=data.get("SECRET_KEY"),
-            path="/",
-            httponly=True,
-            samesite="lax",
-            secure=cookie_secure_enabled(),
-        )
+        login_throttle.record_success(throttle_key)
+        issue_session_cookie(data, req_id)
         redirect(next_path)
 
-    locale_next = "/?next=" + quote(next_path, safe="")
+    login_throttle.record_failure(throttle_key)
+    return render_login_page(next_path, "login.invalid")
+
+
+def render_login_page(next_path, msg_key="", msg_params=None):
     return render_localized_template(
         "./static/template/login.tpl",
-        msg_key="login.invalid",
+        msg_key=msg_key,
+        msg_params=msg_params or {},
         app_version=APP_VERSION,
         next_path=next_path,
-        locale_next=locale_next,
+        locale_next="/?next=" + quote(next_path, safe=""),
     )
 
-@get('/logout')
+
+@route('/logout', method=['GET', 'POST'])
 def dl_queue_logout():
+    cross_site = request.headers.get("Sec-Fetch-Site", "").casefold() == "cross-site"
+    if not cross_site and request.method == "POST":
+        try:
+            validate_browser_origin()
+        except APIError:
+            cross_site = True
+    if cross_site:
+        redirect("/youtube-dl")  # a cross-site link, image, or form must not end the session
     response.delete_cookie("account", path="/")
     redirect("/")
 
@@ -2712,6 +2887,7 @@ def dl_queue_main():
         redirect("/terms?next=" + quote(next_path, safe=""))
 
     if is_cookie_authenticated(data):
+        refresh_session_cookie(data)
         shared_url = ""
         if request.query.get("shared") == "review":
             shared_url = consume_share_review(data)
@@ -2735,6 +2911,7 @@ def render_dashboard_page(page, collection_id=""):
         redirect("/terms?next=" + quote(next_path, safe=""))
     if not is_cookie_authenticated(data):
         redirect("/?next=" + quote(next_path, safe=""))
+    refresh_session_cookie(data)
     return render_localized_template(
         "./static/template/index.tpl",
         page=page,
@@ -2784,7 +2961,7 @@ def validate_browser_origin():
         expected = urlsplit(request.url)
         source = (supplied.scheme.lower(), supplied.hostname, supplied.port or (443 if supplied.scheme == "https" else 80))
         target = (expected.scheme.lower(), expected.hostname, expected.port or (443 if expected.scheme == "https" else 80))
-        if supplied.username or supplied.password or source != target:
+        if supplied.username or supplied.password or (source != target and source not in TRUSTED_ORIGINS):
             raise APIError("cross_origin_request", 403)
     except ValueError as error:
         raise APIError("cross_origin_request", 403) from error
@@ -3194,8 +3371,9 @@ def q_put():
 def share_context():
     payload = get_request_json()
     data = load_auth_data()
-    if not is_api_authenticated(payload, data):
-        return json_error("Invalid password, account, or API token.", 403)
+    error_response = api_authentication_error(payload, data)
+    if error_response:
+        return error_response
 
     requested_profile = payload.get("profile") or payload.get("resolution") or "best"
     normalized_profile = normalize_api_share_profile(requested_profile, default=None, allow_ask=True)
@@ -3242,8 +3420,9 @@ def q_put_rest():
     client_version = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("client_version") or ""))[:32]
 
     data = load_auth_data()
-    if not is_api_authenticated(payload, data):
-        return json_error("Invalid password, account, or API token.", 403)
+    error_response = api_authentication_error(payload, data)
+    if error_response:
+        return error_response
     filename_error = validate_filename_options(payload)
     if filename_error:
         return json_error(filename_error, 400)
@@ -4383,21 +4562,40 @@ def serve_thumbnail(uuid):
 def websocket_handler(ws):
     if ws is None:
         abort(400, "WebSocket upgrade required")
-    if not is_cookie_authenticated():
+    session = read_session_cookie(load_auth_data())
+    if session is None:
         ws.close()
         return
 
+    import gevent
+
+    def close_when_session_ends():
+        # The connect-time cookie is the only credential a socket ever presents, so re-check it
+        # periodically: expiry, a password change, or a rotated secret must end live feeds too.
+        while True:
+            gevent.sleep(WEBSOCKET_REAUTH_INTERVAL_SECONDS)
+            try:
+                still_valid = validate_session(session, load_auth_data()) is not None
+            except Exception:
+                still_valid = False
+            if not still_valid:
+                ws.close()
+                return
+
+    watchdog = gevent.spawn(close_when_session_ends)
     try:
         # Add new client (including history auto-restoration)
         download_manager.add_client(ws)
         ws_addr.wsClassVal = ws
         print(f"WebSocket connected")
-        
+
         while True:
             message = ws.receive()
             if message is None:
                 break
-                
+            if validate_session(session, load_auth_data()) is None:
+                break
+
             event_match = re.match(r"^\[[A-Z_]+\]", str(message or ""))
             event_name = event_match.group(0) if event_match else "[UNKNOWN]"
             print(f"Received WebSocket event: {event_name}")
@@ -4417,6 +4615,7 @@ def websocket_handler(ws):
     except Exception as e:
         print(f"WebSocket error: {sanitize_diagnostic_text(e)}")
     finally:
+        watchdog.kill()
         # Disconnect the client
         download_manager.remove_client(ws)
         if ws_addr.wsClassVal == ws:

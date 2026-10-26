@@ -8,7 +8,7 @@
     <title>{{t('terms.title')}}</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/youtube-dl/static/pwa/icon-192.png">
-    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
+    <link href="youtube-dl/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
     
     
@@ -74,8 +74,8 @@
         </div>
     </div>
     
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+    <script src="youtube-dl/static/js/jquery-3.7.1.min.js"></script>
+    <script src="youtube-dl/static/js/bootstrap-3.4.1.min.js"></script>
     <script>
         window.YDLNAS_I18N = {{!translations_json}};
 
