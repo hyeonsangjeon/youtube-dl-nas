@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.1026 - 2026-10-26
+
 ### Security
 
 - Slow down repeated failed sign-ins per client address and account on the dashboard form and the legacy `id`/`pw` REST path: five free attempts, then delays that double from 10 seconds up to 5 minutes. Throttled requests answer HTTP 429 with `Retry-After`; Bearer-token and MCP authentication are unchanged. Behind a reverse proxy, `YDLNAS_TRUSTED_PROXIES` keys the limit on the real client instead of the proxy address, and a flood of other addresses cannot evict an active lock.
@@ -20,6 +22,7 @@ All notable changes to this project are documented here.
 
 ### Upgrade
 
+- Pull `26.1026` or `latest` and recreate the container with both existing mounts. No manual migration is required; the three new environment variables are optional.
 - Devices that were signed in before this upgrade sign in once more because the session cookie format changed. No volume, environment, or manual migration is required; `YDLNAS_SESSION_MAX_AGE_DAYS` is optional.
 
 ## 26.1012 - 2026-10-12

@@ -105,7 +105,7 @@ async def sdk_session(client, url=URL):
         async with streamable_http_client(url, http_client=client) as (reader, writer, session_id):
             async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=4)) as session:
                 initialized = await session.initialize()
-                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.1012")
+                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.1026")
                 assert session_id() is None
                 yield session
 

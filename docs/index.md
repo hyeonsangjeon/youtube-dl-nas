@@ -5,7 +5,7 @@ title: youtube-dl NAS Guides
 
 # youtube-dl NAS Guides
 
-- Current release: **26.1012**
+- Current release: **26.1026**
 - [Watch the 25-second phone-to-NAS demo](mobile/#demo)
 - [Install, upgrade, and troubleshooting](operations/)
 - [Dashboard guide](dashboard/)

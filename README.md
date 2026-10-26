@@ -16,13 +16,14 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.1012` (`2026-10-12`)
+Current release: `26.1026` (`2026-10-26`)
 
-**This release:** AI clients can browse the entire NAS library with stable
-pagination and newest/oldest download sorting. MCP token activity writes are
-coalesced, abandoned previews are cleaned up, and AI Connect distinguishes
-server readiness from actual client authentication. Existing volumes and
-mobile sharing remain unchanged. [Changelog](CHANGELOG.md#260922---2026-09-22)
+**This release:** sign-in hardening. Repeated failed sign-ins are throttled,
+dashboard sessions expire and renew, cookie-authenticated dashboard actions
+require the same origin, and jQuery/Bootstrap are served from the container so
+the dashboard also works on offline LANs. Existing volumes, mobile sharing, and
+REST/MCP authentication remain unchanged; each device signs in once more after
+upgrading. [Changelog](CHANGELOG.md#261026---2026-10-26)
 
 ## Start Here
 

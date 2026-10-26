@@ -70,4 +70,12 @@ the implementation does not mark that remaining roadmap work complete.
 - Add cookies/profile recovery actions and allowlisted safe diagnostics.
 - Refresh screenshots, dashboard GIF, README, manual, and Docker Hub overview.
 
+
+## Completed For 26.1026
+
+- Throttle repeated failed sign-ins per client address and account on the dashboard form and the legacy REST path, with trusted-proxy support behind reverse proxies.
+- Expire and renew signed dashboard sessions, invalidate them on credential changes, re-validate open WebSockets, and make sign-out a same-origin `POST`.
+- Apply the v1 API's same-origin check to cookie-authenticated dashboard actions without affecting Android, iOS, PWA, or MCP clients.
+- Serve jQuery 3.7.1, Bootstrap 3.4.1, and the Glyphicons fonts from the container, and preset `SERVER_NAME` to avoid a startup reverse DNS lookup.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).
