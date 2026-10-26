@@ -17,7 +17,7 @@
     <!-- Custom styles for this template -->
     <link href="youtube-dl/static/css/signin.css?v={{app_version}}" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap" rel="stylesheet">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+    <script src="youtube-dl/static/js/jquery-3.7.1.min.js"></script>
     <script src="youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 </head>
 <body>

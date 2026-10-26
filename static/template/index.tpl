@@ -17,7 +17,7 @@
 
     <title>{{(t('workspace.collections') + ' - ') if page == 'collections' else (t('workspace.ai_connect') + ' - ') if page == 'ai-connect' else ''}}youtube-dl NAS</title>
 
-    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/youtube-dl/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="/youtube-dl/static/css/style.css?v={{app_version}}" rel="stylesheet">
     <link href="/youtube-dl/static/css/workspace.css?v={{app_version}}" rel="stylesheet">
 </head>
@@ -558,8 +558,8 @@
     </div>
 </div>
 
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
-<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+<script src="/youtube-dl/static/js/jquery-3.7.1.min.js"></script>
+<script src="/youtube-dl/static/js/bootstrap-3.4.1.min.js"></script>
 <script>
     window.YDLNAS_LOCALE = {{!locale_json}};
     window.YDLNAS_I18N = {{!translations_json}};
