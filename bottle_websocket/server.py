@@ -11,7 +11,14 @@ class DownloadWorkerFailed(RuntimeError):
 
 class GeventWebSocketServer(ServerAdapter):
     def run(self, handler):
-        server = pywsgi.WSGIServer((self.host, self.port), handler, handler_class=WebSocketHandler)
+        # Preset SERVER_NAME so gevent does not call socket.getfqdn() before the
+        # first request; on some resolvers that lookup blocks for 30+ seconds.
+        server = pywsgi.WSGIServer(
+            (self.host, self.port),
+            handler,
+            handler_class=WebSocketHandler,
+            environ={"SERVER_NAME": str(self.host)},
+        )
 
         if not self.quiet:
             server.logger = create_logger('geventwebsocket.logging')

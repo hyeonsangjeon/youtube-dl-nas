@@ -81,7 +81,15 @@ def live_gevent_server():
 
     def serve():
         try:
-            web = WSGIServer(("127.0.0.1", 0), default_app(), handler_class=WebSocketHandler, log=None, error_log=None)
+            web = WSGIServer(
+                ("127.0.0.1", 0),
+                default_app(),
+                handler_class=WebSocketHandler,
+                log=None,
+                error_log=None,
+                # Same as bottle_websocket.server: skip gevent's reverse DNS lookup before the first request.
+                environ={"SERVER_NAME": "127.0.0.1"},
+            )
             web.start()
             running.update(server=web, hub=gevent.get_hub())
             ready.put(web.server_port)
