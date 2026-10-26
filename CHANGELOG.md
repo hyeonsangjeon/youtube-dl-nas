@@ -6,9 +6,9 @@ All notable changes to this project are documented here.
 
 ### Security
 
-- Slow down repeated failed sign-ins per client address and account on the dashboard form and the legacy `id`/`pw` REST path: five free attempts, then delays that double from 10 seconds up to 5 minutes. Throttled requests answer HTTP 429 with `Retry-After`; Bearer-token and MCP authentication are unchanged.
-- Expire signed dashboard sessions after `YDLNAS_SESSION_MAX_AGE_DAYS` (default 30; `0` disables), renew active devices automatically, and invalidate every existing session when the configured ID or password changes. Sign-out now uses `POST`; a cross-site `GET /logout` link no longer ends the session.
-- Apply the same same-origin check already used by the v1 API to the dashboard's cookie-authenticated `POST` actions. Clients that send no `Origin`/`Referer` header, such as Android HTTP Shortcuts and iOS Smart Share, are unaffected.
+- Slow down repeated failed sign-ins per client address and account on the dashboard form and the legacy `id`/`pw` REST path: five free attempts, then delays that double from 10 seconds up to 5 minutes. Throttled requests answer HTTP 429 with `Retry-After`; Bearer-token and MCP authentication are unchanged. Behind a reverse proxy, `YDLNAS_TRUSTED_PROXIES` keys the limit on the real client instead of the proxy address, and a flood of other addresses cannot evict an active lock.
+- Expire signed dashboard sessions after `YDLNAS_SESSION_MAX_AGE_DAYS` (default 30; `0` disables), renew them on any authenticated dashboard activity once half the lifetime has passed, and invalidate every existing session when the configured ID or password changes. Sign-out now uses `POST`; cross-site `GET` links and `POST` forms to `/logout` no longer end the session.
+- Apply the same same-origin check already used by the v1 API to the dashboard's cookie-authenticated `POST` actions. Clients that send no `Origin`/`Referer` header, such as Android HTTP Shortcuts and iOS Smart Share, are unaffected; `YDLNAS_TRUSTED_ORIGINS` covers proxies that cannot forward the public host.
 
 ### Changed
 

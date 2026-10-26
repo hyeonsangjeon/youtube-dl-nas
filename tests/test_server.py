@@ -2304,3 +2304,83 @@ def test_pages_use_vendored_jquery_and_bootstrap(app):
     assert "Bootstrap v3.4.1" in app.get("/youtube-dl/static/js/bootstrap-3.4.1.min.js").text[:200]
     assert "Bootstrap v3.4.1" in app.get("/youtube-dl/static/css/bootstrap.min.css").text[:200]
     assert app.get("/youtube-dl/static/fonts/glyphicons-halflings-regular.woff2").status_code == 200
+
+
+def test_session_expiry_boundary_and_future_issue_time(app, monkeypatch):
+    _sign_in(app)
+    monkeypatch.setattr(server, "refresh_session_cookie", lambda data: None)  # measure the raw lifetime
+    issued_at = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + server.SESSION_MAX_AGE_SECONDS)
+    assert app.get("/youtube-dl").status_code == 200
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + server.SESSION_MAX_AGE_SECONDS + 1)
+    app.get("/youtube-dl", status=302)
+    monkeypatch.undo()
+
+    now = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: now + 600)  # beyond the 300 s clock-skew allowance
+    _sign_in(app)
+    monkeypatch.undo()
+    app.get("/youtube-dl", status=302)
+
+
+def test_session_expiry_can_be_disabled(app, monkeypatch):
+    monkeypatch.setattr(server, "SESSION_MAX_AGE_SECONDS", 0)
+    response = _sign_in(app)
+    assert "Max-Age" not in response.headers["Set-Cookie"]
+    issued_at = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + 400 * 86400)
+    assert app.get("/youtube-dl").status_code == 200
+
+
+def test_changing_the_account_id_or_secret_invalidates_sessions(app):
+    _sign_in(app)
+    current = server.load_auth_data()
+    with patch.object(server, "load_auth_data", return_value=dict(current, MY_ID="renamed")):
+        app.get("/youtube-dl", status=302)
+    with patch.object(server, "load_auth_data", return_value=dict(current, SECRET_KEY="rotated-secret")):
+        app.get("/youtube-dl", status=302)
+    assert app.get("/youtube-dl").status_code == 200
+
+
+def test_authenticated_api_activity_renews_the_session(app, monkeypatch):
+    _sign_in(app)
+    assert "Set-Cookie" not in app.get("/youtube-dl/status").headers
+    issued_at = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + server.SESSION_MAX_AGE_SECONDS // 2 + 60)
+    assert app.get("/youtube-dl/status").headers["Set-Cookie"].startswith("account=")
+
+
+def test_logout_post_from_another_site_is_ignored(app):
+    _sign_in(app)
+    app.post("/logout", headers={"Origin": "https://evil.example"}, status=302)
+    assert app.get("/youtube-dl").status_code == 200
+    app.post("/logout", headers={"Sec-Fetch-Site": "cross-site"}, status=302)
+    assert app.get("/youtube-dl").status_code == 200
+    app.post("/logout", headers={"Origin": "http://localhost:80"}, status=302)
+    app.get("/youtube-dl", status=302)
+
+
+def test_trusted_origins_allow_a_proxy_that_hides_the_public_host(app, monkeypatch):
+    _sign_in(app)
+    app.post("/youtube-dl/q/missing-job/remove", headers={"Origin": "https://nas.example.com"}, status=403)
+    monkeypatch.setattr(server, "TRUSTED_ORIGINS", {("https", "nas.example.com", 443)})
+    allowed = app.post("/youtube-dl/q/missing-job/remove", headers={"Origin": "https://nas.example.com"}, status="*")
+    assert allowed.status_code != 403
+    app.post("/youtube-dl/q/missing-job/remove", headers={"Origin": "https://other.example.com"}, status=403)
+
+
+def test_trusted_proxies_key_the_throttle_on_the_real_client(app, monkeypatch):
+    import ipaddress
+
+    monkeypatch.setattr(server, "login_throttle", LoginThrottle(free_attempts=1, base_delay=20))
+    monkeypatch.setattr(server, "TRUSTED_PROXY_NETWORKS", [ipaddress.ip_network("203.0.113.10/32")])
+    wrong = {"id": "tester", "pw": "nope", "url": "https://www.youtube.com/watch?v=abc", "resolution": "best"}
+    proxied = {"REMOTE_ADDR": "127.0.0.1"}
+    client_a = {"X-Forwarded-For": "198.51.100.7, 203.0.113.10"}
+    client_b = {"X-Forwarded-For": "198.51.100.8, 203.0.113.10"}
+    app.post_json("/youtube-dl/rest", wrong, headers=client_a, extra_environ=proxied, status=403)
+    app.post_json("/youtube-dl/rest", wrong, headers=client_a, extra_environ=proxied, status=403)
+    app.post_json("/youtube-dl/rest", wrong, headers=client_a, extra_environ=proxied, status=429)
+    app.post_json("/youtube-dl/rest", wrong, headers=client_b, extra_environ=proxied, status=403)
+    spoofed = {"X-Forwarded-For": "198.51.100.8, 203.0.113.10"}
+    app.post_json("/youtube-dl/rest", wrong, headers=spoofed, extra_environ={"REMOTE_ADDR": "203.0.113.99"}, status=403)

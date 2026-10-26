@@ -78,6 +78,39 @@ STORAGE_WARNING_GB = nonnegative_float_env("YDLNAS_STORAGE_WARNING_GB", "10")
 SESSION_MAX_AGE_SECONDS = int(nonnegative_float_env("YDLNAS_SESSION_MAX_AGE_DAYS", "30") * 86400)
 # Only the bundled nginx front end connects from loopback, so its X-Forwarded-For hop is trusted.
 TRUSTED_PROXY_ADDRESSES = {"127.0.0.1", "::1"}
+
+
+def parse_network_list(value):
+    networks = []
+    for item in str(value or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            print(f"Ignoring invalid network in YDLNAS_TRUSTED_PROXIES: {item}")
+    return networks
+
+
+def parse_origin_list(value):
+    origins = set()
+    for item in str(value or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = urlsplit(item)
+        if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+            print(f"Ignoring invalid origin in YDLNAS_TRUSTED_ORIGINS: {item}")
+            continue
+        origins.add((parts.scheme.lower(), parts.hostname, parts.port or (443 if parts.scheme == "https" else 80)))
+    return origins
+
+
+# Reverse proxies in front of the container; sign-in throttling walks back through them to the real client.
+TRUSTED_PROXY_NETWORKS = parse_network_list(os.environ.get("YDLNAS_TRUSTED_PROXIES", ""))
+# Public origins allowed to submit dashboard actions when a proxy does not forward Host/X-Forwarded-*.
+TRUSTED_ORIGINS = parse_origin_list(os.environ.get("YDLNAS_TRUSTED_ORIGINS", ""))
 STORAGE_CRITICAL_GB = nonnegative_float_env("YDLNAS_STORAGE_CRITICAL_GB", "2")
 VALID_RESOLUTIONS = {"best", "compatible-mp4", "audio", "audio-m4a", "audio-mp3", "audio-opus"}
 RESOLUTION_PATTERN = re.compile(r"^\d{3,4}p$")
@@ -440,6 +473,8 @@ def _load_auth_data():
     return data
 
 SESSION_COOKIE_VERSION = 1
+# Open WebSockets re-check their connect-time session this often so expiry or a password change ends live feeds.
+WEBSOCKET_REAUTH_INTERVAL_SECONDS = 60
 login_throttle = LoginThrottle()
 
 
@@ -468,7 +503,7 @@ def issue_session_cookie(data, user_id):
     response.set_cookie("account", json.dumps(session, separators=(",", ":")), **options)
 
 
-def read_session_cookie(data):
+def parse_session_cookie(data):
     raw = request.get_cookie("account", secret=data.get("SECRET_KEY"))
     if not isinstance(raw, str):
         return None
@@ -476,6 +511,15 @@ def read_session_cookie(data):
         session = json.loads(raw)
     except ValueError:
         return None  # legacy plain-ID cookie or garbage
+    return session if isinstance(session, dict) else None
+
+
+def read_session_cookie(data):
+    return validate_session(parse_session_cookie(data), data)
+
+
+def validate_session(session, data):
+    """Return the session when it still matches the current credentials and lifetime, else None."""
     if not isinstance(session, dict) or session.get("v") != SESSION_COOKIE_VERSION:
         return None
     user_id, issued_at, tag = session.get("id"), session.get("iat"), session.get("tag")
@@ -506,15 +550,25 @@ def refresh_session_cookie(data):
         issue_session_cookie(data, session["id"])
 
 
+def is_trusted_proxy(address):
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in network for network in TRUSTED_PROXY_NETWORKS)
+
+
 def client_address():
     remote = request.environ.get("REMOTE_ADDR", "") or ""
     forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded and remote in TRUSTED_PROXY_ADDRESSES:
-        # The bundled nginx appends the peer it accepted from; the client cannot forge that last hop.
-        hop = forwarded.split(",")[-1].strip()
-        if hop:
-            return hop
-    return remote or "unknown"
+    if not forwarded or remote not in TRUSTED_PROXY_ADDRESSES:
+        return remote or "unknown"
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    # The bundled nginx appends the peer it accepted from; the client cannot forge that last hop.
+    # Walk back through administrator-declared proxies so throttling keys on the real client.
+    while len(hops) > 1 and is_trusted_proxy(hops[-1]):
+        hops.pop()
+    return hops[-1] if hops else (remote or "unknown")
 
 
 def login_throttle_key(account_id):
@@ -790,6 +844,8 @@ def require_cookie_auth():
         validate_browser_origin()
     except APIError as error:
         return None, json_error("Cross-origin request rejected", error.status)
+    # Any authenticated dashboard call counts as activity for the sliding session expiry.
+    refresh_session_cookie(data)
 
     return data, None
 
@@ -2788,8 +2844,14 @@ def render_login_page(next_path, msg_key="", msg_params=None):
 
 @route('/logout', method=['GET', 'POST'])
 def dl_queue_logout():
-    if request.method == "GET" and request.headers.get("Sec-Fetch-Site", "").casefold() == "cross-site":
-        redirect("/youtube-dl")  # a cross-site link or image must not end the session
+    cross_site = request.headers.get("Sec-Fetch-Site", "").casefold() == "cross-site"
+    if not cross_site and request.method == "POST":
+        try:
+            validate_browser_origin()
+        except APIError:
+            cross_site = True
+    if cross_site:
+        redirect("/youtube-dl")  # a cross-site link, image, or form must not end the session
     response.delete_cookie("account", path="/")
     redirect("/")
 
@@ -2899,7 +2961,7 @@ def validate_browser_origin():
         expected = urlsplit(request.url)
         source = (supplied.scheme.lower(), supplied.hostname, supplied.port or (443 if supplied.scheme == "https" else 80))
         target = (expected.scheme.lower(), expected.hostname, expected.port or (443 if expected.scheme == "https" else 80))
-        if supplied.username or supplied.password or source != target:
+        if supplied.username or supplied.password or (source != target and source not in TRUSTED_ORIGINS):
             raise APIError("cross_origin_request", 403)
     except ValueError as error:
         raise APIError("cross_origin_request", 403) from error
@@ -4500,21 +4562,40 @@ def serve_thumbnail(uuid):
 def websocket_handler(ws):
     if ws is None:
         abort(400, "WebSocket upgrade required")
-    if not is_cookie_authenticated():
+    session = read_session_cookie(load_auth_data())
+    if session is None:
         ws.close()
         return
 
+    import gevent
+
+    def close_when_session_ends():
+        # The connect-time cookie is the only credential a socket ever presents, so re-check it
+        # periodically: expiry, a password change, or a rotated secret must end live feeds too.
+        while True:
+            gevent.sleep(WEBSOCKET_REAUTH_INTERVAL_SECONDS)
+            try:
+                still_valid = validate_session(session, load_auth_data()) is not None
+            except Exception:
+                still_valid = False
+            if not still_valid:
+                ws.close()
+                return
+
+    watchdog = gevent.spawn(close_when_session_ends)
     try:
         # Add new client (including history auto-restoration)
         download_manager.add_client(ws)
         ws_addr.wsClassVal = ws
         print(f"WebSocket connected")
-        
+
         while True:
             message = ws.receive()
             if message is None:
                 break
-                
+            if validate_session(session, load_auth_data()) is None:
+                break
+
             event_match = re.match(r"^\[[A-Z_]+\]", str(message or ""))
             event_name = event_match.group(0) if event_match else "[UNKNOWN]"
             print(f"Received WebSocket event: {event_name}")
@@ -4534,6 +4615,7 @@ def websocket_handler(ws):
     except Exception as e:
         print(f"WebSocket error: {sanitize_diagnostic_text(e)}")
     finally:
+        watchdog.kill()
         # Disconnect the client
         download_manager.remove_client(ws)
         if ws_addr.wsClassVal == ws:

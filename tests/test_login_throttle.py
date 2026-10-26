@@ -89,3 +89,28 @@ def test_entry_count_is_bounded():
         clock.advance(1)
     assert len(throttle._entries) <= 4
     assert throttle.retry_after(("203.0.113.0", "tester")) == 0
+
+
+def test_flood_of_new_keys_cannot_evict_an_active_lock():
+    throttle, clock = make_throttle(max_entries=3)
+    locked = ("203.0.113.5", "tester")
+    for _ in range(4):
+        throttle.record_failure(locked)
+    assert throttle.retry_after(locked) == 10
+    for index in range(20):
+        clock.advance(0.1)
+        throttle.record_failure((f"198.51.100.{index}", "tester"))
+    assert len(throttle._entries) <= 3
+    assert throttle.retry_after(locked) > 0
+
+
+def test_updating_an_existing_key_does_not_evict_others():
+    throttle, clock = make_throttle(max_entries=2)
+    first = ("203.0.113.1", "tester")
+    second = ("203.0.113.2", "tester")
+    throttle.record_failure(first)
+    clock.advance(1)
+    throttle.record_failure(second)
+    clock.advance(1)
+    throttle.record_failure(first)
+    assert set(throttle._entries) == {first, second}

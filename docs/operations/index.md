@@ -128,6 +128,14 @@ expire after `YDLNAS_SESSION_MAX_AGE_DAYS` (default `30`) days without use and
 whenever the configured ID or password changes, so shared phones sign in again
 after a credential change.
 
+Behind a reverse proxy, set `YDLNAS_TRUSTED_PROXIES` to the proxy address so
+each real client gets its own sign-in limit; otherwise every user behind that
+proxy shares one limit and repeated failures from one of them delay all of
+them. Dashboard actions require the browser's `Origin` to match the address the
+NAS sees. Proxies that forward `Host` or `X-Forwarded-Host`/`X-Forwarded-Proto`
+need nothing else; for a proxy that cannot, list the public address in
+`YDLNAS_TRUSTED_ORIGINS`.
+
 See the [mobile sharing guide](../mobile/) for Android PWA, Android local HTTP,
 and iPhone/iPad setup.
 

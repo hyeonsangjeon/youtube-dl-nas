@@ -17,7 +17,7 @@ class LoginThrottle:
         base_delay=10,
         max_delay=300,
         window=900,
-        max_entries=1000,
+        max_entries=5000,
         clock=time.monotonic,
     ):
         self.free_attempts = free_attempts
@@ -49,9 +49,11 @@ class LoginThrottle:
         """Count a failed attempt and return the lock now in effect (0 while attempts are still free)."""
         now = self._clock()
         with self._lock:
-            self._prune(now)
             entry = self._entries.get(key)
-            if entry is None or now - entry["last"] > self.window:
+            if entry is not None and now - entry["last"] > self.window:
+                entry = None
+            if entry is None:
+                self._make_room(now)
                 entry = {"failures": 0, "last": now, "locked_until": 0.0}
                 self._entries[key] = entry
             entry["failures"] += 1
@@ -67,13 +69,22 @@ class LoginThrottle:
         with self._lock:
             self._entries.pop(key, None)
 
-    def _prune(self, now):
+    def _make_room(self, now):
+        """Called before inserting a new key; keeps the table at or below max_entries."""
+        if len(self._entries) < self.max_entries:
+            return
         stale = [key for key, entry in self._entries.items() if now - entry["last"] > self.window]
         for key in stale:
             del self._entries[key]
         overflow = len(self._entries) - self.max_entries + 1
-        if overflow > 0:
-            # A flood of distinct keys must not grow memory without bound; drop the oldest first.
-            oldest = sorted(self._entries.items(), key=lambda item: item[1]["last"])[:overflow]
-            for key, _ in oldest:
-                del self._entries[key]
+        if overflow <= 0:
+            return
+        # A flood of distinct keys must not grow memory without bound, but it must not be able to
+        # reset an active lock either: evict unlocked entries first, oldest first, and only touch
+        # locked entries when nothing else is left.
+        victims = sorted(
+            self._entries.items(),
+            key=lambda item: (item[1]["locked_until"] > now, item[1]["last"]),
+        )[:overflow]
+        for key, _ in victims:
+            del self._entries[key]
