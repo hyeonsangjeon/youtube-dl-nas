@@ -50,10 +50,12 @@
                         {{userNm}}
                     </span>
                     <span id="connection-status" class="connection-chip status-pending">{{t('dashboard.connecting')}}</span>
-                    <a class="logout-btn" href="/logout" title="{{t('dashboard.logout')}}" aria-label="{{t('dashboard.logout')}}">
-                        <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
-                        <span class="logout-label">{{t('dashboard.logout')}}</span>
-                    </a>
+                    <form class="logout-form" method="POST" action="/logout">
+                        <button type="submit" class="logout-btn" title="{{t('dashboard.logout')}}" aria-label="{{t('dashboard.logout')}}">
+                            <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
+                            <span class="logout-label">{{t('dashboard.logout')}}</span>
+                        </button>
+                    </form>
                 </div>
             </header>
 

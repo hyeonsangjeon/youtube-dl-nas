@@ -120,6 +120,14 @@ Set `COOKIE_SECURE=true` only when the dashboard is served exclusively over
 HTTPS. Mobile shares travel directly from the phone to the NAS; GitHub Pages
 hosts only the setup guide and import files.
 
+Repeated failed sign-ins from one address are slowed down automatically: five
+free attempts, then delays that double from 10 seconds up to 5 minutes. The
+sign-in page and the REST `id`/`pw` path answer with HTTP 429 and the remaining
+wait; Bearer tokens and MCP connections are not throttled. Dashboard sessions
+expire after `YDLNAS_SESSION_MAX_AGE_DAYS` (default `30`) days without use and
+whenever the configured ID or password changes, so shared phones sign in again
+after a credential change.
+
 See the [mobile sharing guide](../mobile/) for Android PWA, Android local HTTP,
 and iPhone/iPad setup.
 

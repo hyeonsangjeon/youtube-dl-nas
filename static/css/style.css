@@ -1548,8 +1548,18 @@ a:hover {
   white-space: nowrap;
 }
 
+.logout-form {
+  display: inline-flex;
+  margin: 0;
+}
+
 .logout-btn {
   text-decoration: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .logout-btn:hover,
@@ -4444,7 +4454,8 @@ body:not(.dashboard-page) .site-wrapper-inner {
   .dashboard-page .site-wrapper-inner { padding: 12px; }
   .dashboard-page .app-header { gap: 12px; margin-bottom: 12px; }
   .dashboard-page .app-meta { gap: 6px; }
-  .dashboard-page .app-meta .logout-btn { margin-left: auto; min-width: 40px; min-height: 40px; justify-content: center; }
+  .dashboard-page .app-meta .logout-form { margin-left: auto; }
+  .dashboard-page .app-meta .logout-btn { min-width: 40px; min-height: 40px; justify-content: center; }
   .dashboard-page .logout-label { display: none; }
   .dashboard-page .user-chip { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dashboard-page .dashboard-main { gap: 16px; min-width: 0; }

@@ -2151,3 +2151,156 @@ def test_subtitle_qa_rejects_non_subtitle_files(app, tmp_path):
         )
 
     assert "SRT, VTT, ASS, and SSA" in response.json["msg"]
+
+
+# --- sign-in throttle, session expiry, same-origin POSTs, vendored assets ---
+
+from login_throttle import LoginThrottle  # noqa: E402
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 5000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def _sign_in(app):
+    return app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=302)
+
+
+def test_login_issues_json_session_cookie_with_max_age(app):
+    response = _sign_in(app)
+    header = response.headers["Set-Cookie"]
+    assert header.startswith("account=")
+    assert "Max-Age=%d" % server.SESSION_MAX_AGE_SECONDS in header
+    assert "HttpOnly" in header
+    assert app.get("/youtube-dl").status_code == 200
+
+
+def test_legacy_plain_id_cookie_is_no_longer_accepted(app):
+    import bottle
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        legacy = bottle.cookie_encode(["account", "tester"], server.load_auth_data()["SECRET_KEY"])
+    app.set_cookie("account", legacy.decode("ascii") if isinstance(legacy, bytes) else legacy)
+    assert app.get("/youtube-dl", status=302).location.endswith("/?next=%2Fyoutube-dl")
+
+
+def test_session_expires_and_credential_change_invalidates_it(app, monkeypatch):
+    _sign_in(app)
+    assert app.get("/youtube-dl").status_code == 200
+
+    issued_at = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + server.SESSION_MAX_AGE_SECONDS + 1)
+    app.get("/youtube-dl", status=302)
+    monkeypatch.undo()
+
+    assert app.get("/youtube-dl").status_code == 200
+    rotated = dict(server.load_auth_data(), MY_PW="rotated-secret")
+    with patch.object(server, "load_auth_data", return_value=rotated):
+        app.get("/youtube-dl", status=302)
+
+
+def test_active_session_is_renewed_after_half_of_its_lifetime(app, monkeypatch):
+    _sign_in(app)
+    assert "Set-Cookie" not in app.get("/youtube-dl").headers
+
+    issued_at = server.session_now()
+    monkeypatch.setattr(server, "session_now", lambda: issued_at + server.SESSION_MAX_AGE_SECONDS // 2 + 60)
+    renewed = app.get("/youtube-dl")
+    assert renewed.headers["Set-Cookie"].startswith("account=")
+
+
+def test_logout_ignores_cross_site_get_but_honors_post(app):
+    _sign_in(app)
+    app.get("/logout", headers={"Sec-Fetch-Site": "cross-site"}, status=302)
+    assert app.get("/youtube-dl").status_code == 200
+
+    app.post("/logout", status=302)
+    app.get("/youtube-dl", status=302)
+
+
+def test_dashboard_posts_reject_cross_site_browsers_but_not_headerless_clients(app):
+    _sign_in(app)
+    blocked = app.post_json(
+        "/youtube-dl/q", {"url": "https://www.youtube.com/watch?v=abc"}, headers={"Origin": "https://evil.example"}, status=403
+    )
+    assert blocked.json["code"] == "cross_origin_request"
+    blocked = app.post("/youtube-dl/q/missing-job/remove", headers={"Sec-Fetch-Site": "cross-site"}, status=403)
+    assert blocked.json["code"] == "cross_origin_request"
+
+    same_origin = app.post("/youtube-dl/q/missing-job/remove", headers={"Origin": "http://localhost:80"}, status="*")
+    assert same_origin.status_code != 403
+    headerless = app.post("/youtube-dl/q/missing-job/remove", status="*")
+    assert headerless.status_code != 403
+    assert headerless.json.get("code") != "cross_origin_request"
+
+
+def test_login_form_throttles_repeated_failures_per_address_and_account(app, monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(server, "login_throttle", LoginThrottle(free_attempts=2, base_delay=30, clock=clock))
+    wrong = {"id": "tester", "myPw": "nope", "next": "/youtube-dl"}
+    for _ in range(3):
+        assert "The ID or password is incorrect." in app.post("/login", wrong).text
+
+    locked = app.post("/login", {"id": "tester", "myPw": "secret", "next": "/youtube-dl"}, status=429)
+    assert "Too many failed sign-in attempts. Try again in 30 seconds." in locked.text
+    assert locked.headers["Retry-After"] == "30"
+    assert "The ID or password is incorrect." in app.post("/login", dict(wrong, id="someone-else")).text
+
+    clock.advance(31)
+    _sign_in(app)
+    assert app.get("/youtube-dl").status_code == 200
+    app.post("/logout", status=302)
+    assert "The ID or password is incorrect." in app.post("/login", wrong).text
+
+
+def test_rest_password_auth_is_throttled_but_bearer_token_is_not(app, monkeypatch):
+    monkeypatch.setattr(server, "login_throttle", LoginThrottle(free_attempts=1, base_delay=15))
+    wrong = {"id": "tester", "pw": "nope", "url": "https://www.youtube.com/watch?v=abc", "resolution": "best"}
+    assert app.post_json("/youtube-dl/rest", wrong, status=403).json["code"] == "invalid_credentials"
+    assert app.post_json("/youtube-dl/rest", wrong, status=403).json["code"] == "invalid_credentials"
+
+    locked = app.post_json("/youtube-dl/rest", dict(wrong, pw="secret"), status=429)
+    assert locked.json["code"] == "too_many_attempts"
+    assert locked.json["params"]["seconds"] == 15
+    assert locked.headers["Retry-After"] == "15"
+
+    bearer = app.post_json(
+        "/youtube-dl/share/context",
+        {"text": "https://www.youtube.com/watch?v=abc"},
+        headers={"Authorization": "Bearer integration-token"},
+    )
+    assert bearer.status_code == 200
+
+
+def test_throttle_keys_use_the_last_forwarded_hop_from_the_bundled_proxy(app, monkeypatch):
+    monkeypatch.setattr(server, "login_throttle", LoginThrottle(free_attempts=1, base_delay=20))
+    wrong = {"id": "tester", "pw": "nope", "url": "https://www.youtube.com/watch?v=abc", "resolution": "best"}
+    proxied = {"REMOTE_ADDR": "127.0.0.1"}
+    via_a = {"X-Forwarded-For": "198.51.100.7, 203.0.113.10"}
+    via_b = {"X-Forwarded-For": "198.51.100.7, 203.0.113.11"}
+    app.post_json("/youtube-dl/rest", wrong, headers=via_a, extra_environ=proxied, status=403)
+    app.post_json("/youtube-dl/rest", wrong, headers=via_a, extra_environ=proxied, status=403)
+    app.post_json("/youtube-dl/rest", wrong, headers=via_a, extra_environ=proxied, status=429)
+    app.post_json("/youtube-dl/rest", wrong, headers=via_b, extra_environ=proxied, status=403)
+
+
+def test_pages_use_vendored_jquery_and_bootstrap(app):
+    _sign_in(app)
+    for path in ("/", "/youtube-dl", "/terms"):
+        page = app.get(path).text
+        assert "ajax.googleapis.com" not in page
+        assert "maxcdn.bootstrapcdn.com" not in page
+
+    assert app.get("/youtube-dl/static/js/jquery-3.7.1.min.js").text.startswith("/*! jQuery v3.7.1")
+    assert "Bootstrap v3.4.1" in app.get("/youtube-dl/static/js/bootstrap-3.4.1.min.js").text[:200]
+    assert "Bootstrap v3.4.1" in app.get("/youtube-dl/static/css/bootstrap.min.css").text[:200]
+    assert app.get("/youtube-dl/static/fonts/glyphicons-halflings-regular.woff2").status_code == 200

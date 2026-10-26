@@ -266,6 +266,7 @@ docker run -d \
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
+| `-e YDLNAS_SESSION_MAX_AGE_DAYS` | Days a signed-in dashboard session stays valid; active devices renew automatically and any ID or password change signs every device out. Defaults to `30`; set `0` to keep sessions until the secret rotates. |
 
 ### Docker Compose Secrets
 

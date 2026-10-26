@@ -41,7 +41,7 @@
         <input type="password" id="myPw" name="myPw" class="form-control" placeholder="{{t('login.password_placeholder')}}" required>
         % if msg_key != '':
             <label>
-                <p>{{t(msg_key)}}</p>
+                <p>{{t(msg_key, **msg_params)}}</p>
             </label>
         %end
         <button type="submit" class="btn btn-lg btn-primary btn-block" id="loginBtn">{{t('login.submit')}}</button>
