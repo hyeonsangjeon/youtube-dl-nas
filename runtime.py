@@ -33,7 +33,7 @@ def port_number(value, name):
 
 
 def resolve_secret_files(env):
-    for name in ("MY_ID", "MY_PW", "YDLNAS_API_TOKEN"):
+    for name in ("MY_ID", "MY_PW", "YDLNAS_API_TOKEN", "YDLNAS_WEBHOOK_URL"):
         file_name = name + "_FILE"
         if env.get(name) or not env.get(file_name):
             continue
@@ -206,8 +206,8 @@ def process_specs(config, env, config_path):
     private_env = {
         key: value for key, value in env.items()
         if key not in {
-            "MY_ID", "MY_PW", "YDLNAS_API_TOKEN", "SECRET_KEY",
-            "MY_ID_FILE", "MY_PW_FILE", "YDLNAS_API_TOKEN_FILE",
+            "MY_ID", "MY_PW", "YDLNAS_API_TOKEN", "SECRET_KEY", "YDLNAS_WEBHOOK_URL",
+            "MY_ID_FILE", "MY_PW_FILE", "YDLNAS_API_TOKEN_FILE", "YDLNAS_WEBHOOK_URL_FILE",
         }
     }
     specs = [

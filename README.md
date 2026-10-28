@@ -266,6 +266,9 @@ docker run -d \
 | `-e YDLNAS_MCP_BATCH_LIMIT` | Maximum candidates per MCP or dashboard collection preview. Defaults to `25`, clamped to `1`–`100`. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
+| `-e YDLNAS_WEBHOOK_URL` | Optional webhook URLs, separated by commas or spaces, notified when downloads finish. See [Notifications](#notifications). |
+| `-e YDLNAS_WEBHOOK_URL_FILE` | Advanced alternative: read the webhook URLs from one mounted secret file. The direct variable wins when both are set. |
+| `-e YDLNAS_WEBHOOK_EVENTS` | Outcomes that notify: any of `completed`, `failed`, `canceled`, `skipped`. Defaults to `completed,failed`. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
 | `-e YDLNAS_SESSION_MAX_AGE_DAYS` | Days a signed-in dashboard session stays valid; active devices renew automatically and any ID or password change signs every device out. Defaults to `30`; set `0` to keep sessions until the secret rotates. |
 | `-e YDLNAS_TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies in front of the container, for example the Synology reverse proxy. Sign-in throttling then keys on the real client address behind them instead of sharing one limit for everyone. Empty by default. |
@@ -335,6 +338,31 @@ Open **Options** in the dashboard and drag **Send to youtube-dl-nas** to the bro
 - The bookmarklet stores only the dashboard address. It holds no ID, password, or token; the browser's normal dashboard session signs the request in, and an expired session goes through the usual login first.
 - Opening the bookmarklet address never queues anything by itself, because any site could open that address too. The URL waits in a signed ten-minute cookie and is queued only when you submit it from the dashboard.
 - Drag it from the address you normally use, such as `https://nas.example.com` or `http://192.168.1.10:8080`. The page URL travels in the query string, so it can appear in your own NAS or reverse-proxy access log.
+
+## Notifications
+
+Set `YDLNAS_WEBHOOK_URL` to get a message when a download finishes or fails. Several URLs can be separated by commas or spaces. The format follows the host:
+
+| URL | Message |
+| --- | --- |
+| `https://discord.com/api/webhooks/...` | Discord `content` message, mentions disabled |
+| `https://hooks.slack.com/services/...` | Slack `text` message |
+| `https://ntfy.sh/<topic>` | ntfy push with a title and tag |
+| `https://api.telegram.org/bot<token>/sendMessage?chat_id=<id>` | Telegram message; `chat_id` is required |
+| anything else | JSON document with `event`, `text`, `count`, `items`, `app`, `version`, `sent_at` |
+
+A self-hosted service takes a format prefix, for example `ntfy+http://192.168.1.20:8090/nas` or `slack+https://chat.example.com/hooks/...`. The JSON document's `text` field already suits Mattermost, Rocket.Chat, and similar Slack-compatible servers, and Home Assistant or n8n can read its `items`.
+
+- A playlist download sends one message for the whole job, listing at most 20 items. Each collection item is its own job, so it sends its own message.
+- Delivery runs in the background with two retries for network errors, HTTP 429, and 5xx. A slow or offline webhook never delays downloads.
+- Webhook URLs often contain tokens. Logs show only the host, and the URL is withheld from the MCP, nginx, and updater processes. `YDLNAS_WEBHOOK_URL_FILE` reads it from a mounted secret file instead.
+- Requests go out directly or through the standard `HTTPS_PROXY`/`HTTP_PROXY` variables, not the `yt-dlp` `PROXY` setting.
+
+Send a test message after changing the setting:
+
+```bash
+docker exec <container> python /usr/src/app/webhooks.py --test
+```
 
 ## REST API
 

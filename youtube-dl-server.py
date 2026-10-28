@@ -33,6 +33,7 @@ from i18n import (
 )
 from login_throttle import LoginThrottle
 from queue_runtime import QueueRuntime
+from webhooks import WebhookNotifier
 import os
 import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
@@ -2603,6 +2604,7 @@ class GlobalDownloadManager:
                     raise
             if self is download_manager:
                 collections_service.observe_history(completed)
+                webhook_notifier.notify(completed)
             return completed
 
     def _complete_downloads(self, completion_items):
@@ -4700,6 +4702,7 @@ def build_queue_runtime():
 
 queue_runtime = build_queue_runtime()
 collections_service = CollectionService(queue_runtime, COLLECTIONS_STATE_FILE)
+webhook_notifier = WebhookNotifier.from_environment(app_version=APP_VERSION)
 connections_store = ConnectionStore(CONNECTIONS_STATE_FILE)
 
 def run_server():

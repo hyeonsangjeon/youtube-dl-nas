@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- Desktop bookmarklet: drag **Send to youtube-dl-nas** from **Options** to the bookmarks bar, then click it on any page to open the dashboard with that URL ready to review. It stores no credentials and never queues on its own, because any site can open its address. Closes #15.
+- Download notifications through `YDLNAS_WEBHOOK_URL`: Discord, Slack, ntfy, and Telegram are detected from the host, any other URL receives JSON, and a `ntfy+`/`slack+` prefix covers self-hosted servers. `YDLNAS_WEBHOOK_EVENTS` selects outcomes (default `completed,failed`), `YDLNAS_WEBHOOK_URL_FILE` reads a secret file, and `python webhooks.py --test` sends a sample.
+
+### Changed
+
+- The collections backend now depends on an explicit `QueueRuntime` interface instead of the web server's `globals()` dict. Behavior is unchanged; a missing or renamed queue operation now fails at start-up instead of on the first collection request.
+
 ## 26.1026 - 2026-10-26
 
 ### Security

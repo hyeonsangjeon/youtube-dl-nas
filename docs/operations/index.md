@@ -139,6 +139,16 @@ need nothing else; for a proxy that cannot, list the public address in
 See the [mobile sharing guide](../mobile/) for Android PWA, Android local HTTP,
 and iPhone/iPad setup.
 
+### Notifications Do Not Arrive
+
+Run `docker exec <container> python /usr/src/app/webhooks.py --test`. It prints
+each configured host, its detected format, and the HTTP status or
+`not delivered`. The container log shows `[webhook]` lines with the host only;
+the URL itself is never printed. A Telegram URL needs `?chat_id=`, and a
+self-hosted ntfy or Slack-compatible server needs a `ntfy+` or `slack+` prefix
+unless its JSON payload is acceptable. Check `YDLNAS_WEBHOOK_EVENTS` if only some
+outcomes are missing.
+
 ## Report A Reproducible Problem
 
 Search [existing issues](https://github.com/hyeonsangjeon/youtube-dl-nas/issues)
