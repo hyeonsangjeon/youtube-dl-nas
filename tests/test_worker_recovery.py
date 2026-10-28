@@ -182,6 +182,7 @@ def subprocess_environment(directory, downloads, state, port):
     for name in (
         "MY_ID_FILE", "MY_PW_FILE", "YDLNAS_API_TOKEN_FILE", "SECRET_KEY",
         "YTDLP_COOKIES_FILE", "YTDLP_EXTRA_ARGS", "PROXY",
+        "YDLNAS_WEBHOOK_URL", "YDLNAS_WEBHOOK_URL_FILE", "YDLNAS_WEBHOOK_EVENTS",
     ):
         env.pop(name, None)
     env.update({

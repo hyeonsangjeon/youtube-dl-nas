@@ -1791,6 +1791,26 @@ a:hover {
   font-size: 12px;
 }
 
+.bookmarklet-link {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  cursor: grab;
+  font-weight: 600;
+}
+
+.bookmarklet-link:active {
+  cursor: grabbing;
+}
+
+/* Bookmarks cannot be dragged on touch-only devices or inside the installed PWA. */
+@media (hover: none) and (pointer: coarse), (display-mode: standalone) {
+  .bookmarklet-field {
+    display: none;
+  }
+}
+
 .cookies-management {
   grid-column: 1 / -1;
   display: flex;

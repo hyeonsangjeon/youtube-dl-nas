@@ -121,6 +121,9 @@ for the previous release's checks and native-client coverage.
 | `NLPTUTTI_UPDATE_TIMEOUT` | No | `180` | Runtime package-update timeout in seconds |
 | `YDLNAS_API_TOKEN` | No | Empty | Optional Bearer token; ID/password remains supported |
 | `YDLNAS_API_TOKEN_FILE` | No | Empty | Advanced mounted-secret alternative; the direct token takes precedence |
+| `YDLNAS_WEBHOOK_URL` | No | Empty | Discord, Slack, ntfy, Telegram, or JSON webhook URLs notified when downloads finish |
+| `YDLNAS_WEBHOOK_URL_FILE` | No | Empty | Mounted-secret alternative for the webhook URLs |
+| `YDLNAS_WEBHOOK_EVENTS` | No | `completed,failed` | Outcomes that notify; also `canceled`, `skipped` |
 | `COOKIE_SECURE` | No | `false` | Set `true` behind an HTTPS-only reverse proxy |
 
 See the [complete Docker options](https://github.com/hyeonsangjeon/youtube-dl-nas#docker-options) for updater controls and deployment examples.

@@ -57,6 +57,8 @@ upgrading. [Changelog](CHANGELOG.md#261026---2026-10-26)
 - Keep the lightweight queue safe across container restarts with JSON state, partial-download continuation, duplicate guards, and removable waiting jobs.
 - Submit once and let Smart Preflight inspect metadata and existing NAS files during a three-second undo window before transfer starts.
 - Share a URL from an installed Android PWA, configurable Android HTTP Shortcut, or signed Smart Share v2 iOS Shortcut without a relay service.
+- Send the current desktop page to the composer with a credential-free bookmarklet.
+- Get a Discord, Slack, ntfy, Telegram, or JSON webhook message when downloads finish or fail.
 - Guard playlist and channel URLs with explicit Current video, First 10, or All items scope before they reach the queue.
 - Optionally save a JPG thumbnail beside each downloaded video or audio file.
 - Track current activity with ordered queued jobs, progress, transfer speed, ETA, title, channel, and thumbnail.
@@ -266,6 +268,9 @@ docker run -d \
 | `-e YDLNAS_MCP_BATCH_LIMIT` | Maximum candidates per MCP or dashboard collection preview. Defaults to `25`, clamped to `1`–`100`. |
 | `-e YDLNAS_API_TOKEN` | Optional Bearer token for integrations. Normal ID/password API authentication remains available. |
 | `-e YDLNAS_API_TOKEN_FILE` | Advanced alternative: read the optional Bearer token from one mounted secret file. The direct variable wins when both are set. |
+| `-e YDLNAS_WEBHOOK_URL` | Optional webhook URLs, separated by commas or spaces, notified when downloads finish. See [Notifications](#notifications). |
+| `-e YDLNAS_WEBHOOK_URL_FILE` | Advanced alternative: read the webhook URLs from one mounted secret file. The direct variable wins when both are set. |
+| `-e YDLNAS_WEBHOOK_EVENTS` | Outcomes that notify: any of `completed`, `failed`, `canceled` (a running download stopped from the dashboard), `skipped` (a collection item outside its date range). Defaults to `completed,failed`. |
 | `-e COOKIE_SECURE` | Set to `true` when the dashboard is served exclusively over HTTPS. |
 | `-e YDLNAS_SESSION_MAX_AGE_DAYS` | Days a signed-in dashboard session stays valid; active devices renew automatically and any ID or password change signs every device out. Defaults to `30`; set `0` to keep sessions until the secret rotates. |
 | `-e YDLNAS_TRUSTED_PROXIES` | Comma-separated IPs or CIDRs of reverse proxies in front of the container, for example the Synology reverse proxy. Sign-in throttling then keys on the real client address behind them instead of sharing one limit for everyone. Empty by default. |
@@ -327,6 +332,43 @@ Demo footage: [Big Buck Bunny, Blender Foundation](https://peach.blender.org/abo
 See the [mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) or the source in [`docs/mobile`](docs/mobile/). No relay server is used; the phone sends URLs directly to the NAS. GitHub Pages only hosts the manual and import files.
 
 Immediate mobile profiles keep the one-share workflow: the NAS queues the URL, runs Smart Preflight, and starts automatically. No second confirmation screen is added. Playlist Guard and **Ask every time** continue to open the composer only when an explicit choice is required.
+
+## Desktop Bookmarklet
+
+Open **Options** in the dashboard and drag **Send to youtube-dl-nas** to the browser's bookmarks bar. Clicking that bookmark on any page opens the dashboard in a small window with the page URL already in the composer. Choose a profile and submit it as usual.
+
+- The bookmarklet stores only the dashboard address. It holds no ID, password, or token; the browser's normal dashboard session signs the request in, and an expired session goes through the usual login first.
+- Opening the bookmarklet address never queues anything by itself, because any site could open that address too. The URL waits in a signed ten-minute cookie and is queued only when you submit it from the dashboard.
+- Drag it from the address you normally use, such as `https://nas.example.com` or `http://192.168.1.10:8080`. The page URL travels in the query string, so it can appear in your own NAS or reverse-proxy access log. The `#fragment` is never sent, because it can hold access tokens or share-link keys.
+- Page URLs longer than 2 KB are refused with a message instead of being prefilled.
+
+## Notifications
+
+Set `YDLNAS_WEBHOOK_URL` to get a message when a download finishes or fails. Several URLs can be separated by commas or spaces. The format follows the host:
+
+| URL | Message |
+| --- | --- |
+| `https://discord.com/api/webhooks/...` | Discord `content` message, mentions disabled |
+| `https://hooks.slack.com/services/...` | Slack `text` message |
+| `https://ntfy.sh/<topic>` | ntfy push with a title and tag |
+| `https://api.telegram.org/bot<token>/sendMessage?chat_id=<id>` | Telegram message; `chat_id` is required |
+| anything else | JSON document with `event`, `text`, `count`, `items`, `app`, `version`, `sent_at` |
+
+A self-hosted service takes a format prefix, for example `ntfy+http://192.168.1.20:8090/nas` or `slack+https://chat.example.com/hooks/...`. The JSON document's `text` field already suits Mattermost, Rocket.Chat, and similar Slack-compatible servers, and Home Assistant or n8n can read its `items`. A protected ntfy topic can use `ntfy+https://user:password@ntfy.example.com/topic`; the credentials are sent as HTTP Basic authentication.
+
+- A playlist download sends one message for the whole job. The chat text names the first five titles, and the JSON `items` array lists up to 20. Each collection item is its own job, so it sends its own message.
+- `canceled` means a running download stopped from the dashboard. `skipped` means a collection item outside its date range, or one whose upload date could not be read. Removing a waiting job or undoing during Smart Preflight writes no history row and sends nothing.
+- Each URL has its own background queue. Network errors, HTTP 429, and 5xx get two retries, and 429 waits for `Retry-After` up to 60 seconds. A slow or offline webhook never delays downloads or the other webhooks.
+- Redirects are not followed, because a redirected POST would arrive as an empty GET. Use the final `https://` address; the log names the redirect status.
+- Webhook URLs often contain tokens. Logs show only the host, and the URL is withheld from the MCP, nginx, and updater processes and from `yt-dlp`. `YDLNAS_WEBHOOK_URL_FILE` reads it from a mounted secret file instead; like the other secret files, a missing or empty file stops startup.
+- Unknown names in `YDLNAS_WEBHOOK_EVENTS` are ignored with a `[webhook]` warning, and the default applies when no valid name remains.
+- Requests go out directly or through the standard `HTTPS_PROXY`/`HTTP_PROXY` variables, not the `yt-dlp` `PROXY` setting.
+
+Send a test message after changing the setting:
+
+```bash
+docker exec <container> python /usr/src/app/webhooks.py --test
+```
 
 ## REST API
 

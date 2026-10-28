@@ -361,6 +361,17 @@ $(function () {
         return kind;
     }
 
+    function setupBookmarklet() {
+        const link = $('#bookmarklet-link');
+        const api = window.YDLNAS_BOOKMARKLET;
+        const href = api ? api.source(window.location.origin) : '';
+        if (!link.length || !href) {
+            link.closest('.bookmarklet-field').prop('hidden', true);
+            return;
+        }
+        link.attr('href', href);
+    }
+
     function loadPreferences() {
         $.ajax({
             method: 'GET',
@@ -3030,6 +3041,12 @@ $(function () {
         saveShareProfile($(this).val());
     });
 
+    $(document).on("click", "#bookmarklet-link", function(event) {
+        // Clicking it here would only reopen this dashboard; it is meant to be dragged.
+        event.preventDefault();
+        addMessage(translate('message.bookmarklet_drag'), 'info');
+    });
+
     $(document).on("change", "#cookies-file", function() {
         const file = this.files && this.files[0];
         this.value = '';
@@ -3227,6 +3244,7 @@ $(function () {
     restoreDownloadProfile();
     syncModeFromResolution();
     updatePlaylistGuard();
+    setupBookmarklet();
     loadPreferences();
     loadCookiesStatus();
     restoreLocalState();

@@ -32,6 +32,8 @@ from i18n import (
     select_locale,
 )
 from login_throttle import LoginThrottle
+from queue_runtime import QueueRuntime
+from webhooks import WebhookNotifier
 import os
 import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
@@ -120,6 +122,13 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".ogg", ".wav"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa"}
 SKIPPED_DOWNFOLDER_NAMES = {".incomplete", ".DS_Store"}
 SHARED_URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+# The review cookie holds the URL pickled, base64-encoded and signed; Bottle caps cookies near 4 KB.
+BOOKMARKLET_URL_MAX_BYTES = 2048
+# Download subprocesses never need the dashboard credentials or the webhook URL.
+CHILD_PROCESS_SECRET_NAMES = frozenset({
+    "MY_ID", "MY_PW", "YDLNAS_API_TOKEN", "SECRET_KEY", "YDLNAS_WEBHOOK_URL",
+    "MY_ID_FILE", "MY_PW_FILE", "YDLNAS_API_TOKEN_FILE", "YDLNAS_WEBHOOK_URL_FILE",
+})
 SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_BYTES", str(5 * 1024 * 1024))))
 SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
 SUBTITLE_QA_MAX_KEYWORDS = 20
@@ -619,6 +628,11 @@ def safe_next_path(value, fallback="/youtube-dl"):
     if not value.startswith("/") or value.startswith("//") or any(ord(char) < 32 for char in value):
         return fallback
     return value
+
+def child_process_environment():
+    """The web process environment minus secrets, for yt-dlp and the tools it starts."""
+    return {key: value for key, value in os.environ.items() if key not in CHILD_PROCESS_SECRET_NAMES}
+
 
 def extract_shared_url(*values):
     for value in values:
@@ -2419,7 +2433,7 @@ class GlobalDownloadManager:
         normalized_history = self.normalized_history()
         known_ids = {item["uuid"] for item in normalized_history}
         known_paths = {item["relative_path"] for item in normalized_history if item["relative_path"]}
-        service = globals().get("collections_service")
+        service = collections_service
         if service and self is download_manager:
             for snapshot in service.media_snapshots():
                 item = normalize_history_item(snapshot)
@@ -2446,7 +2460,7 @@ class GlobalDownloadManager:
         for item in self.normalized_history():
             if item.get('uuid') == item_uuid:
                 return item
-        service = globals().get("collections_service")
+        service = collections_service
         if service and self is download_manager:
             for item in service.media_snapshots():
                 if item.get("uuid") == item_uuid:
@@ -2601,6 +2615,9 @@ class GlobalDownloadManager:
                     self.download_history = previous
                     raise
             if self is download_manager:
+                # Notify first: notify() never raises, while a collections save
+                # failure stops the worker after the history row is already stored.
+                webhook_notifier.notify(completed)
                 collections_service.observe_history(completed)
             return completed
 
@@ -2725,6 +2742,8 @@ class GlobalDownloadManager:
 
 # Initialize global download manager
 download_manager = GlobalDownloadManager()
+# Assigned at the end of the module, once every queue function it needs exists.
+collections_service = None
 
 class WSAddr:
     def __init__(self):
@@ -3226,6 +3245,36 @@ def share_target():
         redirect("/?next=" + quote("/youtube-dl/share-target/complete", safe=""))
 
     queue_shared_url(shared_url)
+
+
+@get('/youtube-dl/bookmarklet')
+def bookmarklet_handoff():
+    """Desktop bookmarklet entry: show the page URL for review, never queue it.
+
+    The bookmarklet opens this address from whatever site the user is reading, so
+    the request is a cross-site GET that any page could also trigger. It therefore
+    only stores the URL in the short-lived signed review cookie, the same step the
+    share target uses for "Ask every time", and the user submits it from the
+    dashboard. The URL stays out of the redirect, as with the share target.
+    """
+    page_url = (request.query.getunicode("url") or "").strip()
+    if SHARED_URL_PATTERN.fullmatch(page_url):
+        # An exact page URL: keep a trailing ")" or "." that free-text extraction trims.
+        shared_url = page_url
+    else:
+        shared_url = extract_shared_url(page_url, request.query.getunicode("text"), request.query.getunicode("title"))
+    if not shared_url:
+        redirect("/youtube-dl?shared=missing")
+    if len(shared_url.encode("utf-8")) > BOOKMARKLET_URL_MAX_BYTES:
+        redirect("/youtube-dl?shared=invalid")
+
+    try:
+        set_share_review_cookie(shared_url, load_auth_data())
+    except ValueError:
+        # Bottle refuses cookies over about 4 KB.
+        redirect("/youtube-dl?shared=invalid")
+    redirect("/youtube-dl?shared=review")
+
 
 @get('/youtube-dl/share-target/complete')
 def complete_pending_share():
@@ -3850,6 +3899,7 @@ def fetch_media_metadata(media_url, job_id=None, direct=False):
         stderr=subprocess.STDOUT,
         text=True,
         start_new_session=os.name == "posix",
+        env=child_process_environment(),
     )
     if job_id:
         download_manager.attach_process(job_id, process)
@@ -4253,7 +4303,8 @@ def download(item):
         
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, start_new_session=os.name == "posix"
+            text=True, bufsize=1, start_new_session=os.name == "posix",
+            env=child_process_environment(),
         )
         download_manager.attach_process(download_uuid, process)
 
@@ -4635,7 +4686,46 @@ queue_restore_count = 0
 queue_state_loaded = False
 preflight_receipt_lock = Lock()
 recent_preflight_receipt = None
-collections_service = CollectionService(globals(), COLLECTIONS_STATE_FILE)
+
+
+def build_queue_runtime():
+    """Hand the collections backend exactly the queue operations it may use.
+
+    Each provider is read again on every call, so the backend sees the live active
+    job and any function a test replaces after start-up.
+    """
+    return QueueRuntime(
+        queue_operation_lock=lambda: queue_operation_lock,
+        queue_state_lock=lambda: queue_state_lock,
+        active_queue_job=lambda: active_queue_job,
+        download_dir=lambda: DOWNFOLDER_DIR,
+        normalize_queue_job=lambda: normalize_queue_job,
+        same_queue_request=lambda: same_queue_request,
+        pending_queue_jobs=lambda: pending_queue_jobs,
+        create_queue_job=lambda: create_queue_job,
+        find_queued_duplicate=lambda: find_queued_duplicate,
+        apply_collection_queue_journal=lambda: apply_collection_queue_journal,
+        start_download_thread_if_needed=lambda: start_download_thread_if_needed,
+        normalize_history_item=lambda: normalize_history_item,
+        find_existing_download=lambda: find_existing_download,
+        normalized_history=lambda: download_manager.normalized_history,
+        combined_history=lambda: download_manager.combined_history,
+        broadcast=lambda: download_manager.broadcast_to_all_clients,
+        validate_download_request=lambda: validate_download_request,
+        validate_source_redirects=lambda: validate_source_redirects,
+        get_error_details=lambda: get_error_details,
+        classify_playlist_url=lambda: classify_playlist_url,
+        normalize_media_url=lambda: normalize_media_url,
+        fetch_media_metadata=lambda: fetch_media_metadata,
+        get_media_identity=lambda: get_media_identity,
+        get_media_display_title=lambda: get_media_display_title,
+        get_storage_status=lambda: get_storage_status,
+    )
+
+
+queue_runtime = build_queue_runtime()
+collections_service = CollectionService(queue_runtime, COLLECTIONS_STATE_FILE)
+webhook_notifier = WebhookNotifier.from_environment(app_version=APP_VERSION)
 connections_store = ConnectionStore(CONNECTIONS_STATE_FILE)
 
 def run_server():

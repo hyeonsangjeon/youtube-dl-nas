@@ -70,6 +70,7 @@ def entrypoint_env(tmp_path, app_dir):
     env = os.environ.copy()
     for name in (
         "MY_ID", "MY_ID_FILE", "MY_PW", "MY_PW_FILE", "YDLNAS_API_TOKEN", "YDLNAS_API_TOKEN_FILE",
+        "YDLNAS_WEBHOOK_URL", "YDLNAS_WEBHOOK_URL_FILE",
         "APP_PORT", "YDLNAS_WEB_HOST", "YDLNAS_WEB_PORT", "YDLNAS_MCP_PORT", "PUID", "PGID",
         "UMASK", "EXIT_PROCESS", "EXIT_STATUS", "SPAWN_CHILD",
     ):
@@ -124,7 +125,10 @@ def run_to_exit(env):
 
 
 def test_entrypoint_reads_credentials_and_token_from_secret_files_without_sharing_them(tmp_path):
-    secrets = {"MY_ID": "file-user", "MY_PW": 'file-"password\\value\r', "YDLNAS_API_TOKEN": "file-token"}
+    secrets = {
+        "MY_ID": "file-user", "MY_PW": 'file-"password\\value\r', "YDLNAS_API_TOKEN": "file-token",
+        "YDLNAS_WEBHOOK_URL": "https://discord.com/api/webhooks/1/secret-webhook-token",
+    }
     app_dir = make_fake_app(tmp_path)
     (app_dir / "Auth.json").write_text('{"MY_ID":"{{MY_ID}}","MY_PW":"{{MY_PW}}","APP_PORT":"{{APP_PORT}}"}')
     env = entrypoint_env(tmp_path, app_dir)
@@ -420,6 +424,7 @@ def test_only_web_inherits_dashboard_credentials_and_compatibility_token():
     env = {
         "MY_ID": "test-user", "MY_PW": "test-password", "YDLNAS_API_TOKEN": "test-token",
         "YDLNAS_API_TOKEN_FILE": "secret-path", "SECRET_KEY": "cookie-signing-key",
+        "YDLNAS_WEBHOOK_URL": "https://ntfy.sh/private-topic", "YDLNAS_WEBHOOK_URL_FILE": "webhook-path",
     }
     specs = process_specs(config, env, ROOT / ".runtime/nginx.conf")
     assert {spec.name for spec in specs} == {"web", "mcp", "nginx", "updater"}
