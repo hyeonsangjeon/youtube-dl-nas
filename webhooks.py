@@ -10,10 +10,12 @@ Bot API get their own payloads, and every other URL receives a JSON document who
 ``YDLNAS_WEBHOOK_EVENTS`` lists which outcomes notify: ``completed``, ``failed``,
 ``canceled`` and ``skipped``. The default is ``completed,failed``.
 
-Delivery runs on one background thread so a slow or offline webhook never delays
-the download worker. Webhook URLs often embed tokens, so logs name only the host.
+Each target has its own background thread and queue, so a slow or offline webhook
+never delays the download worker or the other targets. Webhook URLs often embed
+tokens, so logs name only the host.
 """
 
+import base64
 import json
 import os
 import re
@@ -23,8 +25,8 @@ from datetime import datetime, timezone
 from queue import Full, Queue
 from threading import Lock, Thread
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, build_opener
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 FORMATS = ("json", "discord", "slack", "ntfy", "telegram")
@@ -47,36 +49,37 @@ TITLES = {
 NTFY_TAGS = {
     "completed": "white_check_mark", "failed": "x", "canceled": "stop_sign", "skipped": "fast_forward", "test": "bell",
 }
+DISCORD_HOSTS = {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
+DISCORD_WEBHOOK_PATH = re.compile(r"^/api(?:/v\d+)?/webhooks/")
 SEPARATORS = re.compile(r"[\s,]+")
 BROADCAST_MENTION = re.compile(r"@(?=(?:channel|here|all|everyone)\b)", re.IGNORECASE)
 MAX_ITEMS = 20
+MAX_TITLES_IN_TEXT = 5
 MAX_TEXT = 1800
 QUEUE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 10
 RETRY_DELAYS_SECONDS = (2, 10)
+MAX_RETRY_AFTER_SECONDS = 60
 
 
 class WebhookConfigError(ValueError):
     """A configured webhook cannot be used; the message never contains the URL."""
 
 
+class RefuseRedirects(HTTPRedirectHandler):
+    """urllib would turn a redirected POST into a body-less GET and report success."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def log(message):
     print(f"[webhook] {message}", file=sys.stderr, flush=True)
 
 
-def describe(url):
-    """Name a target for logs without its path or query, which often hold tokens."""
-    try:
-        parts = urlsplit(url)
-        return parts.hostname or "invalid host"
-    except ValueError:
-        return "invalid host"
-
-
-def detect_format(url):
-    host = (urlsplit(url).hostname or "").casefold()
-    path = urlsplit(url).path
-    if host in {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"} and path.startswith("/api/webhooks/"):
+def detect_format(parts):
+    host = (parts.hostname or "").casefold()
+    if host in DISCORD_HOSTS and DISCORD_WEBHOOK_PATH.match(parts.path):
         return "discord"
     if host == "hooks.slack.com":
         return "slack"
@@ -95,28 +98,34 @@ def parse_target(value):
         kind, value = prefix.casefold(), rest
     try:
         parts = urlsplit(value)
+        hostname, port = parts.hostname, parts.port
     except ValueError:
         raise WebhookConfigError("a webhook URL could not be parsed") from None
-    if parts.scheme not in {"http", "https"} or not parts.hostname:
+    if parts.scheme not in {"http", "https"} or not hostname:
         raise WebhookConfigError("a webhook URL must start with http:// or https:// and name a host")
-    kind = kind or detect_format(value)
-    target = {"url": value, "format": kind, "host": parts.hostname}
-    if kind == "telegram":
+    target = {"url": value, "format": kind or detect_format(parts), "host": hostname}
+    if parts.username is not None or parts.password is not None:
+        # urllib cannot send user:pass@host itself; move it into a Basic header.
+        credentials = f"{unquote(parts.username or '')}:{unquote(parts.password or '')}"
+        target["authorization"] = "Basic " + base64.b64encode(credentials.encode("utf-8")).decode("ascii")
+        netloc = (f"[{hostname}]" if ":" in hostname else hostname) + (f":{port}" if port else "")
+        target["url"] = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    if target["format"] == "telegram":
         chat_ids = parse_qs(parts.query).get("chat_id")
         if not chat_ids or not chat_ids[0].strip():
-            raise WebhookConfigError(f"the Telegram webhook for {parts.hostname} needs ?chat_id= in its URL")
+            raise WebhookConfigError(f"the Telegram webhook for {hostname} needs ?chat_id= in its URL")
         target["chat_id"] = chat_ids[0].strip()
     return target
 
 
 def parse_events(value):
+    """Return (events, ignored names). Unknown names are skipped, not fatal."""
     if value is None or not value.strip():
-        return set(DEFAULT_EVENTS)
-    requested = {item.casefold() for item in SEPARATORS.split(value.strip()) if item}
-    unknown = sorted(requested - set(EVENTS))
-    if unknown:
-        raise WebhookConfigError("YDLNAS_WEBHOOK_EVENTS accepts " + ", ".join(EVENTS) + "; unknown " + ", ".join(unknown))
-    return requested
+        return set(DEFAULT_EVENTS), []
+    requested = [item.casefold() for item in SEPARATORS.split(value.strip()) if item]
+    ignored = sorted({item for item in requested if item not in EVENTS})
+    events = {item for item in requested if item in EVENTS}
+    return (events or set(DEFAULT_EVENTS)), ignored
 
 
 def read_urls(env):
@@ -168,8 +177,8 @@ def public_item(item):
 
 
 def quiet_mentions(text):
-    """Keep an untrusted title such as "@everyone" from pinging a whole chat channel."""
-    return BROADCAST_MENTION.sub("@\u2060", text)
+    """Keep an untrusted title such as "@everyone" or "<!channel>" from pinging a whole channel."""
+    return BROADCAST_MENTION.sub("@⁠", text).replace("<!", "<⁠!")
 
 
 def slack_escape(text):
@@ -190,7 +199,7 @@ def summary_text(event, items):
         if details:
             text += " (" + ", ".join(str(part) for part in details) + ")"
         return quiet_mentions(text)[:MAX_TEXT]
-    shown = [item_label(item) for item in items[:5]]
+    shown = [item_label(item) for item in items[:MAX_TITLES_IN_TEXT]]
     text = f"{heading}: {len(items)} items. " + "; ".join(shown)
     if len(items) > len(shown):
         text += f"; and {len(items) - len(shown)} more"
@@ -200,7 +209,10 @@ def summary_text(event, items):
 def build_request(target, notification):
     event = notification["event"].removeprefix("download.")
     text = notification["text"]
-    headers = {"User-Agent": f"youtube-dl-nas/{notification['version']}"}
+    version = notification.get("version") or ""
+    headers = {"User-Agent": "youtube-dl-nas" + (f"/{version}" if version else "")}
+    if target.get("authorization"):
+        headers["Authorization"] = target["authorization"]
     kind = target["format"]
     if kind == "ntfy":
         body = text.encode("utf-8")
@@ -224,9 +236,28 @@ def build_request(target, notification):
 
 
 def default_send(request, timeout):
-    with build_opener().open(request, timeout=timeout) as response:
+    with build_opener(RefuseRedirects).open(request, timeout=timeout) as response:
         response.read(4096)
         return response.status
+
+
+def retry_after_seconds(error):
+    try:
+        value = int(str(error.headers.get("Retry-After", "")).strip())
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return max(0, min(value, MAX_RETRY_AFTER_SECONDS))
+
+
+def failure_reason(error):
+    """Describe a delivery failure without the URL, which may hold a token."""
+    if isinstance(error, HTTPError):
+        if 300 <= error.code < 400:
+            return f"HTTP {error.code} redirect; configure the final URL"
+        return f"HTTP {error.code}"
+    if isinstance(error, URLError) and isinstance(error.reason, BaseException):
+        return type(error.reason).__name__
+    return type(error).__name__
 
 
 class WebhookNotifier:
@@ -238,8 +269,10 @@ class WebhookNotifier:
         self.send = send
         self.retry_delays = tuple(retry_delays)
         self.sleep = sleep
-        self.pending = Queue(maxsize=queue_size)
-        self.thread = None
+        self.channels = [
+            {"target": target, "queue": Queue(maxsize=queue_size), "thread": None}
+            for target in self.targets
+        ]
         self.thread_lock = Lock()
 
     @classmethod
@@ -247,10 +280,13 @@ class WebhookNotifier:
         env = os.environ if env is None else env
         try:
             urls = read_urls(env)
-            events = parse_events(env.get("YDLNAS_WEBHOOK_EVENTS"))
         except WebhookConfigError as error:
             log(f"disabled: {error}")
             return cls(app_version=app_version, **options)
+        events, ignored = parse_events(env.get("YDLNAS_WEBHOOK_EVENTS"))
+        if ignored:
+            log("YDLNAS_WEBHOOK_EVENTS ignored unknown names: " + ", ".join(ignored)
+                + "; valid names are " + ", ".join(EVENTS))
         targets = []
         for url in urls:
             try:
@@ -288,59 +324,68 @@ class WebhookNotifier:
             }
 
     def notify(self, history_items):
-        """Queue notifications for finished history rows; never blocks or raises."""
+        """Queue notifications for finished history rows; never blocks or raises.
+
+        Returns how many notifications at least one target accepted.
+        """
         if not self.enabled:
             return 0
-        queued = 0
+        accepted = 0
         try:
             for notification in self.notifications(history_items):
-                try:
-                    self.pending.put_nowait(notification)
-                    queued += 1
-                except Full:
-                    log("queue full; dropped one notification")
-            if queued:
-                self._ensure_thread()
+                queued = False
+                for channel in self.channels:
+                    try:
+                        channel["queue"].put_nowait(notification)
+                        queued = True
+                    except Full:
+                        log(f"{channel['target']['host']}: queue full; dropped {notification['event']}")
+                        continue
+                    self._ensure_thread(channel)
+                accepted += queued
         except Exception as error:  # A notification problem must never fail a download.
             log(f"could not queue a notification: {type(error).__name__}")
-        return queued
+        return accepted
 
-    def _ensure_thread(self):
+    def _ensure_thread(self, channel):
         with self.thread_lock:
-            if self.thread and self.thread.is_alive():
+            if channel["thread"] and channel["thread"].is_alive():
                 return
-            self.thread = Thread(target=self._run, name="webhook-notifier", daemon=True)
-            self.thread.start()
+            channel["thread"] = Thread(
+                target=self._run, args=(channel,), name=f"webhook-{channel['target']['host']}", daemon=True,
+            )
+            channel["thread"].start()
 
-    def _run(self):
+    def _run(self, channel):
         while True:
-            notification = self.pending.get()
+            notification = channel["queue"].get()
             try:
-                for target in self.targets:
-                    self.deliver(target, notification)
+                self.deliver(channel["target"], notification)
             finally:
-                self.pending.task_done()
+                channel["queue"].task_done()
 
     def deliver(self, target, notification):
-        """Send one notification to one target, retrying network and server errors."""
+        """Send one notification to one target, retrying network errors, 429 and 5xx."""
         attempts = len(self.retry_delays) + 1
         for attempt in range(attempts):
+            delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else 0
             try:
-                status = self.send(build_request(target, notification), REQUEST_TIMEOUT_SECONDS)
-                return status
+                return self.send(build_request(target, notification), REQUEST_TIMEOUT_SECONDS)
             except HTTPError as error:
                 retryable = error.code == 429 or error.code >= 500
-                reason = f"HTTP {error.code}"
+                if error.code == 429:
+                    delay = max(delay, retry_after_seconds(error) or 0)
+                reason = failure_reason(error)
             except (URLError, OSError, TimeoutError) as error:
                 retryable = True
-                reason = type(error).__name__
+                reason = failure_reason(error)
             except Exception as error:
                 retryable = False
-                reason = type(error).__name__
+                reason = failure_reason(error)
             if not retryable or attempt == attempts - 1:
                 log(f"{target['host']}: {notification['event']} not delivered ({reason})")
                 return None
-            self.sleep(self.retry_delays[attempt])
+            self.sleep(delay)
         return None
 
     def send_test(self):
@@ -364,8 +409,9 @@ def main(argv=None):
         return 2
     notifier = WebhookNotifier.from_environment(app_version=os.environ.get("APP_VERSION", ""))
     if not notifier.targets:
-        print("No usable webhook is configured in YDLNAS_WEBHOOK_URL or YDLNAS_WEBHOOK_URL_FILE.")
+        print("No usable webhook URL is configured; see the [webhook] lines above.")
         return 1
+    print("Events: " + ", ".join(sorted(notifier.events)))
     failed = 0
     for target, status in notifier.send_test():
         outcome = f"HTTP {status}" if status else "not delivered"

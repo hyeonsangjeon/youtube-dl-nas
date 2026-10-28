@@ -9,7 +9,7 @@ import pytest
 
 import webhooks
 from test_server import server
-from webhooks import WebhookConfigError, WebhookNotifier, build_request, parse_events, parse_target
+from webhooks import WebhookConfigError, WebhookNotifier, build_request, parse_events, parse_target  # noqa: F401
 
 
 COMPLETED = {
@@ -43,6 +43,7 @@ def payload(request):
 @pytest.mark.parametrize("url,expected", [
     ("https://discord.com/api/webhooks/1/token", "discord"),
     ("https://discordapp.com/api/webhooks/1/token", "discord"),
+    ("https://discord.com/api/v10/webhooks/1/token", "discord"),
     ("https://hooks.slack.com/services/T/B/token", "slack"),
     ("https://ntfy.sh/my-topic", "ntfy"),
     ("https://api.telegram.org/bot123:abc/sendMessage?chat_id=42", "telegram"),
@@ -68,11 +69,29 @@ def test_invalid_targets_are_rejected_without_echoing_secrets():
         parse_target("https://api.telegram.org/botSECRET/sendMessage")
 
 
-def test_events_default_to_completed_and_failed_and_reject_unknown_names():
-    assert parse_events(None) == {"completed", "failed"}
-    assert parse_events(" completed, canceled ,skipped") == {"completed", "canceled", "skipped"}
-    with pytest.raises(WebhookConfigError, match="unknown started"):
-        parse_events("completed,started")
+def test_events_default_to_completed_and_failed_and_ignore_unknown_names(capsys):
+    assert parse_events(None) == ({"completed", "failed"}, [])
+    assert parse_events(" completed, canceled ,skipped") == ({"completed", "canceled", "skipped"}, [])
+    assert parse_events("completed,started") == ({"completed"}, ["started"])
+    assert parse_events("complete") == ({"completed", "failed"}, ["complete"])
+
+    notifier = WebhookNotifier.from_environment({
+        "YDLNAS_WEBHOOK_URL": "https://example.com/hook", "YDLNAS_WEBHOOK_EVENTS": "complete,failed",
+    })
+    assert notifier.enabled and notifier.events == {"failed"}
+    assert "ignored unknown names: complete" in capsys.readouterr().err
+
+
+def test_credentials_in_the_url_become_a_basic_header_and_stay_out_of_logs(capsys):
+    target = parse_target("ntfy+https://alice:p%40ss@ntfy.home.lan:8443/topic")
+    assert target["url"] == "https://ntfy.home.lan:8443/topic"
+    assert target["authorization"] == "Basic YWxpY2U6cEBzcw=="
+    (notification,) = WebhookNotifier().notifications([COMPLETED])
+    assert build_request(target, notification).get_header("Authorization") == "Basic YWxpY2U6cEBzcw=="
+
+    WebhookNotifier.from_environment({"YDLNAS_WEBHOOK_URL": "https://alice:hunter2@hooks.example/x"})
+    logged = capsys.readouterr().err
+    assert "hooks.example" in logged and "hunter2" not in logged and "alice" not in logged
 
 
 def test_environment_accepts_several_urls_and_logs_hosts_only(capsys):
@@ -131,12 +150,13 @@ def test_untrusted_titles_cannot_ping_a_whole_channel():
     notifier = WebhookNotifier()
     (notification,) = notifier.notifications([{**COMPLETED, "title": "@everyone <!channel> @Here & more", "channel": ""}])
     assert "@everyone" not in notification["text"] and "@Here" not in notification["text"]
-    assert notification["text"].startswith("Downloaded: @\u2060everyone <!channel> @\u2060Here & more")
+    assert notification["text"].startswith("Downloaded: @\u2060everyone <\u2060!channel> @\u2060Here & more")
 
     slack = build_request(parse_target("https://hooks.slack.com/services/T/B/t"), notification)
-    assert "&lt;!channel&gt;" in payload(slack)["text"]
+    assert "&lt;\u2060!channel&gt;" in payload(slack)["text"]
     assert "<!channel>" not in payload(slack)["text"]
     assert "@user" in webhooks.quiet_mentions("@user")
+    assert "<!channel>" not in payload(build_request(parse_target("https://chat.example/hook"), notification))["text"]
 
 
 def test_requests_match_each_service_format():
@@ -195,12 +215,99 @@ def test_delivery_retries_server_errors_but_not_client_errors(capsys):
     assert "secret-path" not in logged
 
 
+def test_delivery_never_follows_redirects_and_reports_them():
+    target = parse_target("https://example.com/hook")
+    (notification,) = WebhookNotifier().notifications([FAILED])
+    redirected = MagicMock(side_effect=HTTPError(target["url"], 301, "moved", {}, None))
+    notifier = WebhookNotifier([target], send=redirected, sleep=lambda _: None)
+
+    assert notifier.deliver(target, notification) is None
+    assert redirected.call_count == 1
+    assert webhooks.failure_reason(HTTPError("u", 308, "moved", {}, None)) == "HTTP 308 redirect; configure the final URL"
+
+
+def test_rate_limits_wait_for_retry_after_up_to_a_cap():
+    target = parse_target("https://example.com/hook")
+    (notification,) = WebhookNotifier().notifications([FAILED])
+    outcomes = [
+        HTTPError(target["url"], 429, "slow down", {"Retry-After": "25"}, None),
+        HTTPError(target["url"], 429, "slow down", {"Retry-After": "600"}, None),
+        200,
+    ]
+
+    def limited(request, timeout):
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    sleeps = []
+    assert WebhookNotifier([target], send=limited, sleep=sleeps.append).deliver(target, notification) == 200
+    assert sleeps == [25, webhooks.MAX_RETRY_AFTER_SECONDS]
+
+
+def test_failure_reason_names_the_network_error_without_the_url():
+    reason = webhooks.failure_reason(URLError(ConnectionRefusedError(61, "refused https://x/secret")))
+    assert reason == "ConnectionRefusedError"
+
+
+def test_redirect_handler_turns_a_3xx_into_an_error(monkeypatch):
+    class Redirecting(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.send_response(301)
+            self.send_header("Location", "/final")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+
+    endpoint = LocalHTTPServer(("127.0.0.1", 0), Redirecting)
+    Thread(target=endpoint.serve_forever, daemon=True).start()
+    try:
+        target = parse_target(f"http://127.0.0.1:{endpoint.server_port}/hook")
+        (notification,) = WebhookNotifier().notifications([FAILED])
+        with pytest.raises(HTTPError) as error:
+            webhooks.default_send(build_request(target, notification), 5)
+    finally:
+        endpoint.shutdown()
+        endpoint.server_close()
+    assert error.value.code == 301
+
+
 def test_notify_never_blocks_or_raises_when_the_queue_is_full(capsys):
     notifier = WebhookNotifier([parse_target("https://example.com/hook")], queue_size=1)
     with patch.object(notifier, "_ensure_thread"):
         assert notifier.notify([COMPLETED]) == 1
         assert notifier.notify([COMPLETED]) == 0
-    assert "queue full" in capsys.readouterr().err
+    assert "example.com: queue full" in capsys.readouterr().err
+
+
+def test_an_offline_target_does_not_delay_the_others():
+    healthy_got = Event()
+    offline_entered = Event()
+    release = Event()
+
+    def send(request, timeout):
+        if "offline" in request.full_url:
+            offline_entered.set()
+            release.wait(5)
+            raise URLError(TimeoutError())
+        healthy_got.set()
+        return 200
+
+    notifier = WebhookNotifier(
+        [parse_target("https://offline.example/hook"), parse_target("https://healthy.example/hook")],
+        send=send, sleep=lambda _: None,
+    )
+    assert notifier.notify([COMPLETED]) == 1
+    assert offline_entered.wait(5)
+    assert healthy_got.wait(5)
+    release.set()
 
     broken = WebhookNotifier([parse_target("https://example.com/hook")])
     with patch.object(broken, "notifications", side_effect=RuntimeError("boom")):
@@ -251,6 +358,7 @@ def test_send_test_reports_each_target(capsys):
     assert [status for _, status in results] == [200, 200]
     assert sent[0].get_header("Tags") == "bell"
     assert payload(sent[1])["event"] == "download.test"
+    assert sent[1].get_header("User-agent") == "youtube-dl-nas"
 
 
 def test_history_completion_hands_finished_rows_to_the_notifier():
@@ -271,6 +379,44 @@ def test_history_completion_hands_finished_rows_to_the_notifier():
 
     (rows,) = notifier.notify.call_args.args
     assert [(row["uuid"], row["status"]) for row in rows] == [("notify-job", "failed")]
+
+
+def test_notification_is_queued_before_the_collections_observer_can_fail():
+    manager = server.GlobalDownloadManager()
+    notifier = MagicMock()
+    collections = MagicMock()
+    collections.observe_history.side_effect = server.StateError("collections.json is read-only")
+    with patch.object(server, "download_manager", manager), \
+         patch.object(server, "collections_service", collections), \
+         patch.object(server, "webhook_notifier", notifier), \
+         patch.object(manager, "save_history"), \
+         patch.object(manager, "broadcast_to_all_clients"):
+        with pytest.raises(server.StateError):
+            manager.complete_download({"uuid": "saved", "url": "https://youtu.be/saved", "status": "completed"})
+    notifier.notify.assert_called_once()
+
+
+def test_download_subprocesses_do_not_inherit_secrets(monkeypatch):
+    for name in ("MY_PW", "YDLNAS_API_TOKEN", "SECRET_KEY", "YDLNAS_WEBHOOK_URL"):
+        monkeypatch.setenv(name, "do-not-leak-" + name)
+    monkeypatch.setenv("PATH_FOR_TEST", "kept")
+    captured = {}
+
+    class Finished:
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return '{"id": "x", "title": "t"}', None
+
+    def popen(command, **kwargs):
+        captured.update(kwargs)
+        return Finished()
+
+    monkeypatch.setattr(server.subprocess, "Popen", popen)
+    server.fetch_media_metadata("https://youtu.be/x", direct=True)
+    env = captured["env"]
+    assert env["PATH_FOR_TEST"] == "kept"
+    assert not any(value.startswith("do-not-leak-") for value in env.values())
 
 
 def test_secondary_download_managers_do_not_notify():

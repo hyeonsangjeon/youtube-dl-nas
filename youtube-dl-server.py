@@ -122,6 +122,13 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".ogg", ".wav"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa"}
 SKIPPED_DOWNFOLDER_NAMES = {".incomplete", ".DS_Store"}
 SHARED_URL_PATTERN = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+# The review cookie holds the URL pickled, base64-encoded and signed; Bottle caps cookies near 4 KB.
+BOOKMARKLET_URL_MAX_BYTES = 2048
+# Download subprocesses never need the dashboard credentials or the webhook URL.
+CHILD_PROCESS_SECRET_NAMES = frozenset({
+    "MY_ID", "MY_PW", "YDLNAS_API_TOKEN", "SECRET_KEY", "YDLNAS_WEBHOOK_URL",
+    "MY_ID_FILE", "MY_PW_FILE", "YDLNAS_API_TOKEN_FILE", "YDLNAS_WEBHOOK_URL_FILE",
+})
 SUBTITLE_QA_MAX_FILE_BYTES = max(1024, int(os.environ.get("SUBTITLE_QA_MAX_FILE_BYTES", str(5 * 1024 * 1024))))
 SUBTITLE_QA_MAX_REFERENCE_CHARS = max(1000, int(os.environ.get("SUBTITLE_QA_MAX_REFERENCE_CHARS", "100000")))
 SUBTITLE_QA_MAX_KEYWORDS = 20
@@ -621,6 +628,11 @@ def safe_next_path(value, fallback="/youtube-dl"):
     if not value.startswith("/") or value.startswith("//") or any(ord(char) < 32 for char in value):
         return fallback
     return value
+
+def child_process_environment():
+    """The web process environment minus secrets, for yt-dlp and the tools it starts."""
+    return {key: value for key, value in os.environ.items() if key not in CHILD_PROCESS_SECRET_NAMES}
+
 
 def extract_shared_url(*values):
     for value in values:
@@ -2603,8 +2615,10 @@ class GlobalDownloadManager:
                     self.download_history = previous
                     raise
             if self is download_manager:
-                collections_service.observe_history(completed)
+                # Notify first: notify() never raises, while a collections save
+                # failure stops the worker after the history row is already stored.
                 webhook_notifier.notify(completed)
+                collections_service.observe_history(completed)
             return completed
 
     def _complete_downloads(self, completion_items):
@@ -3243,15 +3257,22 @@ def bookmarklet_handoff():
     share target uses for "Ask every time", and the user submits it from the
     dashboard. The URL stays out of the redirect, as with the share target.
     """
-    shared_url = extract_shared_url(
-        request.query.getunicode("url"),
-        request.query.getunicode("text"),
-        request.query.getunicode("title"),
-    )
+    page_url = (request.query.getunicode("url") or "").strip()
+    if SHARED_URL_PATTERN.fullmatch(page_url):
+        # An exact page URL: keep a trailing ")" or "." that free-text extraction trims.
+        shared_url = page_url
+    else:
+        shared_url = extract_shared_url(page_url, request.query.getunicode("text"), request.query.getunicode("title"))
     if not shared_url:
         redirect("/youtube-dl?shared=missing")
+    if len(shared_url.encode("utf-8")) > BOOKMARKLET_URL_MAX_BYTES:
+        redirect("/youtube-dl?shared=invalid")
 
-    set_share_review_cookie(shared_url, load_auth_data())
+    try:
+        set_share_review_cookie(shared_url, load_auth_data())
+    except ValueError:
+        # Bottle refuses cookies over about 4 KB.
+        redirect("/youtube-dl?shared=invalid")
     redirect("/youtube-dl?shared=review")
 
 
@@ -3878,6 +3899,7 @@ def fetch_media_metadata(media_url, job_id=None, direct=False):
         stderr=subprocess.STDOUT,
         text=True,
         start_new_session=os.name == "posix",
+        env=child_process_environment(),
     )
     if job_id:
         download_manager.attach_process(job_id, process)
@@ -4281,7 +4303,8 @@ def download(item):
         
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, start_new_session=os.name == "posix"
+            text=True, bufsize=1, start_new_session=os.name == "posix",
+            env=child_process_environment(),
         )
         download_manager.attach_process(download_uuid, process)
 

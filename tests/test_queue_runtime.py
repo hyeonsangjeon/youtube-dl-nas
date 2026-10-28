@@ -30,6 +30,14 @@ def test_runtime_rejects_missing_unknown_and_uncallable_providers():
         QueueRuntime(**providers(download_dir="/downfolder"))
 
 
+def test_runtime_rejects_a_provider_that_cannot_resolve_at_start_up():
+    def renamed():
+        return missing_server_function  # noqa: F821
+
+    with pytest.raises(TypeError, match=r"cannot resolve fetch_media_metadata \(NameError\)"):
+        QueueRuntime(**providers(fetch_media_metadata=renamed))
+
+
 def test_runtime_reads_each_provider_on_every_call():
     state = {"active": None, "directory": "/first"}
     runtime = QueueRuntime(**providers(

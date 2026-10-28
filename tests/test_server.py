@@ -14,6 +14,9 @@ from webtest import TestApp
 
 
 TEST_STATE_DIR = tempfile.mkdtemp(prefix="youtube-dl-nas-tests-")
+# A developer's own webhook settings must never receive test notifications.
+for name in ("YDLNAS_WEBHOOK_URL", "YDLNAS_WEBHOOK_URL_FILE", "YDLNAS_WEBHOOK_EVENTS"):
+    os.environ.pop(name, None)
 os.environ.update({
     "STATE_DIR": TEST_STATE_DIR,
     "MY_ID": "tester",

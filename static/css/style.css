@@ -1804,6 +1804,13 @@ a:hover {
   cursor: grabbing;
 }
 
+/* Bookmarks cannot be dragged on touch-only devices or inside the installed PWA. */
+@media (hover: none) and (pointer: coarse), (display-mode: standalone) {
+  .bookmarklet-field {
+    display: none;
+  }
+}
+
 .cookies-management {
   grid-column: 1 / -1;
   display: flex;

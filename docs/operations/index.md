@@ -39,7 +39,7 @@ Open `http://<nas-address>:<WEB_PORT>` and sign in with the configured ID and
 password. Use HTTPS before exposing the dashboard outside a trusted network.
 
 For Compose secrets, mount one file per value and set `MY_ID_FILE`,
-`MY_PW_FILE`, or `YDLNAS_API_TOKEN_FILE` to its container path. Direct
+`MY_PW_FILE`, `YDLNAS_API_TOKEN_FILE`, or `YDLNAS_WEBHOOK_URL_FILE` to its container path. Direct
 environment variables remain the default and take precedence when both forms
 are configured. A requested secret file must be a readable, non-empty regular
 file; startup errors identify only the variable and never print its contents.
@@ -146,8 +146,10 @@ each configured host, its detected format, and the HTTP status or
 `not delivered`. The container log shows `[webhook]` lines with the host only;
 the URL itself is never printed. A Telegram URL needs `?chat_id=`, and a
 self-hosted ntfy or Slack-compatible server needs a `ntfy+` or `slack+` prefix
-unless its JSON payload is acceptable. Check `YDLNAS_WEBHOOK_EVENTS` if only some
-outcomes are missing.
+unless its JSON payload is acceptable. `HTTP 301 redirect` means the address
+moved, often from `http://` to `https://`; configure the final URL. A
+misspelled name in `YDLNAS_WEBHOOK_EVENTS` is reported as ignored, and `--test`
+prints the events that remain.
 
 ## Report A Reproducible Problem
 

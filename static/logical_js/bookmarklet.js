@@ -27,6 +27,9 @@
     // The bookmarklet only opens the NAS dashboard with the current page URL.
     // It carries no credentials: the browser's own session cookie signs the
     // request in, and the server shows the URL for review instead of queueing it.
+    // The #fragment is dropped: browsers never send it to servers, and it can hold
+    // secrets such as OAuth access tokens or share-link keys. Building the address
+    // from its parts also keeps "#" and "%" out of the javascript: URL itself.
     function source(origin) {
         const base = normalizeOrigin(origin);
         if (!base) {
@@ -34,7 +37,7 @@
         }
         const target = JSON.stringify(base + entryPath);
         return 'javascript:(function(){'
-            + 'var u=' + target + '+encodeURIComponent(location.href);'
+            + 'var u=' + target + '+encodeURIComponent(location.origin+location.pathname+location.search);'
             + 'var w=window.open(u,' + JSON.stringify(windowName) + ',' + JSON.stringify(windowFeatures) + ');'
             + 'if(!w){location.href=u;}'
             + '})();';

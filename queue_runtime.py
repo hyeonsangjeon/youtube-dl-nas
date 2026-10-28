@@ -61,6 +61,16 @@ class QueueRuntime:
             problems.append("unknown " + ", ".join(unknown))
         if not_callable:
             problems.append("not callable " + ", ".join(not_callable))
+        if not problems:
+            # Resolve every provider once so a renamed server function fails at start-up.
+            unresolved = []
+            for name in sorted(providers):
+                try:
+                    providers[name]()
+                except Exception as error:
+                    unresolved.append(f"{name} ({type(error).__name__})")
+            if unresolved:
+                problems.append("cannot resolve " + ", ".join(unresolved))
         if problems:
             raise TypeError("QueueRuntime providers: " + "; ".join(problems))
         self._providers = dict(providers)
