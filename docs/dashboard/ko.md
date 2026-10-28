@@ -106,7 +106,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`latest`와 `26.1026` 이미지는 `linux/amd64`, `linux/arm64`를 지원합니다.
+`latest`와 `26.1029` 이미지는 `linux/amd64`, `linux/arm64`를 지원합니다.
 기존 다운로드·메타데이터 마운트를 그대로 유지하세요. 수동 마이그레이션은
 없으며 기존 파일명과 다운로드 날짜도 바뀌지 않습니다.
 

@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 26.1029 - 2026-10-29
+
 ### Added
 
 - Desktop bookmarklet: drag **Send to youtube-dl-nas** from **Options** to the bookmarks bar, then click it on any page to open the dashboard with that URL ready to review. It stores no credentials and never queues on its own, because any site can open its address. Closes #15.
@@ -13,6 +15,10 @@ All notable changes to this project are documented here.
 
 - The collections backend now depends on an explicit `QueueRuntime` interface instead of the web server's `globals()` dict. Behavior is unchanged; a missing or renamed queue operation now fails at start-up instead of on the first collection request.
 - `yt-dlp` and the tools it starts no longer inherit the dashboard ID, password, API token, session secret, or webhook URL.
+
+### Upgrade
+
+- Pull `26.1029` or `latest` and recreate the container with both existing mounts. No manual migration is required, existing sessions stay signed in, and the webhook variables are optional.
 
 ## 26.1026 - 2026-10-26
 

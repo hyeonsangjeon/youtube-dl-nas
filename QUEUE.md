@@ -78,4 +78,11 @@ the implementation does not mark that remaining roadmap work complete.
 - Apply the v1 API's same-origin check to cookie-authenticated dashboard actions without affecting Android, iOS, PWA, or MCP clients.
 - Serve jQuery 3.7.1, Bootstrap 3.4.1, and the Glyphicons fonts from the container, and preset `SERVER_NAME` to avoid a startup reverse DNS lookup.
 
+## Completed For 26.1029
+
+- Give the collections backend an explicit `QueueRuntime` interface instead of the web server's `globals()` dict.
+- Add a desktop bookmarklet that opens the current page in the dashboard's review step without queueing (#15).
+- Send optional completion and failure notifications to Discord, Slack, ntfy, Telegram, or JSON webhooks, with per-target retries and neutralized mentions.
+- Stop passing the dashboard credentials, API token, session secret, and webhook URL to `yt-dlp` and its child tools.
+
 Release details live in [CHANGELOG.md](CHANGELOG.md).

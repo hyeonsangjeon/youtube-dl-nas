@@ -7,12 +7,13 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.1026` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.1029` · **Architectures:** `linux/amd64`, `linux/arm64`
 
-**New in this release:** safe filename choices for new downloads, less crowded
-mobile controls, and direct cookies/profile recovery with privacy-safe diagnostic
-copying. Existing files keep their names and duplicate detection stays enabled.
-Keep both volumes when upgrading; no new configuration or database is required.
+**New in this release:** a desktop bookmarklet that opens the current page in
+the dashboard for review, and optional download notifications to Discord, Slack,
+ntfy, Telegram, or any JSON webhook through `YDLNAS_WEBHOOK_URL`. `yt-dlp` no
+longer inherits the dashboard credentials or tokens. Keep both volumes when
+upgrading; no new configuration or database is required.
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -151,15 +152,15 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current verified stable release |
-| `26.1026` | Current pinned release |
-| `26.1012` | Previous release |
+| `26.1029` | Current pinned release |
+| `26.1026` | Previous release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.1026` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.1029` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.1026
+docker pull modenaf360/youtube-dl-nas:26.1029
 ```
 
 ## Health Check

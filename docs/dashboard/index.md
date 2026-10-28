@@ -136,7 +136,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.1026` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.1029` images support `linux/amd64` and `linux/arm64`.
 Keep both existing mounts. No manual migration is required; existing filenames,
 history dates, and collections are preserved. Tightening private-source policy
 no longer prevents saved collections from loading, while transfers and retries
