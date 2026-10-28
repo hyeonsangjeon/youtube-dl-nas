@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import time
 import unicodedata
 import uuid
@@ -19,6 +20,8 @@ from datetime import date, datetime, timezone
 from functools import wraps
 from threading import RLock
 from urllib.parse import unquote
+
+from queue_runtime import QueueRuntime
 
 
 STATE_VERSION = 1
@@ -499,8 +502,10 @@ class ConnectionStore:
 
 
 class CollectionService:
-    def __init__(self, server, path):
-        self.server = server
+    def __init__(self, runtime, path):
+        if not isinstance(runtime, QueueRuntime):
+            raise TypeError("CollectionService needs a QueueRuntime, not " + type(runtime).__name__)
+        self.runtime = runtime
         self.path = path
         self.lock = RLock()
         self.state = read_state(path, {
@@ -566,7 +571,7 @@ class CollectionService:
                     normalize_date_policy(policy)
                 if membership.get("status") not in PROGRESS_STATES:
                     raise StateError("Invalid membership status")
-                if "request" in membership and not self.server["normalize_queue_job"](membership["request"]):
+                if "request" in membership and not self.runtime.normalize_queue_job(membership["request"]):
                     raise StateError("Invalid membership request")
             for plan in state["plans"].values():
                 if not isinstance(plan["items"], list) or not isinstance(plan["expires_at_epoch"], (int, float)):
@@ -583,7 +588,7 @@ class CollectionService:
                 if "criteria" in batch and normalize_criteria(batch["criteria"]) != plan["criteria"]:
                     raise StateError("Batch criteria do not match the approved plan")
                 for entry in batch["jobs"]:
-                    if not self.server["normalize_queue_job"](entry["job"]):
+                    if not self.runtime.normalize_queue_job(entry["job"]):
                         raise StateError("Invalid reserved queue job")
         except (KeyError, TypeError, ValueError) as error:
             raise StateError("Invalid collections state") from error
@@ -599,10 +604,10 @@ class CollectionService:
         self.signature = self._signature()
 
     def _normalize_media(self, media):
-        return self.server["normalize_history_item"](media)
+        return self.runtime.normalize_history_item(media)
 
     def _request_snapshot(self, source):
-        request = self.server["normalize_queue_job"]({
+        request = self.runtime.normalize_queue_job({
             key: source[key] for key in REQUEST_IDENTITY_FIELDS if key in source
         })
         return {key: request[key] for key in REQUEST_IDENTITY_FIELDS} if request else None
@@ -634,7 +639,7 @@ class CollectionService:
         previous = self._member_request(state, member)
         if not previous:
             return False
-        return self.server["same_queue_request"](previous, request)
+        return self.runtime.same_queue_request(previous, request)
 
     @staticmethod
     def _references_retry(row, context):
@@ -673,9 +678,9 @@ class CollectionService:
                     )
 
     def _queue(self):
-        jobs = self.server["pending_queue_jobs"]()
-        with self.server["queue_state_lock"]:
-            active = self.server["normalize_queue_job"](self.server.get("active_queue_job"))
+        jobs = self.runtime.pending_queue_jobs()
+        with self.runtime.queue_state_lock:
+            active = self.runtime.normalize_queue_job(self.runtime.active_queue_job())
         if active:
             jobs.append(active)
         return {job["id"]: job for job in jobs}
@@ -810,7 +815,7 @@ class CollectionService:
 
     @nonblocking_io
     def delete_collection(self, collection_id):
-        with self.server["queue_operation_lock"], self.lock:
+        with self.runtime.queue_operation_lock, self.lock:
             state = copy.deepcopy(self.state)
             if collection_id not in state["collections"]:
                 raise APIError("collection_not_found", 404)
@@ -827,27 +832,27 @@ class CollectionService:
             "id": item_id, "url": url.strip() if isinstance(url, str) else "",
             "title": "", "upload_date": None, "status": "invalid",
         }
-        error = self.server["validate_download_request"](url, resolution)
+        error = self.runtime.validate_download_request(url, resolution)
         if error:
-            item["reason"] = self.server["get_error_details"](error)[0] or "invalid_url"
+            item["reason"] = self.runtime.get_error_details(error)[0] or "invalid_url"
             return item
-        if self.server["classify_playlist_url"](url) != "single":
+        if self.runtime.classify_playlist_url(url) != "single":
             item["reason"] = "direct_urls_only"
             return item
         try:
-            if self.server["validate_source_redirects"](url):
+            if self.runtime.validate_source_redirects(url):
                 item["reason"] = "source_blocked"
                 return item
-            metadata = self.server["fetch_media_metadata"](url, direct=True)
-        except (OSError, ValueError, TimeoutError, self.server["subprocess"].SubprocessError):
+            metadata = self.runtime.fetch_media_metadata(url, direct=True)
+        except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
             item["reason"] = "metadata_unavailable"
             return item
         if not is_direct_metadata(metadata):
             item["reason"] = "direct_urls_only" if metadata else "metadata_unavailable"
             return item
-        media_id, extractor = self.server["get_media_identity"](metadata)
+        media_id, extractor = self.runtime.get_media_identity(metadata)
         item.update({
-            "title": self.server["get_media_display_title"](metadata, url),
+            "title": self.runtime.get_media_display_title(metadata, url),
             "channel": str(metadata.get("uploader") or metadata.get("channel") or ""),
             "upload_date": metadata_upload_date(metadata),
             "media_id": media_id,
@@ -858,10 +863,10 @@ class CollectionService:
         if status:
             item["status"] = status
             return item
-        job = self.server["create_queue_job"](url, resolution, "collection")
+        job = self.runtime.create_queue_job(url, resolution, "collection")
         job.update(media_id=media_id, extractor=extractor)
-        queued = self.server["find_queued_duplicate"](job)
-        existing = self.server["find_existing_download"](url, resolution, media_id=media_id, extractor=extractor)
+        queued = self.runtime.find_queued_duplicate(job)
+        existing = self.runtime.find_existing_download(url, resolution, media_id=media_id, extractor=extractor)
         if existing:
             item.update(status="already_downloaded", uuid=existing["uuid"], relative_path=existing["relative_path"])
         elif queued:
@@ -882,7 +887,7 @@ class CollectionService:
         description = normalize_text(payload.get("description", ""))
         criteria = normalize_criteria(payload.get("criteria"))
         resolution = payload.get("resolution", "best")
-        if self.server["validate_download_request"]("https://example.com/", resolution, resolve_source=False):
+        if self.runtime.validate_download_request("https://example.com/", resolution, resolve_source=False):
             raise APIError("unsupported_resolution")
         candidates = payload.get("candidates")
         if not isinstance(candidates, list) or not candidates:
@@ -916,7 +921,7 @@ class CollectionService:
             executor.shutdown(wait=False, cancel_futures=True)
         seen = set()
         for item in items:
-            identity = (item.get("extractor", "").casefold(), item["media_id"]) if item.get("media_id") else self.server["normalize_media_url"](item["url"])
+            identity = (item.get("extractor", "").casefold(), item["media_id"]) if item.get("media_id") else self.runtime.normalize_media_url(item["url"])
             if identity and identity in seen:
                 item.update(status="invalid", reason="duplicate_candidate")
             seen.add(identity)
@@ -996,15 +1001,15 @@ class CollectionService:
                 if time.time() >= preview["expires_at_epoch"]:
                     raise APIError("plan_expired", 410)
                 self._selected_items(preview, payload)
-        library = self.server["download_manager"].combined_history() if not committed else []
-        with self.server["queue_operation_lock"], self.lock:
+        library = self.runtime.combined_history() if not committed else []
+        with self.runtime.queue_operation_lock, self.lock:
             self._require_current()
             plan = self.state["plans"].get(plan_id)
             if not plan:
                 raise APIError("plan_not_found", 404)
             if plan.get("batch_id"):
                 self._reconcile_locked()
-                self.server["start_download_thread_if_needed"]()
+                self.runtime.start_download_thread_if_needed()
                 receipt = copy.deepcopy(self.state["plans"][plan_id]["commit_receipt"])
                 receipt["batch"].setdefault("criteria", copy.deepcopy(plan["criteria"]))
                 return receipt
@@ -1044,7 +1049,7 @@ class CollectionService:
                 state["collections"][collection_id] = collection
             collection = state["collections"][collection_id]
             collection["updated_at"] = now
-            if safe_media_path(self.server["DOWNFOLDER_DIR"], collection["relative_directory"]) is None:
+            if safe_media_path(self.runtime.download_dir(), collection["relative_directory"]) is None:
                 raise APIError("unsafe_path")
             batch = {
                 "id": str(uuid.uuid4()), "plan_id": plan_id, "collection_id": collection_id,
@@ -1054,13 +1059,13 @@ class CollectionService:
             new_jobs = {}
             for item in items:
                 policy = {**plan["criteria"], "include_unknown_date": item["id"] in unknown}
-                existing = self.server["find_existing_download"](
+                existing = self.runtime.find_existing_download(
                     item["url"], plan["resolution"], media_id=item["media_id"], extractor=item["extractor"],
                     items=library,
                 )
-                prototype = self.server["create_queue_job"](item["url"], plan["resolution"], "collection")
+                prototype = self.runtime.create_queue_job(item["url"], plan["resolution"], "collection")
                 prototype.update(media_id=item["media_id"], extractor=item["extractor"])
-                duplicate = self.server["find_queued_duplicate"](prototype)
+                duplicate = self.runtime.find_queued_duplicate(prototype)
                 identity = (item["extractor"].casefold(), item["media_id"]) if item["media_id"] else prototype["normalized_url"]
                 duplicate = duplicate or new_jobs.get(identity)
                 if existing:
@@ -1079,7 +1084,7 @@ class CollectionService:
                     }
                     member_status = "queued"
                     if not duplicate:
-                        job = self.server["normalize_queue_job"]({
+                        job = self.runtime.normalize_queue_job({
                             **prototype,
                             **{key: item[key] for key in ("title", "channel", "media_id", "extractor", "upload_date", "thumbnail")},
                             "collection_id": collection_id, "batch_id": batch["id"],
@@ -1123,7 +1128,7 @@ class CollectionService:
                     "title": item["title"], "status": member_status, "action": action,
                     "media": media, "date_policy": policy,
                 })
-            if batch["jobs"] and self.server["get_storage_status"]()["blocking"]:
+            if batch["jobs"] and self.runtime.get_storage_status()["blocking"]:
                 raise APIError("storage_critical", 507)
             if time.time() >= plan["expires_at_epoch"]:
                 raise APIError("plan_expired", 410)
@@ -1138,8 +1143,8 @@ class CollectionService:
             # This is the commit point: all IDs and the approval are durable before queue dispatch.
             self._save(state)
             self._reconcile_locked()
-        self.server["start_download_thread_if_needed"]()
-        self.server["download_manager"].broadcast_to_all_clients("[QUEUE_UPDATED], {}")
+        self.runtime.start_download_thread_if_needed()
+        self.runtime.broadcast("[QUEUE_UPDATED], {}")
         return receipt
 
     def _apply_history(self, state, history):
@@ -1194,7 +1199,7 @@ class CollectionService:
 
     @nonblocking_io
     def observe_history(self, history):
-        with self.server["queue_operation_lock"], self.lock:
+        with self.runtime.queue_operation_lock, self.lock:
             self._require_current()
             state = copy.deepcopy(self.state)
             if self._apply_history(state, [self._normalize_media(item) for item in history]):
@@ -1208,7 +1213,7 @@ class CollectionService:
             "batch_id": job.get("batch_id"), "date_policy": job.get("date_policy"),
         })
         media.update(job_id=job["id"], status=status, failure_code=failure_code)
-        with self.server["queue_operation_lock"], self.lock:
+        with self.runtime.queue_operation_lock, self.lock:
             self._require_current()
             state = copy.deepcopy(self.state)
             changed = self._apply_history(state, [self._normalize_media(media)])
@@ -1233,7 +1238,7 @@ class CollectionService:
     def _reconcile_locked(self):
         self._require_current()
         state = copy.deepcopy(self.state)
-        history = self.server["download_manager"].normalized_history()
+        history = self.runtime.normalized_history()
         changed = self._apply_history(state, history)
         changed = self._prune_plans(state) or changed
         queue = self._queue()
@@ -1256,13 +1261,13 @@ class CollectionService:
                 changed = True
         # The queue writer persists the whole snapshot before exposing jobs to the worker.
         if jobs or terminal_job_ids.intersection(queue):
-            self.server["apply_collection_queue_journal"](jobs, terminal_job_ids)
+            self.runtime.apply_collection_queue_journal(jobs, terminal_job_ids)
         if changed:
             self._save(state)
 
     @nonblocking_io
     def reconcile(self):
-        with self.server["queue_operation_lock"], self.lock:
+        with self.runtime.queue_operation_lock, self.lock:
             self._reconcile_locked()
 
     @nonblocking_io

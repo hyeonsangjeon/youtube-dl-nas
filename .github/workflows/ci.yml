@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Python compile check
-        run: python -m py_compile youtube-dl-server.py upd_schedule.py runtime.py mcp_server.py collections_backend.py login_throttle.py
+        run: python -m py_compile youtube-dl-server.py upd_schedule.py runtime.py mcp_server.py collections_backend.py login_throttle.py queue_runtime.py
       - name: JavaScript syntax check
         run: |
           for script in static/logical_js/*.js; do

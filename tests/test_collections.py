@@ -56,7 +56,7 @@ def isolated_backend(tmp_path, monkeypatch):
     monkeypatch.setattr(server.download_manager, "client_hubs", {})
     monkeypatch.setattr(server.download_manager, "cancel_requested_job_id", None)
     monkeypatch.setattr(server, "get_storage_status", lambda: {"blocking": False, "state": "ok"})
-    monkeypatch.setattr(server, "collections_service", backend.CollectionService(server.__dict__, server.COLLECTIONS_STATE_FILE))
+    monkeypatch.setattr(server, "collections_service", backend.CollectionService(server.queue_runtime, server.COLLECTIONS_STATE_FILE))
     monkeypatch.setattr(server, "connections_store", backend.ConnectionStore(server.CONNECTIONS_STATE_FILE))
     monkeypatch.setattr(server, "fetch_media_metadata", lambda url, *args, **kwargs: {
         "id": url.rsplit("/", 1)[-1], "extractor_key": "Youtube",
@@ -171,7 +171,7 @@ def restart_backend(monkeypatch):
     monkeypatch.setattr(server, "active_queue_job", None)
     monkeypatch.setattr(server, "queue_state_loaded", False)
     server.download_manager.load_history()
-    service = backend.CollectionService(server.__dict__, server.COLLECTIONS_STATE_FILE)
+    service = backend.CollectionService(server.queue_runtime, server.COLLECTIONS_STATE_FILE)
     monkeypatch.setattr(server, "collections_service", service)
     server.load_persisted_queue()
     service.reconcile()
@@ -549,7 +549,7 @@ def test_corrupt_collections_fail_closed_without_overwriting(isolated_backend, c
     path = state / "bad-collections.json"
     path.write_text(contents)
     with pytest.raises(backend.StateError):
-        backend.CollectionService(server.__dict__, str(path))
+        backend.CollectionService(server.queue_runtime, str(path))
     assert path.read_text() == contents
 
 
@@ -1246,7 +1246,7 @@ def test_legacy_batch_criteria_are_derived_from_approved_plan_without_changing_r
     del state["batches"][batch_id]["criteria"]
     del state["plans"][plan["id"]]["commit_receipt"]["batch"]["criteria"]
     server.collections_service._save(state)
-    service = backend.CollectionService(server.__dict__, server.COLLECTIONS_STATE_FILE)
+    service = backend.CollectionService(server.queue_runtime, server.COLLECTIONS_STATE_FILE)
     monkeypatch.setattr(server, "collections_service", service)
     assert service.get_batch(batch_id)["criteria"] == {"date_from": None, "date_to": None}
     assert service.get_collection(original["collection"]["id"])["batches"][0]["criteria"] == plan["criteria"]
@@ -1262,7 +1262,7 @@ def test_batch_criteria_cannot_disagree_with_approved_plan(client, isolated_back
     path = state_directory / "mismatched-criteria.json"
     path.write_text(json.dumps(state))
     with pytest.raises(backend.StateError, match="Batch criteria"):
-        backend.CollectionService(server.__dict__, str(path))
+        backend.CollectionService(server.queue_runtime, str(path))
 
 
 def test_gevent_preview_holds_no_state_locks_and_commit_is_fast(client, live_gevent_server, monkeypatch):

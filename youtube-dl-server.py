@@ -32,6 +32,7 @@ from i18n import (
     select_locale,
 )
 from login_throttle import LoginThrottle
+from queue_runtime import QueueRuntime
 import os
 import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
@@ -2419,7 +2420,7 @@ class GlobalDownloadManager:
         normalized_history = self.normalized_history()
         known_ids = {item["uuid"] for item in normalized_history}
         known_paths = {item["relative_path"] for item in normalized_history if item["relative_path"]}
-        service = globals().get("collections_service")
+        service = collections_service
         if service and self is download_manager:
             for snapshot in service.media_snapshots():
                 item = normalize_history_item(snapshot)
@@ -2446,7 +2447,7 @@ class GlobalDownloadManager:
         for item in self.normalized_history():
             if item.get('uuid') == item_uuid:
                 return item
-        service = globals().get("collections_service")
+        service = collections_service
         if service and self is download_manager:
             for item in service.media_snapshots():
                 if item.get("uuid") == item_uuid:
@@ -2725,6 +2726,8 @@ class GlobalDownloadManager:
 
 # Initialize global download manager
 download_manager = GlobalDownloadManager()
+# Assigned at the end of the module, once every queue function it needs exists.
+collections_service = None
 
 class WSAddr:
     def __init__(self):
@@ -4635,7 +4638,45 @@ queue_restore_count = 0
 queue_state_loaded = False
 preflight_receipt_lock = Lock()
 recent_preflight_receipt = None
-collections_service = CollectionService(globals(), COLLECTIONS_STATE_FILE)
+
+
+def build_queue_runtime():
+    """Hand the collections backend exactly the queue operations it may use.
+
+    Each provider is read again on every call, so the backend sees the live active
+    job and any function a test replaces after start-up.
+    """
+    return QueueRuntime(
+        queue_operation_lock=lambda: queue_operation_lock,
+        queue_state_lock=lambda: queue_state_lock,
+        active_queue_job=lambda: active_queue_job,
+        download_dir=lambda: DOWNFOLDER_DIR,
+        normalize_queue_job=lambda: normalize_queue_job,
+        same_queue_request=lambda: same_queue_request,
+        pending_queue_jobs=lambda: pending_queue_jobs,
+        create_queue_job=lambda: create_queue_job,
+        find_queued_duplicate=lambda: find_queued_duplicate,
+        apply_collection_queue_journal=lambda: apply_collection_queue_journal,
+        start_download_thread_if_needed=lambda: start_download_thread_if_needed,
+        normalize_history_item=lambda: normalize_history_item,
+        find_existing_download=lambda: find_existing_download,
+        normalized_history=lambda: download_manager.normalized_history,
+        combined_history=lambda: download_manager.combined_history,
+        broadcast=lambda: download_manager.broadcast_to_all_clients,
+        validate_download_request=lambda: validate_download_request,
+        validate_source_redirects=lambda: validate_source_redirects,
+        get_error_details=lambda: get_error_details,
+        classify_playlist_url=lambda: classify_playlist_url,
+        normalize_media_url=lambda: normalize_media_url,
+        fetch_media_metadata=lambda: fetch_media_metadata,
+        get_media_identity=lambda: get_media_identity,
+        get_media_display_title=lambda: get_media_display_title,
+        get_storage_status=lambda: get_storage_status,
+    )
+
+
+queue_runtime = build_queue_runtime()
+collections_service = CollectionService(queue_runtime, COLLECTIONS_STATE_FILE)
 connections_store = ConnectionStore(CONNECTIONS_STATE_FILE)
 
 def run_server():
