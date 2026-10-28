@@ -48,6 +48,7 @@ NTFY_TAGS = {
     "completed": "white_check_mark", "failed": "x", "canceled": "stop_sign", "skipped": "fast_forward", "test": "bell",
 }
 SEPARATORS = re.compile(r"[\s,]+")
+BROADCAST_MENTION = re.compile(r"@(?=(?:channel|here|all|everyone)\b)", re.IGNORECASE)
 MAX_ITEMS = 20
 MAX_TEXT = 1800
 QUEUE_SIZE = 100
@@ -166,6 +167,16 @@ def public_item(item):
     }
 
 
+def quiet_mentions(text):
+    """Keep an untrusted title such as "@everyone" from pinging a whole chat channel."""
+    return BROADCAST_MENTION.sub("@\u2060", text)
+
+
+def slack_escape(text):
+    """Slack treats <...> as links and mentions such as <!channel>; send them as text."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def summary_text(event, items):
     heading = TITLES[event]
     if len(items) == 1:
@@ -178,12 +189,12 @@ def summary_text(event, items):
         text = f"{heading}: {item_label(item)}"
         if details:
             text += " (" + ", ".join(str(part) for part in details) + ")"
-        return text[:MAX_TEXT]
+        return quiet_mentions(text)[:MAX_TEXT]
     shown = [item_label(item) for item in items[:5]]
     text = f"{heading}: {len(items)} items. " + "; ".join(shown)
     if len(items) > len(shown):
         text += f"; and {len(items) - len(shown)} more"
-    return text[:MAX_TEXT]
+    return quiet_mentions(text)[:MAX_TEXT]
 
 
 def build_request(target, notification):
@@ -202,7 +213,7 @@ def build_request(target, notification):
         if kind == "discord":
             payload = {"content": text[:2000], "allowed_mentions": {"parse": []}}
         elif kind == "slack":
-            payload = {"text": text}
+            payload = {"text": slack_escape(text)}
         elif kind == "telegram":
             payload = {"chat_id": target["chat_id"], "text": text, "disable_web_page_preview": True}
         else:

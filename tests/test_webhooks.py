@@ -127,6 +127,18 @@ def test_playlist_completion_is_one_notification_with_a_short_summary():
     assert notification["text"].endswith("; and 25 more")
 
 
+def test_untrusted_titles_cannot_ping_a_whole_channel():
+    notifier = WebhookNotifier()
+    (notification,) = notifier.notifications([{**COMPLETED, "title": "@everyone <!channel> @Here & more", "channel": ""}])
+    assert "@everyone" not in notification["text"] and "@Here" not in notification["text"]
+    assert notification["text"].startswith("Downloaded: @\u2060everyone <!channel> @\u2060Here & more")
+
+    slack = build_request(parse_target("https://hooks.slack.com/services/T/B/t"), notification)
+    assert "&lt;!channel&gt;" in payload(slack)["text"]
+    assert "<!channel>" not in payload(slack)["text"]
+    assert "@user" in webhooks.quiet_mentions("@user")
+
+
 def test_requests_match_each_service_format():
     notifier = WebhookNotifier(app_version="26.1028")
     (notification,) = notifier.notifications([COMPLETED])
