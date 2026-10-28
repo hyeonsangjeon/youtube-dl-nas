@@ -334,6 +334,14 @@
                                         </select>
                                         <small>{{t('composer.mobile_share_hint')}}</small>
                                     </label>
+                                    <div class="form-field bookmarklet-field">
+                                        <span>{{t('composer.bookmarklet_heading')}}</span>
+                                        <a id="bookmarklet-link" class="btn btn-default bookmarklet-link" href="#" draggable="true">
+                                            <span class="glyphicon glyphicon-bookmark" aria-hidden="true"></span>
+                                            <span>{{t('composer.bookmarklet_link')}}</span>
+                                        </a>
+                                        <small>{{t('composer.bookmarklet_hint')}}</small>
+                                    </div>
                                     <div id="cookies-management" class="cookies-management" data-state="loading">
                                         <div class="cookies-management-copy">
                                             <strong>{{t('composer.cookies_heading')}}</strong>
@@ -570,6 +578,7 @@
 <script src="/youtube-dl/static/logical_js/media-ui.js?v={{app_version}}"></script>
 % if page == 'downloads':
 <script src="/youtube-dl/static/logical_js/download-profile.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/bookmarklet.js?v={{app_version}}"></script>
 <script src="/youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
 <script src="/youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 % else:

@@ -60,6 +60,8 @@ After a request is queued successfully, the dashboard remembers that profile on 
 
 Open **Options** to save a JPG thumbnail beside the media file, choose the profile used by PWA mobile sharing on this device, or manage a Netscape cookies file for restricted sources. **Ask every time** prefills the shared URL in this form so you can review its output profile.
 
+Options also holds the **Send to youtube-dl-nas** desktop bookmarklet. Drag it to the bookmarks bar; clicking it on any page opens this form with that page's URL filled in for review. It never queues on its own and contains no password.
+
 Cookies are sensitive account credentials. Upload only a file exported for a site you are authorized to access. An app-managed file is validated, limited to 1 MiB, stored in the persistent metadata volume with owner-only permissions, and can be replaced or removed here. If `YTDLP_COOKIES_FILE` points to an external mount, Options reports its readiness but cannot modify it.
 
 When a URL points to a playlist or channel, Playlist Guard shows a scope selector. A video URL that also carries a playlist defaults to **Current video only**. Pure playlist and channel URLs require **First 10** or **All items** before they can be queued. Each completed item receives its own Files & History row.

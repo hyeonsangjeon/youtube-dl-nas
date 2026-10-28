@@ -3230,6 +3230,29 @@ def share_target():
 
     queue_shared_url(shared_url)
 
+
+@get('/youtube-dl/bookmarklet')
+def bookmarklet_handoff():
+    """Desktop bookmarklet entry: show the page URL for review, never queue it.
+
+    The bookmarklet opens this address from whatever site the user is reading, so
+    the request is a cross-site GET that any page could also trigger. It therefore
+    only stores the URL in the short-lived signed review cookie, the same step the
+    share target uses for "Ask every time", and the user submits it from the
+    dashboard. The URL stays out of the redirect, as with the share target.
+    """
+    shared_url = extract_shared_url(
+        request.query.getunicode("url"),
+        request.query.getunicode("text"),
+        request.query.getunicode("title"),
+    )
+    if not shared_url:
+        redirect("/youtube-dl?shared=missing")
+
+    set_share_review_cookie(shared_url, load_auth_data())
+    redirect("/youtube-dl?shared=review")
+
+
 @get('/youtube-dl/share-target/complete')
 def complete_pending_share():
     data = load_auth_data()

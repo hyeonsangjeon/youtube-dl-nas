@@ -1791,6 +1791,19 @@ a:hover {
   font-size: 12px;
 }
 
+.bookmarklet-link {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  cursor: grab;
+  font-weight: 600;
+}
+
+.bookmarklet-link:active {
+  cursor: grabbing;
+}
+
 .cookies-management {
   grid-column: 1 / -1;
   display: flex;
