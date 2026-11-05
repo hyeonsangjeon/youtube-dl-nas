@@ -377,6 +377,7 @@
                 return `<article class="connection-row" data-revoked="${!!connection.revoked_at}">
                     <div><strong>${escape(connection.name)}</strong>
                         <code>${escape(connection.prefix || '')}</code>
+                        <p>${escape(t(connection.access === 'search' ? 'connect.search_only' : 'connect.manage_downloads'))} · ${escape(connection.collection_ids ? t('connect.scoped_collections', { count: connection.collection_ids.length }) : t('connect.all_library'))}</p>
                         <p>${escape(t('connect.created_at', { date: formatDate(connection.created_at) }))}</p>
                         <p>${escape(connection.revoked_at ? t('connect.revoked_at', { date: formatDate(connection.revoked_at) }) :
                             connection.last_used_at ? t('connect.last_used', { date: formatDate(connection.last_used_at) }) : t('connect.never_used'))}</p>
@@ -423,6 +424,12 @@
                     const result = await request('/connections');
                     state.connections = result.connections;
                     renderConnections();
+                    const collections = await request('/collections');
+                    const selectedCollection = byId('connection-collection').value;
+                    byId('connection-collection').innerHTML = `<option value="">${escape(t('connect.all_library'))}</option>` + collections.collections.map(function(item) {
+                        return `<option value="${escape(item.id)}">${escape(item.name)}</option>`;
+                    }).join('');
+                    byId('connection-collection').value = selectedCollection;
                     hidden('connections-loading', true);
                     await refreshMcpHealth();
                 }
@@ -709,11 +716,25 @@
             }
             renderClient();
             on('mcp-client', 'change', renderClient);
+            function renderAccess() {
+                const searchOnly = byId('connection-access').value === 'search';
+                hidden('connection-scope-field', !searchOnly);
+                doc.querySelector('.connect-workflow').hidden = searchOnly;
+                text('connect-workflow-heading', t(searchOnly ? 'connect.search_workflow' : 'connect.workflow'));
+                text('research-prompt', t(searchOnly ? 'connect.search_prompt' : 'connect.example_prompt'));
+                text('connect-access-summary', t(searchOnly ? 'connect.search_only' : 'connect.access_hint'));
+            }
+            renderAccess();
+            on('connection-access', 'change', renderAccess);
             on('connection-form', 'submit', function(event) {
                 event.preventDefault();
                 const name = byId('connection-name').value.trim();
                 runAction(event.currentTarget, async function() {
-                    const result = await request('/connections', { method: 'POST', body: { name } });
+                    const access = byId('connection-access').value;
+                    const collection = byId('connection-collection').value;
+                    const result = await request('/connections', { method: 'POST', body: {
+                        name, access, collection_ids: access === 'search' && collection ? [collection] : null
+                    } });
                     clearSecret();
                     byId('connection-token').value = result.token;
                     hidden('connection-secret', false);

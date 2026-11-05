@@ -7,3 +7,4 @@ jiwer
 mcp>=1.29.1,<2
 httpx>=0.28,<1
 uvicorn>=0.34,<1
+pysubs2>=1.8,<2

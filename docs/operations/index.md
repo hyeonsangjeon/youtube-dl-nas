@@ -63,6 +63,25 @@ upgrade timing, replace `latest` in `compose.yaml` with a tag from the
 [release page](https://github.com/hyeonsangjeon/youtube-dl-nas/releases) and
 run the same pull and up commands. Keep both persistent mounts unchanged.
 
+### Upgrading To 26.1105
+
+From 26.1029, keep the same environment and both mounts. The library layout and
+subtitle search need no manual migration, database, LLM endpoint, or API key.
+Existing files, history dates, collections and connection permissions remain.
+New dashboard-issued AI tokens default to read-only; select download access
+explicitly for a new client that should queue work. Startup/hourly `yt-dlp`
+updates and startup `nlptutti` updates remain enabled by default.
+
+After recreating the container, check `/health` for version `26.1105`, sign in,
+confirm the library count, and try **Files & History → Subtitles** with a word
+known to occur in a saved subtitle. A mounted file's date is its modification
+date, not a reconstructed download date. The [dashboard guide](../dashboard/)
+explains search coverage and the [MCP guide](../mcp/) covers client setup.
+
+If health or stored state fails validation, stop the new container and recreate
+the previous pinned image with the same mounts and settings. Keep a pre-upgrade
+state backup; do not delete volumes as a troubleshooting step.
+
 ## Troubleshooting Checklist
 
 ### Container Does Not Start

@@ -7,13 +7,13 @@
 
 An authenticated, NAS-friendly `yt-dlp` download queue for video, audio, and subtitles. Run it on Synology, another NAS, or any Docker host and manage downloads from a responsive web dashboard.
 
-**Current release:** `26.1029` · **Architectures:** `linux/amd64`, `linux/arm64`
+**Current release:** `26.1105` · **Architectures:** `linux/amd64`, `linux/arm64`
 
-**New in this release:** a desktop bookmarklet that opens the current page in
-the dashboard for review, and optional download notifications to Discord, Slack,
-ntfy, Telegram, or any JSON webhook through `YDLNAS_WEBHOOK_URL`. `yt-dlp` no
-longer inherits the dashboard credentials or tokens. Keep both volumes when
-upgrading; no new configuration or database is required.
+**New in this release:** a full-width library with on-demand details, local
+subtitle-content search with playable timestamps, and revocable read-only AI
+connections with optional collection scope. No LLM API key, database, or companion
+container is required. Keep both volumes when upgrading; existing mobile sharing
+and tokens continue to work.
 
 ![youtube-dl-nas dashboard demo](https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-demo.gif)
 
@@ -47,6 +47,8 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Database-free queue recovery across container restarts, compatible partial-download continuation, duplicate guards, and removable waiting jobs.
 - One-submit Smart Preflight with a three-second undo window, media-identity duplicate checks, and actionable **Already on NAS** receipts.
 - Searchable download history with compact list and thumbnail grid views, filters, newest-first sorting, 20-item pages, and a lightweight library overview.
+- Local SRT/VTT/ASS/SSA text search, bounded transcript reading, timed playback and related media/subtitle files.
+- Read-only MCP connections for library search, optionally limited to one collection, with per-client token revocation.
 - Mounted-file discovery for existing files in `/downfolder`, including files without saved metadata.
 - Inline video/audio preview, retry, browser download, history-only delete, and physical-file delete actions.
 - Subtitle QA for SRT/VTT/ASS/SSA files with `nlptutti` CER/WER/CRR metrics and keyword preservation.
@@ -63,6 +65,24 @@ The second volume is strongly recommended. It preserves the restart-safe queue, 
 - Container health check plus PUID, PGID, and UMASK support.
 
 ## Dashboard
+
+### Find A Phrase In Saved Subtitles
+
+Choose **Files & History → Subtitles**, enter a word or phrase, and press Search.
+Select a timestamp for playback or **Read transcript** for context. Switch back
+to **Files** for filename/title search and normal library actions. Only saved
+subtitles are searchable; this does not transcribe videos or run an LLM.
+
+In **AI Connect**, new tokens default to **Search and read only**. Choose the whole
+library or one collection, copy the one-time token into the client's private
+configuration, and ask it to find a phrase with file and time references.
+Collection access covers explicit members, including subtitles, not neighboring
+files automatically. Select **Search and queue downloads** only when needed.
+An authorized AI client can see the subtitle text it reads. Existing tokens
+keep their permissions. [English/Korean dashboard guide](https://hyeonsangjeon.github.io/youtube-dl-nas/dashboard/)
+
+Search/read flows were tested with native Codex CLI and Claude Code against an
+isolated NAS container. This is not certification for ChatGPT web or every client.
 
 ### MCP Collections
 
@@ -90,8 +110,10 @@ download-time memory was measured. See the
 [26.0922 validation record](https://github.com/hyeonsangjeon/youtube-dl-nas/blob/master/docs/mcp/validation-26.0922.md)
 for the previous release's checks and native-client coverage.
 
-<img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
-<img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history" width="23%">
+26.1105 layout with synthetic media:
+
+<img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/library-desktop-26.1105.png" alt="Full-width library with on-demand details" width="72%">
+<img src="https://raw.githubusercontent.com/hyeonsangjeon/youtube-dl-nas/master/pic/library-mobile-26.1105.png" alt="Mobile library and search" width="23%">
 
 ## Persistent Paths
 
@@ -152,15 +174,15 @@ Open the [English/Korean mobile setup guide](https://hyeonsangjeon.github.io/you
 | Tag | Use |
 | --- | --- |
 | `latest` | Current verified stable release |
-| `26.1029` | Current pinned release |
-| `26.1026` | Previous release |
+| `26.1105` | Current pinned release |
+| `26.1029` | Previous release |
 | `sha-<commit>` | Immutable build for a specific Git commit |
 | `v0_1` | Historical versioned Docker release from November 2018 |
 
-Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.1029` when reproducibility matters; use `latest` to follow the current stable release.
+Both current tags publish OCI manifests for AMD64 and ARM64. Pin `26.1105` when reproducibility matters; use `latest` to follow the current stable release.
 
 ```shell
-docker pull modenaf360/youtube-dl-nas:26.1029
+docker pull modenaf360/youtube-dl-nas:26.1105
 ```
 
 ## Health Check

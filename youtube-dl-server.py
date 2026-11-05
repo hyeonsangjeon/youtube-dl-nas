@@ -34,6 +34,7 @@ from i18n import (
 from login_throttle import LoginThrottle
 from queue_runtime import QueueRuntime
 from webhooks import WebhookNotifier
+from library_search import SubtitleSearch, media_files
 import os
 import secrets
 from urllib.error import HTTPError as URLHTTPError, URLError
@@ -57,8 +58,9 @@ HISTORY_FILE = os.path.join(STATE_DIR, "download_history.json")
 QUEUE_STATE_FILE = os.path.join(STATE_DIR, "queue_state.json")
 COLLECTIONS_STATE_FILE = os.path.join(STATE_DIR, "collections.json")
 CONNECTIONS_STATE_FILE = os.path.join(STATE_DIR, "connections.json")
+subtitle_search = SubtitleSearch()
 APP_COOKIES_FILE = os.path.join(STATE_DIR, "yt-dlp-cookies.txt")
-APP_VERSION = os.environ.get("APP_VERSION", "26.1029")
+APP_VERSION = os.environ.get("APP_VERSION", "26.1105")
 API_TOKEN = os.environ.get("YDLNAS_API_TOKEN", "").strip()
 YTDLP_COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 YTDLP_EXTRA_ARGS = os.environ.get("YTDLP_EXTRA_ARGS", "").strip()
@@ -2960,8 +2962,8 @@ def bearer_authenticated():
         return False
     supplied = parts[1]
     if API_TOKEN and hmac.compare_digest(supplied.encode("utf-8"), API_TOKEN.encode("utf-8")):
-        return True
-    return connections_store.validate(supplied)
+        return {"access": "manage", "collection_ids": None}
+    return connections_store.authenticate(supplied)
 
 
 def validate_browser_origin():
@@ -2993,13 +2995,26 @@ def api_v1(cookie_only=False, bearer_only=False):
             response.set_header("Cache-Control", "no-store")
             response.set_header("Pragma", "no-cache")
             try:
-                cookie = False if bearer_only else is_cookie_authenticated()
+                cookie = False if bearer_only or request.headers.get("Authorization") else is_cookie_authenticated()
                 if cookie_only:
                     authenticated = cookie
                 else:
                     authenticated = cookie or bearer_authenticated()
                 if not authenticated:
                     raise APIError("unauthorized", 401)
+                principal = {"access": "manage", "collection_ids": None} if cookie else authenticated
+                request.environ["ydlnas.connection"] = principal
+                if principal.get("access") == "search":
+                    allowed = request.method == "GET" and (
+                        request.path in {
+                            "/youtube-dl/api/v1/mcp/auth", "/youtube-dl/api/v1/capabilities",
+                            "/youtube-dl/api/v1/library", "/youtube-dl/api/v1/library/search",
+                            "/youtube-dl/api/v1/collections",
+                        } or re.fullmatch(r"/youtube-dl/api/v1/library/[A-Za-z0-9_-]{1,100}/(?:transcript|files)", request.path)
+                        or re.fullmatch(r"/youtube-dl/api/v1/collections/[A-Za-z0-9_-]{1,100}", request.path)
+                    )
+                    if not allowed:
+                        raise APIError("read_only_connection", 403)
                 if cookie:
                     validate_browser_origin()
                 return handler(*args, **kwargs)
@@ -3033,7 +3048,10 @@ def v1_capabilities():
         "preview_timeout_seconds": PREVIEW_TIMEOUT_SECONDS,
         "preview_work_timeout_seconds": PREVIEW_WORK_TIMEOUT_SECONDS,
         "commit_timeout_seconds": COMMIT_TIMEOUT_SECONDS,
-        "features": ["collections", "preview_commit", "date_policy", "connection_tokens", "safe_relative_paths", "library_pagination"],
+        "features": ["collections", "preview_commit", "date_policy", "connection_tokens", "safe_relative_paths", "library_pagination", "subtitle_search", "search_only_connections"],
+        "access": request.environ["ydlnas.connection"]["access"],
+        "search": {"local_only": True, "max_query_characters": 200, "max_results": 50,
+                   "max_subtitle_bytes": 2 * 1024 * 1024, "timestamp_basis": "downloaded_or_mounted_modified"},
         "direct_urls_only": True,
         "unknown_dates_require_approval": True,
     }
@@ -3052,17 +3070,82 @@ def v1_profiles():
 @get("/youtube-dl/api/v1/library")
 @api_v1()
 def v1_library():
-    download_manager.load_history()
-    collections_service.reconcile()
-    items = download_manager.combined_history()
+    items = accessible_library()
     try:
         limit = min(500, max(1, int(request.query.get("limit") or 200)))
     except ValueError:
         raise APIError("invalid_limit")
     return library_page(
-        items, query=str(request.query.get("q") or ""), limit=limit,
+        items, query=request.query.getunicode("q", ""), limit=limit,
         order=request.query.get("sort") or "newest", cursor=request.query.get("cursor"),
     )
+
+
+def connection_collection_ids():
+    return request.environ.get("ydlnas.connection", {}).get("collection_ids")
+
+
+def accessible_library():
+    download_manager.load_history()
+    collections_service.reconcile()
+    items = download_manager.combined_history()
+    allowed = connection_collection_ids()
+    if allowed is None:
+        return items
+    ids, paths = set(), set()
+    for collection_id in allowed:
+        try:
+            members = collections_service.get_collection(collection_id)["items"]
+        except APIError as error:
+            if error.status == 404:
+                continue
+            raise
+        for member in members:
+            ids.add(member.get("uuid"))
+            if member.get("relative_path"):
+                paths.add(member["relative_path"])
+    return [item for item in items if item.get("uuid") in ids or item.get("relative_path") in paths]
+
+
+def library_item(items, item_id):
+    item = next((item for item in items if item.get("uuid") == item_id), None)
+    if item is None:
+        raise APIError("history_not_found", 404)
+    return item
+
+
+def query_integer(name, default):
+    try:
+        return int(request.query.get(name, str(default)))
+    except (TypeError, ValueError):
+        raise APIError("invalid_" + name) from None
+
+
+@get("/youtube-dl/api/v1/library/search")
+@api_v1()
+def v1_search_subtitles():
+    items = accessible_library()
+    return nonblocking_io(subtitle_search.search)(
+        DOWNFOLDER_DIR, items, request.query.getunicode("q", ""), limit=query_integer("limit", 20),
+        cursor=request.query.get("cursor"), date_from=request.query.get("date_from", ""),
+        date_to=request.query.get("date_to", ""),
+    )
+
+
+@get("/youtube-dl/api/v1/library/<item_id>/transcript")
+@api_v1()
+def v1_read_transcript(item_id):
+    item = library_item(accessible_library(), item_id)
+    return nonblocking_io(subtitle_search.transcript)(
+        DOWNFOLDER_DIR, item, offset=query_integer("offset", 0), limit=query_integer("limit", 40),
+    )
+
+
+@get("/youtube-dl/api/v1/library/<item_id>/files")
+@api_v1()
+def v1_media_files(item_id):
+    items = accessible_library()
+    return media_files(library_item(items, item_id), items)
 
 
 @get("/youtube-dl/api/v1/downloads")
@@ -3115,12 +3198,17 @@ def v1_enqueue():
 @get("/youtube-dl/api/v1/collections")
 @api_v1()
 def v1_collections():
-    return {"collections": collections_service.list_collections()}
+    allowed = connection_collection_ids()
+    return {"collections": [item for item in collections_service.list_collections()
+                            if allowed is None or item["id"] in allowed]}
 
 
 @get("/youtube-dl/api/v1/collections/<collection_id>")
 @api_v1()
 def v1_collection(collection_id):
+    allowed = connection_collection_ids()
+    if allowed is not None and collection_id not in allowed:
+        raise APIError("collection_not_found", 404)
     return collections_service.get_collection(collection_id)
 
 
@@ -3176,9 +3264,17 @@ def v1_connections():
 @api_v1(cookie_only=True)
 def v1_create_connection():
     payload = v1_payload()
-    if set(payload) - {"name"}:
+    if set(payload) - {"name", "access", "collection_ids"}:
         raise APIError("invalid_connection")
-    return connections_store.create(payload.get("name", ""))
+    collection_ids = payload.get("collection_ids")
+    if collection_ids is not None:
+        if not isinstance(collection_ids, list) or not collection_ids or len(collection_ids) > 25:
+            raise APIError("invalid_connection")
+        for collection_id in collection_ids:
+            if not isinstance(collection_id, str):
+                raise APIError("invalid_connection")
+            collections_service.get_collection(collection_id)
+    return connections_store.create(payload.get("name", ""), payload.get("access", "manage"), collection_ids)
 
 
 @route("/youtube-dl/api/v1/connections/<connection_id>", method="DELETE")
@@ -3191,6 +3287,9 @@ def v1_revoke_connection(connection_id):
 @get("/youtube-dl/api/v1/mcp/auth")
 @api_v1(bearer_only=True)
 def v1_mcp_auth():
+    principal = request.environ["ydlnas.connection"]
+    if principal["access"] == "search":
+        return {"authenticated": True, "access": "search", "collection_ids": principal.get("collection_ids")}
     return {"authenticated": True}
 
 @get('/health')
