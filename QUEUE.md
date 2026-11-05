@@ -4,6 +4,55 @@ Active work is tracked in the public
 [youtube-dl-nas Roadmap](https://github.com/users/hyeonsangjeon/projects/2).
 The project board is the source of truth for priority, status, and target release.
 
+## Completed For 26.1105: Library UX And Read-Only Search
+
+Release date: 2026-11-05. Branch: `ui/downloads-polish`. Publication and NAS rollout
+follow the verified-image release workflow, separately from the acceptance checks below.
+
+- [x] Put the library first: compact input, full-width list, on-demand overview/detail drawer,
+  quieter mounted-file rows, and compact thumbnail-free cards.
+- [x] Show related media/subtitle files only with unambiguous identity or exact sidecar
+  filenames. Never rename files or repair history by title similarity.
+- [x] Search local SRT/VTT/ASS/SSA content with bounded parsing/cache, timestamps,
+  pagination, and playable matches when a matching media file exists.
+- [x] Share the same search/read endpoints with MCP. Add revocable search-only
+  connections, optional collection scope, and server-side write denial.
+- [x] Add four-language UI, security/regression tests, and desktop/mobile validation.
+- [x] Document setup, data disclosure, indexing limits, and client compatibility.
+
+No LLM endpoint, API billing, embeddings, transcription, or mandatory external
+service is introduced. Existing mobile share and download behavior stay unchanged.
+
+Local checks: 603 automated tests passed; a 1,566-item synthetic library was
+checked at 1440, 768, 390 and 360 px, with all four languages checked at 360 px.
+Search, pagination, transcript reading, timed playback, related files and
+read-only token enforcement were exercised. Browser plugin not available;
+validation used isolated Playwright, not the user's Chrome profile.
+
+The existing supervisor SIGINT shutdown test timed out once in the final test
+cycle; its 45-test module and the subsequent full suite passed on rerun. Track
+the intermittent shutdown-test behavior separately; runtime code was not changed.
+
+NAS acceptance checks (2026-11-05): the current worktree was built as a separate
+AMD64 Docker image and exercised through nginx/MCP over the existing private
+Tailscale network. Production media was mounted read-only; test metadata,
+credentials, collection and downloads were isolated. The library exposed 1,529
+items, while native Codex CLI and Claude Code each used a two-file scoped test
+collection to search subtitles, read the transcript and resolve related media.
+Both returned the expected facts and timestamps through actual MCP tool calls.
+
+Scope isolation, write denial, direct file-access denial and immediate token
+revocation passed. A real test-video download matched its source SHA-256.
+Restart preserved access scope, revocation and the downloaded file. Browser
+checks passed at 1440 and 390 px without JavaScript or console errors. Runtime
+yt-dlp/nlptutti updates remained enabled. Production stayed on the same running
+26.1029 container; no image was published. ChatGPT web and the other native
+clients remain unverified for this search workflow; production rollout remains
+separate release work.
+Temporary client tokens were revoked, and the test container, image, build
+context and runtime fixtures were removed. Sanitized evidence stays outside
+the repository; production files and metadata were not modified.
+
 ## Completed For 26.0806
 
 - Refresh history and activity after mobile foreground return or WebSocket reconnect.

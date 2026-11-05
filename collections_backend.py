@@ -430,13 +430,24 @@ class ConnectionStore:
                 or not isinstance(item.get("token_hash"), str)
                 or not re.fullmatch(r"[0-9a-f]{64}", item["token_hash"])
                 or not all(field in item for field in ("name", "prefix", "created_at", "last_used_at", "revoked_at"))
+                or not isinstance(item.get("access", "manage"), str)
+                or item.get("access", "manage") not in {"manage", "search"}
+                or (item.get("collection_ids") is not None and (
+                    item.get("access", "manage") != "search"
+                    or not isinstance(item["collection_ids"], list)
+                    or not item["collection_ids"] or len(item["collection_ids"]) > 25
+                    or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value)
+                           for value in item["collection_ids"])
+                ))
             ):
                 raise StateError("Invalid connection record")
         return state
 
     @staticmethod
     def public(item):
-        return {key: item.get(key) for key in ("id", "name", "prefix", "created_at", "last_used_at", "revoked_at")}
+        return {key: item.get(key) for key in ("id", "name", "prefix", "created_at", "last_used_at", "revoked_at")} | {
+            "access": item.get("access", "manage"), "collection_ids": item.get("collection_ids"),
+        }
 
     @nonblocking_auth_io
     def list(self):
@@ -444,8 +455,14 @@ class ConnectionStore:
             return [self.public(item) for item in self._load()["connections"].values()]
 
     @nonblocking_auth_io
-    def create(self, name):
+    def create(self, name, access="manage", collection_ids=None):
         name = normalize_text(name, required=True, limit=120)
+        if not isinstance(access, str) or access not in {"manage", "search"} or (collection_ids is not None and (
+            access != "search" or not isinstance(collection_ids, list)
+            or not collection_ids or len(collection_ids) > 25
+            or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) for value in collection_ids)
+        )):
+            raise APIError("invalid_connection")
         token = "ydlnas_" + secrets.token_urlsafe(32)
         item = {
             "id": str(uuid.uuid4()),
@@ -455,6 +472,8 @@ class ConnectionStore:
             "created_at": utc_timestamp(),
             "last_used_at": None,
             "revoked_at": None,
+            "access": access,
+            "collection_ids": sorted(set(collection_ids)) if collection_ids is not None else None,
         }
         with self.lock:
             state = self._load()
@@ -474,7 +493,7 @@ class ConnectionStore:
                 atomic_json_write(self.path, state)
 
     @nonblocking_auth_io
-    def validate(self, token):
+    def authenticate(self, token):
         if not isinstance(token, str) or not token or len(token) > 512:
             return False
         supplied = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -498,7 +517,10 @@ class ConnectionStore:
             if last_used is None or not 0 <= now - last_used < CONNECTION_USAGE_INTERVAL_SECONDS:
                 matched["last_used_at"] = now_timestamp
                 atomic_json_write(self.path, state)
-            return True
+            return self.public(matched)
+
+    def validate(self, token):
+        return bool(self.authenticate(token))
 
 
 class CollectionService:

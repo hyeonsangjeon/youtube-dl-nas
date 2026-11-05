@@ -29,8 +29,22 @@ FORM: An inline settings workspace within the existing application shell.
                         <span>{{t('connect.connection_name')}}</span>
                         <input id="connection-name" class="form-control admin-control" type="text" maxlength="120" required autocomplete="off" placeholder="{{t('connect.name_placeholder')}}">
                     </label>
+                    <label class="form-field">
+                        <span>{{t('connect.permission')}}</span>
+                        <select id="connection-access" class="form-control admin-control">
+                            <option value="search">{{t('connect.search_only')}}</option>
+                            <option value="manage">{{t('connect.manage_downloads')}}</option>
+                        </select>
+                    </label>
+                    <label class="form-field" id="connection-scope-field">
+                        <span>{{t('connect.library_scope')}}</span>
+                        <select id="connection-collection" class="form-control admin-control">
+                            <option value="">{{t('connect.all_library')}}</option>
+                        </select>
+                    </label>
                     <button type="submit" class="workspace-button workspace-primary">{{t('connect.create')}}</button>
                 </form>
+                <p class="workspace-help">{{t('connect.search_privacy')}}</p>
                 <section id="connection-secret" class="connection-secret" aria-labelledby="connection-secret-heading" hidden>
                     <h4 id="connection-secret-heading">{{t('connect.token_once')}}</h4>
                     <p>{{t('connect.token_once_hint')}}</p>
@@ -102,7 +116,7 @@ FORM: An inline settings workspace within the existing application shell.
             </div>
             <div class="connect-boundary">
                 <h4>{{t('connect.access_heading')}}</h4>
-                <p>{{t('connect.access_hint')}}</p>
+                <p id="connect-access-summary">{{t('connect.access_hint')}}</p>
                 <p>{{t('connect.no_delete')}}</p>
                 <a href="/youtube-dl/collections">{{t('connect.open_collections')}} <span aria-hidden="true">&rarr;</span></a>
             </div>

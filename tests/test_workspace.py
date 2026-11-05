@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from bottle import template
+from bs4 import BeautifulSoup
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -176,6 +177,14 @@ process.stdout.write(JSON.stringify({
     assert result["invalidBytes"] == "0 B"
 
 
+def test_subtitle_timestamps_are_stable_for_hours_and_invalid_values():
+    result = run_javascript("""
+const search = require(process.argv[1] + '/library-search.js');
+process.stdout.write(JSON.stringify([0, 12.5, 90, 3601, -5, 'invalid', Infinity].map(search.timeLabel)));
+""")
+    assert result == ["0:00", "0:12", "1:30", "1:00:01", "0:00", "0:00", "0:00"]
+
+
 def test_workspace_navigation_deep_links_and_shared_media_are_wired():
     template = (ROOT / "static" / "template" / "index.tpl").read_text(encoding="utf-8")
     logic = (SCRIPTS / "logic.js").read_text(encoding="utf-8")
@@ -188,9 +197,10 @@ def test_workspace_navigation_deep_links_and_shared_media_are_wired():
     assert 'src="youtube-dl/static/' not in template
     assert 'href="youtube-dl/static/' not in template
     assert template.index("media-ui.js") < template.index("logic.js")
+    assert template.index("media-ui.js") < template.index("library-search.js") < template.index("logic.js")
     assert "requestedHistoryUuid = pageParams.get('item')" in logic
     assert "item.relative_path || ''" in logic
-    assert "window.YDLNAS_MEDIA_UI.openPreview(item, translate)" in logic
+    assert "window.YDLNAS_MEDIA_UI.openPreview(item, translate, startSeconds)" in logic
     assert "media.openPreview(item, t)" in workspace
     assert "window.YDLNAS_MEDIA_UI.trapFocus(event" in logic
     assert "media.trapFocus(event, dialog)" in workspace
@@ -253,3 +263,46 @@ def test_shared_template_renders_each_route_without_losing_navigation(page, coll
     if page == "ai-connect":
         assert "Save this token now" in rendered
         assert "YOUR_MCP_TOKEN" in rendered
+
+
+@pytest.mark.parametrize("locale", ["en", "ko-KR", "pl-PL", "zh-CN"])
+def test_download_form_order_and_accessible_tools(locale):
+    from i18n import catalog_json, get_translator, locale_options
+
+    t = get_translator(locale)
+    page = BeautifulSoup(template(
+        "static/template/index.tpl", template_lookup=[str(ROOT)],
+        locale=locale, locale_json=json.dumps(locale), locale_options=locale_options(),
+        locale_next="/youtube-dl", translations_json=catalog_json(locale),
+        shared_url_json='""', userNm="demo", app_version="test", t=t,
+    ), "html.parser")
+    assert [el["id"] for el in page.select(".composer-grid :is(input, select, button)")] == [
+        "url", "selResolution", "selSubtitleLanguage", "send",
+    ]
+    assert page.select_one("#subtitleLanguageContainer").has_attr("hidden")
+    assert [el["data-download-mode"] for el in page.select('.mode-tabs [aria-pressed="true"]')] == ["video"]
+    assert page.select_one("#send").get_text(strip=True) == t("composer.submit")
+    assert page.select_one("#clear-history").get_text(strip=True) == t("history.clear_rows")
+    assert page.select_one("#history-search-scope")["aria-label"] == t("search.scope")
+    assert [el["value"] for el in page.select("#history-search-scope option")] == ["files", "subtitles"]
+    assert page.select_one("#subtitle-search-results").has_attr("hidden")
+    for control, key in [("history-search-button", "history.search"), ("refresh-history", "history.refresh")]:
+        assert page.select_one("#" + control)["aria-label"] == t(key)
+
+
+@pytest.mark.parametrize("locale", ["en", "ko-KR", "pl-PL", "zh-CN"])
+def test_new_connections_default_to_labeled_read_only_access_in_each_locale(locale):
+    from i18n import get_translator
+
+    t = get_translator(locale)
+    page = BeautifulSoup(template(
+        "static/template/ai-connect.tpl", template_lookup=[str(ROOT)], t=t,
+    ), "html.parser")
+    options = page.select("#connection-access option")
+    assert options[0]["value"] == "search"
+    assert options[0].get_text(strip=True) == t("connect.search_only")
+    assert options[1].get_text(strip=True) == t("connect.manage_downloads")
+    assert page.select_one("#connection-collection option")["value"] == ""
+    for control in ("connection-name", "connection-access", "connection-collection"):
+        assert page.select_one("#" + control).find_parent("label").select_one("span").get_text(strip=True)
+    assert t("connect.search_privacy") in page.get_text()

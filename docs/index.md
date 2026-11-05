@@ -5,11 +5,13 @@ title: youtube-dl NAS Guides
 
 # youtube-dl NAS Guides
 
-- Current release: **26.1029**
+- Current release: **26.1105**
 - [Watch the 25-second phone-to-NAS demo](mobile/#demo)
 - [Install, upgrade, and troubleshooting](operations/)
 - [Dashboard guide](dashboard/)
 - [대시보드 사용법](dashboard/ko.html)
+- [Search saved subtitles and read matching context](dashboard/#search-subtitle-content)
+- [Read-only AI connections](mcp/#local-content-search)
 - [MCP collections and AI client setup](mcp/)
 - [Mobile sharing setup](mobile/)
 - [모바일 공유 설정](mobile/ko.html)

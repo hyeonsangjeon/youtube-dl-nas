@@ -30,9 +30,12 @@
         <div class="cover-container">
 
             <header class="app-header">
-                <div>
-                    <h1 class="app-title">youtube-dl NAS</h1>
-                    <p class="app-subtitle">{{t('dashboard.subtitle')}}</p>
+                <div class="app-identity">
+                    <img src="/youtube-dl/static/pwa/icon-192.png" width="44" height="44" alt="">
+                    <div>
+                        <h1 class="app-title">youtube-dl NAS</h1>
+                        <p class="app-subtitle">{{t('dashboard.subtitle')}}</p>
+                    </div>
                 </div>
                 <div class="app-meta">
                     <form class="locale-form locale-form-dashboard" action="/locale" method="POST">
@@ -78,20 +81,20 @@
             <div class="dashboard-layout">
                 <main id="main-content" class="dashboard-main" tabindex="-1">
                     <section class="panel download-composer">
-                        <div class="panel-heading-row">
-                            <div>
-                                <h2>{{t('composer.heading')}}</h2>
-                                <p>{{t('composer.description')}}</p>
-                            </div>
-                        </div>
-
                         <form id="form1" class="download-form">
-                            <div class="mode-tabs" role="tablist" aria-label="{{t('composer.mode_label')}}">
-                                <button type="button" class="mode-tab active" data-download-mode="video">{{t('composer.video')}}</button>
-                                <button type="button" class="mode-tab" data-download-mode="audio">{{t('composer.audio')}}</button>
-                                <button type="button" class="mode-tab" data-download-mode="subtitle">{{t('composer.subtitle')}}</button>
+                            <div class="composer-heading">
+                                <h2>{{t('composer.heading')}}</h2>
+                                <div class="mode-tabs" role="group" aria-label="{{t('composer.mode_label')}}">
+                                    <button type="button" class="mode-tab active" data-download-mode="video" aria-pressed="true">{{t('composer.video')}}</button>
+                                    <button type="button" class="mode-tab" data-download-mode="audio" aria-pressed="false">{{t('composer.audio')}}</button>
+                                    <button type="button" class="mode-tab" data-download-mode="subtitle" aria-pressed="false">{{t('composer.subtitle')}}</button>
+                                </div>
                             </div>
                             <div class="composer-grid">
+                                <label class="form-field url-field">
+                                    <span>{{t('composer.url')}}</span>
+                                    <input name="url" id="url" type="url" class="form-control admin-control" placeholder="https://…" inputmode="url" autocapitalize="none" spellcheck="false">
+                                </label>
                                 <label class="form-field quality-field">
                                     <span>{{t('composer.quality')}}</span>
                                     <select title="{{t('composer.resolution_title')}}" id="selResolution" class="form-control admin-control">
@@ -112,11 +115,7 @@
                                     <option>vtt</option>
                                     </select>
                                 </label>
-                                <label class="form-field url-field">
-                                    <span>{{t('composer.url')}}</span>
-                                    <input name="url" id="url" type="url" class="form-control admin-control" placeholder="https://youtu.be/...">
-                                </label>
-                                <label class="form-field subtitle-field" id="subtitleLanguageContainer" style="display: none;">
+                                <label class="form-field subtitle-field" id="subtitleLanguageContainer" hidden>
                                     <span>{{t('composer.subtitle_language')}}</span>
                                     <select title="{{t('composer.subtitle_language_title')}}" id="selSubtitleLanguage" class="form-control admin-control">
                                     <option value="en">English</option>
@@ -279,7 +278,7 @@
                                     </select>
                                 </label>
                                 <button id="send" type="submit" class="btn btn-primary submit-btn">
-                                    <span class="glyphicon glyphicon-share-alt" aria-hidden="true"></span>
+                                    <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
                                     {{t('composer.submit')}}
                                 </button>
                             </div>
@@ -451,19 +450,21 @@
                                         <span>{{t('history.grid')}}</span>
                                     </button>
                                 </div>
-                                <button id="refresh-history" class="btn btn-info btn-sm">
-                                    <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> {{t('history.refresh')}}
-                                </button>
-                                <button id="clear-history" class="btn btn-default btn-sm">
-                                    <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> {{t('history.clear_rows')}}
+                                <button id="refresh-history" class="btn btn-default btn-sm history-tool" title="{{t('history.refresh')}}" aria-label="{{t('history.refresh')}}">
+                                    <span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> <span class="tool-label">{{t('history.refresh')}}</span>
                                 </button>
                             </div>
                         </div>
                         <div class="history-controls">
                             <div class="history-search-group">
-                                <input id="history-search" class="form-control input-sm history-search" type="search" placeholder="{{t('history.search_placeholder')}}">
-                                <button id="history-search-button" class="btn btn-info btn-sm history-search-button" type="button">
-                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span> {{t('history.search')}}
+                                <label class="sr-only" for="history-search-scope">{{t('search.scope')}}</label>
+                                <select id="history-search-scope" aria-label="{{t('search.scope')}}">
+                                    <option value="files">{{t('search.files')}}</option>
+                                    <option value="subtitles">{{t('search.subtitles')}}</option>
+                                </select>
+                                <input id="history-search" class="form-control input-sm history-search" type="search" aria-label="{{t('history.search_placeholder')}}" placeholder="{{t('history.search_placeholder')}}">
+                                <button id="history-search-button" class="btn btn-default btn-sm history-search-button" type="button" title="{{t('history.search')}}" aria-label="{{t('history.search')}}">
+                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
                                 </button>
                             </div>
                             <button id="history-filters-toggle" type="button" class="btn btn-default history-filters-toggle" aria-expanded="false" aria-controls="history-filter-panel">
@@ -509,15 +510,15 @@
                             <button id="reset-history-filters" class="btn btn-default btn-sm">{{t('history.reset')}}</button>
                             </div>
                         </div>
+                        <section id="subtitle-search-results" aria-label="{{t('search.subtitles')}}" hidden></section>
                         <div class="table-responsive">
                             <div class="table-container">
                                 <table class="table table-modern">
                                     <thead>
                                         <tr>
+                                            <th class="col-title">{{t('history.video_title')}}</th>
                                             <th class="col-downloaded">{{t('history.downloaded')}}</th>
                                             <th class="col-resolution">{{t('history.type_quality')}}</th>
-                                            <th class="col-channel">{{t('history.channel')}}</th>
-                                            <th class="col-title">{{t('history.video_title')}}</th>
                                             <th class="col-status">{{t('history.status')}}</th>
                                             <th class="col-size">{{t('history.size')}}</th>
                                             <th class="col-actions">{{t('history.actions')}}</th>
@@ -532,6 +533,9 @@
                         <div id="history-grid" class="history-grid"></div>
                         <div id="history-card-list" class="history-card-list"></div>
                         <div id="history-pager" class="history-pager"></div>
+                        <button id="clear-history" type="button" class="btn btn-default btn-sm history-clear">
+                            <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span> {{t('history.clear_rows')}}
+                        </button>
                     </section>
                 </main>
 
@@ -580,6 +584,7 @@
 <script src="/youtube-dl/static/logical_js/download-profile.js?v={{app_version}}"></script>
 <script src="/youtube-dl/static/logical_js/bookmarklet.js?v={{app_version}}"></script>
 <script src="/youtube-dl/static/logical_js/history-insights.js?v={{app_version}}"></script>
+<script src="/youtube-dl/static/logical_js/library-search.js?v={{app_version}}"></script>
 <script src="/youtube-dl/static/logical_js/logic.js?v={{app_version}}"></script>
 % else:
 <script src="/youtube-dl/static/logical_js/mcp-clients.js?v={{app_version}}"></script>

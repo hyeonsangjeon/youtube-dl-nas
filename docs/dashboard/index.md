@@ -42,17 +42,20 @@ folder. **Remove collection** removes only organization metadata: files,
 folders, and approved downloads are not deleted or canceled. **Clear Rows** in
 Downloads also preserves collections, memberships, and batches.
 
-In **AI Connect**, name a connection, copy the token shown once, and choose a
-client's setup instructions. Revoke each connection independently when no
-longer needed. AI clients search the web; this server receives direct URLs and
-does validation, duplicate detection, grouping, and queueing.
+In **AI Connect**, name a connection and choose its access. New connections
+default to **Search and read only**, optionally limited to one collection.
+Choose **Search and queue downloads** only when the client should submit work.
+Copy the token shown once and follow that client's setup instructions. Revoke
+each connection independently when no longer needed. Existing tokens retain
+their permissions. AI clients can research the web; this server receives direct
+URLs and does validation, duplicate detection, grouping, and queueing.
 See [MCP setup and security boundaries](../mcp/).
 
 ## New Download
 
 1. Choose **Video**, **Audio**, or **Subtitle**.
 2. Select the quality or subtitle language.
-3. Paste a supported URL and select **Submit**.
+3. Paste a supported URL and select **Add to queue**.
 
 Choose **Compatible MP4 (H.264/AAC)** for clients that need broadly playable codecs. This profile fails honestly when the source does not offer that combination; it does not transcode media or change the meaning of **Best**.
 
@@ -101,13 +104,13 @@ The same normalized URL, download profile, and options cannot be queued twice ac
 ## Files And History
 
 - Switch between **List** and **Grid**. The selected view is remembered in the browser.
-- Search titles, channels, filenames, and metadata states.
+- Use **Files** search for titles, channels, filenames, and metadata states; use **Subtitles** for saved subtitle text.
 - Filter by status or media type. Downloads are newest first by default.
 - On phones, expand **Filters** to change order, status, or media type. Search stays visible; the badge counts non-default filters.
 - Move through results in numbered pages of 20 items.
 - Select an item to inspect its source URL, duration, resolution, size, filename, metadata state, and UUID.
 
-On desktop, the detail area opens with **Library Overview**. On compact and mobile layouts, use the statistics button in Files & History to open the same layer. It summarizes stored-file count and size, completed downloads from the last 7 days, a 14-day activity chart, media-type distribution, and recorded failures from the current history. Mounted files count toward stored-library totals but not download activity. Selecting a media type or failure group applies the existing history filters.
+The library uses the full available width. Use the statistics button in Files & History to open **Library Overview** when needed; select an item for its detail drawer. The overview summarizes stored-file count and size, completed downloads from the last 7 days, a 14-day activity chart, media-type distribution, and recorded failures from the current history. Mounted files count toward stored-library totals but not download activity. Selecting a media type or failure group applies the existing history filters.
 
 Use **Preview** to play an existing video or audio file without downloading it again. Saved thumbnail sidecars are used in the grid and listed in item details. Other actions can retry a failed job, download the saved file, remove only its history row, or delete the physical file and its thumbnail sidecar.
 
@@ -116,6 +119,38 @@ the remaining named actions; deletion still asks for confirmation. Idle mobile
 activity is compact, but an **Already on NAS** receipt remains visible.
 
 When a mobile browser returns from the background, Files & History and Current Activity refresh automatically without resetting the selected view, filters, page, or detail item.
+
+## Search Subtitle Content
+
+1. In **Files & History**, change **Files** to **Subtitles** beside the search box.
+2. Enter a short word or phrase and press Search or Enter. Matching SRT, VTT,
+   ASS and SSA files show excerpts and timestamps.
+3. Select a time to play the corresponding video/audio, when there is one
+   unambiguous match. Otherwise the subtitle remains readable without playback.
+4. Open **Read transcript** for surrounding cues and load more context as needed.
+5. Return to **Files** for the normal history, sorting, filters and file actions.
+
+Search is literal, case-insensitive and local. No AI account, provider endpoint,
+transcription, or vector database is involved. A video without a saved subtitle
+cannot be searched by its spoken content. Download subtitles first, or put a
+subtitle sidecar beside the media and refresh the library. A unique filename
+pair such as `lesson.mp4` and `lesson.en.srt` can enable timed playback; similar
+titles alone never link files.
+
+The results report scan coverage and skipped/truncated files. Follow available
+pages before concluding there are no more matches. Files over 2 MiB, symlinks,
+unreadable files and unsupported encodings are skipped. Use UTF-8 or BOM-marked
+UTF-16. Search is on demand, so larger libraries can take longer; no persistent
+index needs a migration or rebuild.
+
+**Related files** in an item's drawer shows uniquely associated media/subtitles.
+It does not rename files or repair missing metadata. Recorded dates are download
+dates; mounted-only files use their filesystem modification date.
+
+For AI-assisted lookup, follow the [read-only MCP setup](../mcp/#local-content-search).
+The NAS searches locally, but subtitle text sent to an authorized AI client is
+visible to that client. A collection scope includes explicit subtitle members,
+not every file next to its videos. Existing phone sharing is unchanged.
 
 ## Subtitle QA
 
@@ -136,7 +171,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The `latest` and `26.1029` images support `linux/amd64` and `linux/arm64`.
+The `latest` and `26.1105` images support `linux/amd64` and `linux/arm64`.
 Keep both existing mounts. No manual migration is required; existing filenames,
 history dates, and collections are preserved. Tightening private-source policy
 no longer prevents saved collections from loading, while transfers and retries

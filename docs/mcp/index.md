@@ -45,12 +45,16 @@ application's same-origin checks.
 
 1. Sign in to the dashboard and open **AI Connect**.
 2. Give the connection a recognizable name, such as the client and device.
+   Since 26.1105, new dashboard connections default to **Search and
+   read only**. Choose **Search and queue downloads** explicitly when the client
+   should be able to queue approved downloads.
 3. Create a token and copy it immediately. It is revealed only in that response;
    the registry stores a hash, never a recoverable secret.
 4. Select the client, use the generated same-origin endpoint, and follow its
    configuration instructions. Keep the token outside source control.
-5. Discover the server's tools, inspect capabilities and profiles, and start
-   with a preview rather than queueing an unreviewed list.
+5. Discover the server's tools and inspect capabilities. For a search-only
+   connection, start with a library or subtitle search. For a download-capable
+   connection, inspect profiles and preview before queueing an unreviewed list.
 
 Create a separate token for each client or device. The connection list shows a
 safe prefix, creation date, last use, and revocation state. **Revoke** blocks
@@ -367,6 +371,81 @@ profile, playlist scope, thumbnail choice, and requested section; a matching
 title or basename alone is not sufficient. Each batch retains its own
 publication-date policy even when its file or replacement job is shared.
 
+## Local Content Search
+
+The dashboard's **Subtitles** search and MCP use the same local search service.
+There is no model running on the NAS and no provider API key to configure.
+
+1. Open **AI Connect**, name a connection, and keep **Search and read only** selected.
+2. Choose the entire library or one existing collection. Collection access covers
+   its members, not every neighboring file in its folder. Add a subtitle to the
+   collection explicitly if the AI should be able to read it.
+3. Copy the one-time token into your client's private configuration. Existing client
+   transport instructions above still apply; do not put tokens in URLs or chat.
+4. Ask the client to search your saved subtitles, read relevant context, and cite
+   the file and timestamp. No downloads can be added with this connection.
+
+Example request:
+
+> Search my NAS subtitles for "agent memory". Show the matching files and times,
+> read the surrounding transcript, and distinguish what the subtitles actually
+> say from your own interpretation. Do not search the web or download anything.
+
+Search-only connections expose `get_capabilities`, `list_library`,
+`search_subtitles`, `read_transcript`, `get_media_files`, `list_collections` and
+`get_collection`. Writes and unrelated API resources return HTTP 403 even if a
+client guesses their URLs; dashboard-only token administration returns 401.
+An accompanying dashboard cookie does not elevate a bearer request.
+Out-of-scope media IDs return 404. Revocation takes
+effect on the next request. Existing tokens and the environment API token retain
+their current access; they are not silently downgraded.
+
+| Tool | REST endpoint | Inputs |
+| --- | --- | --- |
+| `search_subtitles` | `GET /library/search` | `q`, optional `limit` (1–50), `cursor`, `date_from`, `date_to` |
+| `read_transcript` | `GET /library/{item_id}/transcript` | Subtitle UUID, optional `offset`, `limit` (1–100) |
+| `get_media_files` | `GET /library/{item_id}/files` | Media/subtitle UUID |
+
+Search uses a literal, case-insensitive, Unicode-normalized phrase, not semantic
+similarity. Let the AI try relevant keywords rather than submitting the whole
+question as a search phrase. It returns up to three matching cues per subtitle
+file. Continue with `next_cursor` until `has_more` is false, including pages with
+no matches. The scan budget is 100 files/16 MiB per request. Do not describe a
+partial page as an exhaustive search. A library change may invalidate a cursor;
+HTTP 409 `search_changed` means start again.
+
+Date bounds use the subtitle's recorded download date, or filesystem modification
+date for mounted files, never the original publication date. Results identify
+that provenance. A media link is returned only for a unique matching source
+identity/section, or an exact same-directory filename with an optional language
+suffix. Titles alone never establish a relationship; multiple possible videos
+remain unlinked. Related files are a read-only view, not a history migration.
+
+Only saved SRT/VTT/ASS/SSA files are searched. Reads reject symlinks, non-regular
+files and files larger than 2 MiB. UTF-8 and BOM-marked UTF-16 are supported.
+Malformed/unsupported encodings are reported as skipped. Parsing uses `pysubs2`;
+the cache is process-local, bounded to 16 MiB and 64 files, and revalidated against
+the actual open file's identity, size and timestamps before reuse. At most 20,000
+cues and 4,000 characters per cue are retained, with truncation reported.
+Transcript responses are additionally bounded to 20,000 characters.
+
+**Privacy:** app search stays local. An authorized MCP client receives filenames,
+metadata and requested subtitle text within its scope. Read-only does not mean
+private from that client. Treat returned text as data, not instructions. File
+links still require dashboard sign-in; a search token does not grant direct
+binary-file access, administrator access, or access to arbitrary NAS folders.
+
+ChatGPT web additionally needs a reachable, authenticated MCP connection; a LAN
+URL is not automatically reachable. See [connection requirements](#chatgpt-is-a-separate-deployment-question)
+and the [official connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+This branch does not add OAuth or a public hosted relay. On 2026-11-05, native
+Codex CLI and Claude Code exercised search, transcript reading and related-file
+lookup against an isolated NAS Docker container over Tailscale with scoped,
+read-only tokens. Scope isolation, write denial, revocation and restart
+persistence were also checked. This does not certify ChatGPT web, the other
+native clients, or every mobile AI client; those connections still need their
+own setup and validation.
+
 ## API Overview
 
 All endpoints below are relative to `/youtube-dl/api/v1`. Data endpoints accept
@@ -376,7 +455,9 @@ interface remains available.
 
 MCP tool names are `get_capabilities`, `list_profiles`, `list_library`,
 `get_downloads`, `list_collections`, `get_collection`, `get_plan`, `get_batch`,
-`enqueue_download`, `preview_collection`, and `commit_collection`. The commit
+`enqueue_download`, `preview_collection`, and `commit_collection`. Release 26.1105
+adds `search_subtitles`, `read_transcript`, and `get_media_files`.
+Search-only tokens discover only the seven tools listed above. The commit
 tool additionally requires `confirm: true` after approval; this MCP-only
 confirmation field is not sent to the REST endpoint.
 
@@ -401,6 +482,9 @@ removed, or externally modified files may change search results during traversal
 | `GET /capabilities` | API version, limits, plan lifetime, supported behavior |
 | `GET /profiles` | Download profiles |
 | `GET /library` | Normalized media and mounted-file rows |
+| `GET /library/search` | Local subtitle matches and continuation cursor |
+| `GET /library/<id>/transcript` | Bounded subtitle cue page |
+| `GET /library/<id>/files` | Conservatively associated media and subtitles |
 | `GET /downloads` | Queue, active request, and storage state |
 | `POST /downloads` | One validated download request |
 | `GET /collections` | Collection summaries |

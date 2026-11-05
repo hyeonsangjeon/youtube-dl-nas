@@ -70,7 +70,7 @@
         }
     }
 
-    function openPreview(item, t) {
+    function openPreview(item, t, startSeconds) {
         if (!item || !item.uuid || !item.file_exists || !['video', 'audio'].includes(item.download_type)) {
             return false;
         }
@@ -107,6 +107,12 @@
             }
         }, { once: true });
         document.body.appendChild(dialog);
+        const start = Number(startSeconds);
+        if (Number.isFinite(start) && start > 0) {
+            dialog.querySelector(mediaTag).addEventListener('loadedmetadata', function() {
+                this.currentTime = Number.isFinite(this.duration) ? Math.min(start, Math.max(0, this.duration - 0.1)) : start;
+            }, { once: true });
+        }
         dialog.showModal();
         dialog.querySelector('button').focus();
         return true;

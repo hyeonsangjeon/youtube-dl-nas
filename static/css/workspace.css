@@ -1037,3 +1037,9 @@
     width: 100%;
   }
 }
+.connection-form { display: flex; flex-wrap: wrap; }
+.connection-form .form-field { min-width: 160px; flex: 1 1 180px; }
+.connection-form .form-field[hidden] { display: none; }
+@media (max-width: 767px) {
+  .dashboard-page .workspace-nav { margin-bottom: 12px; }
+}

@@ -144,28 +144,6 @@ $(document).ready(function() {
         return;
     }
 
-    // resolution/subtitle format selection event
-    $('#selResolution').on('change', function() {
-        const selectedValue = $(this).val();
-        const subtitleContainer = $('#subtitleLanguageContainer');
-        
-        console.log('Resolution changed to:', selectedValue);
-        
-        // Display language selection box when selecting SRT or VTT
-        if (selectedValue === 'srt' || selectedValue === 'vtt') {
-            subtitleContainer.show();
-            console.log('Showing subtitle language selector');
-        } else {
-            subtitleContainer.hide();
-            console.log('Hiding subtitle language selector');
-        }
-    });
-    
-    // Set initial state
-    const initialValue = $('#selResolution').val();
-    if (initialValue === 'srt' || initialValue === 'vtt') {
-        $('#subtitleLanguageContainer').show();
-    }
     localizeSubtitleLanguageOptions();
 });
 //---------------------------------------------------------------------------------------------------//
@@ -182,6 +160,7 @@ $(function () {
     let historyPrefs = loadHistoryPrefs();
     let selectedHistoryUuid = null;
     let historyOverviewOpen = false;
+    let historyDrawerReturnFocus = null;
     let activeDownload = null;
     let queueCount = 0;
     let queueItems = [];
@@ -195,9 +174,9 @@ $(function () {
     let hasOpenedWebSocket = false;
     let lastPlaylistKind = 'single';
     const historyPageSize = 20;
-    const historyDrawerMedia = '(max-width: 1180px)';
+    const historyDrawerMedia = 'all';
     let currentHistoryPage = 1;
-    const emptyColspan = 7;
+    const emptyColspan = 6;
 
     console.log("Document ready - initializing...");
 
@@ -544,6 +523,10 @@ $(function () {
     }
 
     function applyHistorySearch() {
+        if (subtitleSearchUI.active()) {
+            subtitleSearchUI.search();
+            return;
+        }
         historyPrefs.search = $('#history-search').val();
         resetHistoryPaging();
         saveHistoryPrefs();
@@ -719,7 +702,10 @@ $(function () {
             cards.html(renderEmptyCard(translate('history.no_matches'), translate('history.no_matches_hint')));
             grid.html(renderEmptyCard(translate('history.no_matches'), translate('history.no_matches_hint')));
             pager.empty();
-            if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
+            const selected = subtitleSearchUI.active() && historyItems.find((item) => item.uuid === selectedHistoryUuid);
+            if (selected) {
+                renderDetailDrawer(selected);
+            } else if (!historyItems.some((item) => item.uuid === selectedHistoryUuid)) {
                 renderDetailDrawer(null);
             }
             $(".table-responsive").show();
@@ -733,7 +719,7 @@ $(function () {
         renderHistoryPager(filteredItems.length, totalPages);
         $(".table-responsive").show();
         if (selectedHistoryUuid) {
-            const selected = visibleItems.find((item) => item.uuid === selectedHistoryUuid);
+            const selected = (subtitleSearchUI.active() ? historyItems : visibleItems).find((item) => item.uuid === selectedHistoryUuid);
             if (!selected) {
                 selectedHistoryUuid = null;
             }
@@ -868,22 +854,19 @@ $(function () {
         const statusText = escapeHtml(getStatusText(item.status));
         const sizeText = formatFileSize(item);
         const canDownload = item.file_exists && item.uuid;
-        const titleElement = canDownload ?
-            `<a href="${getDownloadHref(item)}" download class="video-title" title="${safeTitle}">${titleText}</a>` :
-            `<span class="video-title" title="${safeTitle}">${titleText}</span>`;
-        const metadataLine = renderMetadataLine(item);
+        const titleElement = `<button type="button" class="video-title library-title-button" data-library-item="${safeUuid}" title="${safeTitle}">${titleText}</button>`;
+        const metadataLine = !isMountedFile(item) && item.channel ? `<span class="library-channel">${channelText}</span>` : '';
         const selectedClass = item.uuid === selectedHistoryUuid ? 'is-selected' : '';
 
         return `
             <tr class="history-row ${selectedClass}" data-uuid="${safeUuid}" tabindex="0">
-                <td><span class="download-date" title="${safeTimestamp}">${dateText}</span></td>
+                <td><div class="library-title-cell"><span class="library-file-icon glyphicon ${getMediaPlaceholderIcon(item.download_type)}" aria-hidden="true"></span><div class="title-stack">${titleElement}${metadataLine}</div></div></td>
+                <td><span class="download-date" title="${safeTimestamp}">${dateText}</span>${isMountedFile(item) ? `<span class="library-date-kind">${escapeHtml(translate('search.modified'))}</span>` : ''}</td>
                 <td>
                     <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
-                    <span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>
+                    ${item.resolution && item.resolution !== 'mounted' ? `<span class="resolution-tag ${getResolutionClass(item.resolution)}">${resolutionText}</span>` : ''}
                 </td>
-                <td><span class="channel-name" title="${safeChannel}">${channelText}</span></td>
-                <td><div class="title-stack">${titleElement}${metadataLine}</div></td>
-                <td><span class="status-tag ${getStatusClass(item.status)}">${statusText}</span></td>
+                <td><span class="${isMountedFile(item) ? 'library-local-status' : 'status-tag ' + getStatusClass(item.status)}">${statusText}</span></td>
                 <td><span class="file-size ${item.file_exists ? '' : 'file-missing'}">${sizeText}</span></td>
                 <td class="actions-cell">${renderActionButtons(item, 'row')}</td>
             </tr>
@@ -910,14 +893,12 @@ $(function () {
                         <span class="status-tag ${getStatusClass(item.status)}">${statusText}</span>
                     </div>
                     <h3>${titleText}</h3>
-                    <p>${channelText}</p>
-                    ${metadataSourceLine}
+                    ${!isMountedFile(item) && item.channel ? `<p>${channelText}</p>` : ''}
                 </div>
                 <div class="history-card-footer">
                     <div class="history-card-tags">
                         <span class="type-tag type-${escapeAttr(item.download_type)}">${typeText}</span>
                         ${resolutionBadge}
-                        ${renderMetadataBadge(item)}
                         <span class="file-size ${item.file_exists ? '' : 'file-missing'}">${formatFileSize(item)}</span>
                     </div>
                     <div class="history-card-actions">${renderActionButtons(item, 'card')}</div>
@@ -953,7 +934,7 @@ $(function () {
                 </div>
                 <div class="history-grid-body">
                     <h3 title="${escapeAttr(item.title || item.filename || translate('common.untitled'))}">${titleText}</h3>
-                    <p title="${escapeAttr(item.channel || '')}">${channelText}</p>
+                    ${!isMountedFile(item) && item.channel ? `<p title="${escapeAttr(item.channel)}">${channelText}</p>` : ''}
                     <div class="history-grid-meta">
                         <span>${formatTimestamp(item.timestamp)}</span>
                         <span>${formatFileSize(item)}</span>
@@ -961,7 +942,6 @@ $(function () {
                     <div class="history-grid-footer">
                         <div class="history-grid-badges">
                             ${resolutionBadge}
-                            ${renderMetadataBadge(item)}
                         </div>
                         <div class="history-grid-actions">${renderActionButtons(item, 'grid')}</div>
                     </div>
@@ -1113,6 +1093,7 @@ $(function () {
             <button class="action-btn action-subtitle-qa" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.subtitle_qa_title'))}">
                 <span class="glyphicon glyphicon-check"></span>${isDetail ? `<span>${escapeHtml(translate('action.subtitle_qa'))}</span>` : ''}
             </button>` : '';
+        const transcriptButton = canAnalyzeSubtitle ? `<button type="button" class="action-btn action-transcript" data-uuid="${safeUuid}" title="${escapeAttr(translate('search.read'))}" aria-label="${escapeAttr(translate('search.read'))}"><span class="glyphicon glyphicon-align-left" aria-hidden="true"></span>${isDetail ? `<span>${escapeHtml(translate('search.read'))}</span>` : ''}</button>` : '';
         const downloadButton = item.file_exists ? `
             <a class="action-btn action-download" href="${getDownloadHref(item)}" download title="${escapeAttr(translate('action.download_title'))}">
                 <span class="glyphicon glyphicon-download-alt"></span>${isDetail ? `<span>${escapeHtml(translate('action.download'))}</span>` : ''}
@@ -1131,7 +1112,7 @@ $(function () {
                     <span class="glyphicon glyphicon-trash"></span>${isDetail ? `<span>${escapeHtml(translate('action.delete_history'))}</span>` : ''}
                 </button>` : '';
         const detailClass = context === 'detail' ? ' detail-action-group' : '';
-        const moreButton = !isDetail && (fileDeleteButton || historyDeleteButton) ? `
+        const moreButton = context !== 'menu' && (fileDeleteButton || historyDeleteButton || subtitleQaButton) ? `
             <button type="button" class="action-btn action-more" data-uuid="${safeUuid}" title="${escapeAttr(translate('action.more'))}" aria-label="${escapeAttr(translate('action.more'))}" aria-haspopup="dialog">
                 <span class="glyphicon glyphicon-option-horizontal" aria-hidden="true"></span>
             </button>` : '';
@@ -1139,10 +1120,11 @@ $(function () {
         return `
             <div class="action-group${detailClass}">
                 ${previewButton}
-                ${subtitleQaButton}
+                ${transcriptButton}
+                ${context === 'menu' ? subtitleQaButton : ''}
                 ${downloadButton}
                 ${retryButton}
-                ${isDetail ? historyDeleteButton + fileDeleteButton : moreButton}
+                ${context === 'menu' ? historyDeleteButton + fileDeleteButton : moreButton}
             </div>
         `;
     }
@@ -1173,6 +1155,10 @@ $(function () {
         const compact = isCompactHistoryDrawer();
         const visible = hasItem || !compact || historyOverviewOpen;
         const drawer = $('#history-detail-drawer');
+        if (visible && !$('body').hasClass('history-drawer-open')) {
+            historyDrawerReturnFocus = document.activeElement;
+        }
+        drawer.attr('aria-hidden', visible ? 'false' : 'true');
         drawer.toggleClass('detail-has-item', hasItem);
         drawer.toggleClass('detail-is-overview', !hasItem);
         drawer.toggleClass('detail-overview-open', !hasItem && compact && historyOverviewOpen);
@@ -1399,8 +1385,8 @@ $(function () {
 
         drawer.html(`
             <article class="detail-panel ${mountedFile ? 'detail-panel-mounted' : ''}" data-uuid="${escapeAttr(item.uuid)}">
-                <button type="button" id="close-detail" class="detail-close" title="${escapeAttr(translate('history.insights_back'))}" aria-label="${escapeAttr(translate('history.insights_back'))}">
-                    <span class="glyphicon glyphicon-arrow-left" aria-hidden="true"></span>
+                <button type="button" id="close-detail" class="detail-close" title="${escapeAttr(translate('preview.close'))}" aria-label="${escapeAttr(translate('preview.close'))}">
+                    <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
                 </button>
                 <div class="detail-heading">
                     <div>
@@ -1408,30 +1394,37 @@ $(function () {
                         <span class="status-tag ${getStatusClass(item.status)}">${statusText}</span>
                     </div>
                     <h2 title="${escapeAttr(item.title || translate('common.untitled'))}">${escapeHtml(item.title || translate('common.untitled'))}</h2>
-                    <p>${escapeHtml(item.channel || translate('common.unknown_channel'))}</p>
+                    ${!mountedFile && item.channel ? `<p>${escapeHtml(item.channel)}</p>` : ''}
                 </div>
-                ${metadataNotice}
+                <div class="detail-actions">${renderActionButtons(item, 'detail')}</div>
                 ${failureGuidance}
                 <dl class="detail-list">
-                    ${renderDetailField(translate('detail.downloaded'), formatTimestamp(item.timestamp), 'downloaded')}
-                    ${renderDetailField(translate('detail.duration'), formatDuration(item.duration_seconds) || translate('common.unknown'), 'duration')}
-                    ${renderDetailField(translate('detail.resolution'), getResolutionText(item.resolution), 'resolution')}
+                    ${renderDetailField(translate(mountedFile ? 'search.modified' : 'detail.downloaded'), formatTimestamp(item.timestamp), 'downloaded')}
+                    ${item.duration_seconds ? renderDetailField(translate('detail.duration'), formatDuration(item.duration_seconds), 'duration') : ''}
+                    ${item.resolution && item.resolution !== 'mounted' ? renderDetailField(translate('detail.resolution'), getResolutionText(item.resolution), 'resolution') : ''}
                     ${renderDetailField(translate('detail.size'), formatFileSize(item), 'size')}
+                </dl>
+                <section class="related-files" id="related-files" aria-label="${escapeAttr(translate('search.related'))}"></section>
+                <details class="detail-technical">
+                    <summary>${escapeHtml(translate('search.file_details'))}</summary>
+                    <dl class="detail-list">
                     ${renderDetailField(translate('detail.filename'), item.filename || translate('detail.no_file'), 'filename')}
                     ${item.relative_path ? renderDetailField(translate('collections.relative_path'), item.relative_path, 'relative-path') : ''}
                     ${item.thumbnail_file_exists ? renderDetailField(translate('detail.thumbnail_file'), item.thumbnail_file, 'thumbnail-file') : ''}
                     ${renderDetailField(translate('detail.source'), sourceText, 'source')}
                     ${renderDetailField(translate('detail.metadata'), metadataText, 'metadata')}
                     ${renderDetailField(translate('detail.uuid'), item.uuid || '', 'uuid')}
-                </dl>
+                    </dl>
+                    ${metadataNotice}
+                </details>
                 <div class="detail-url ${url ? '' : 'detail-url-empty'}">
                     <span>${escapeHtml(translate('detail.source_url'))}</span>
                     ${urlHtml}
                 </div>
-                <div class="detail-actions">${renderActionButtons(item, 'detail')}</div>
             </article>
         `);
         syncHistoryDrawerChrome(true);
+        subtitleSearchUI.related(item.uuid);
     }
 
     function renderDetailField(label, value, key) {
@@ -1449,7 +1442,11 @@ $(function () {
         historyOverviewOpen = false;
         renderHistory();
         if (restoreFocus && isCompactHistoryDrawer()) {
-            focusHistoryDrawerControl('#history-insights-toggle');
+            if (historyDrawerReturnFocus && document.contains(historyDrawerReturnFocus)) {
+                historyDrawerReturnFocus.focus();
+            } else {
+                focusHistoryDrawerControl('#history-insights-toggle');
+            }
         }
     }
 
@@ -2388,8 +2385,8 @@ $(function () {
         window.YDLNAS_MEDIA_UI.closePreview();
     }
 
-    function showMediaPreview(item) {
-        if (!window.YDLNAS_MEDIA_UI.openPreview(item, translate)) {
+    function showMediaPreview(item, startSeconds) {
+        if (!window.YDLNAS_MEDIA_UI.openPreview(item, translate, startSeconds)) {
             addMessage(translate('preview.unavailable'), 'warning');
         }
     }
@@ -2749,8 +2746,9 @@ $(function () {
         } else if (selectedValue === 'srt' || selectedValue === 'vtt') {
             mode = 'subtitle';
         }
-        $('.mode-tab').removeClass('active');
-        $(`.mode-tab[data-download-mode="${mode}"]`).addClass('active');
+        $('.mode-tab').removeClass('active').attr('aria-pressed', 'false');
+        $(`.mode-tab[data-download-mode="${mode}"]`).addClass('active').attr('aria-pressed', 'true');
+        $('#subtitleLanguageContainer').prop('hidden', mode !== 'subtitle');
         $('#write-thumbnail').prop('disabled', mode === 'subtitle');
     }
 
@@ -2764,7 +2762,6 @@ $(function () {
         }
 
         $('#selResolution').trigger('change');
-        syncModeFromResolution();
     }
 
     $(document).on("submit", "#form1", function(event){
@@ -3074,12 +3071,7 @@ $(function () {
     });
 
     $(document).on("click", "#close-detail", function() {
-        selectedHistoryUuid = null;
-        historyOverviewOpen = true;
-        renderHistory();
-        if (isCompactHistoryDrawer()) {
-            focusHistoryDrawerControl('#close-insights');
-        }
+        dismissHistoryDrawer(true);
     });
 
     $(document).on("click", "#close-insights, #history-detail-backdrop", function() {
@@ -3088,6 +3080,7 @@ $(function () {
 
     $(document).on("click", "#refresh-history", function() {
         fetchHistory();
+        if (subtitleSearchUI.active()) subtitleSearchUI.search();
     });
 
     $(document).on("click", "#clear-history", function() {
@@ -3240,6 +3233,13 @@ $(function () {
         scheduleDashboardRefresh(100);
     });
 
+    const subtitleSearchUI = window.YDLNAS_LIBRARY_SEARCH.mount({
+        translate: translate,
+        preview: showMediaPreview,
+        detail: selectHistoryItem,
+        searchFiles: applyHistorySearch,
+        closeDetail: function() { dismissHistoryDrawer(false); }
+    });
     applyHistoryPrefsToControls();
     restoreDownloadProfile();
     syncModeFromResolution();

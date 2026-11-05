@@ -2,7 +2,51 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## 26.1105 - 2026-11-05
+
+### Added
+
+- Local subtitle-content search shared by the dashboard and MCP, with timestamped
+  matches, paginated transcript reading, and playback at a matched time when a
+  media file can be linked unambiguously. Supports saved SRT, VTT, ASS and SSA;
+  no LLM API key, transcription service, vector database or background scan.
+- Search-only AI connections, optionally limited to selected collections. The
+  server rejects write requests and hides unavailable MCP tools. Existing tokens
+  retain their permissions; new connections in AI Connect default to read-only.
+- Related files in the detail drawer, using source identity or an unambiguous
+  same-directory subtitle sidecar name. Existing files and history are unchanged.
+
+### Changed
+
+- Give the library the full desktop width and open overview/details only on demand.
+  Put filenames first, remove repeated mounted-file badges, compact empty thumbnail
+  cards, and move technical fields behind File details. Preserve one-submit mobile
+  sharing and the existing 20-item file pages.
+- Add search/read controls and connection permissions in all four interface languages.
+
+### Fixed
+
+- Decode non-ASCII HTTP search queries correctly in the library API.
+
+### Limits
+
+- Subtitle reads are bounded to 2 MiB per file; the on-demand in-memory cache is
+  limited to 16 MiB/64 files. Search pages report skipped and truncated files.
+  Subtitle contents returned through MCP are visible to the connected AI client.
+- Native Codex CLI and Claude Code search/read flows were exercised against an
+  isolated NAS container. ChatGPT web and the other native clients are not
+  certified for this workflow.
+
+### Upgrade
+
+- Pull `26.1105` or `latest` and recreate the container with both existing mounts.
+  No manual migration, new environment variable, database, or LLM key is required.
+- Existing MCP connections keep their permissions. Newly created dashboard
+  connections default to search/read-only; select download access explicitly
+  for clients that need to queue work. Collection scopes include explicit members
+  only, including subtitles. Revoking a token blocks its next request.
+- Startup/hourly `yt-dlp` updates and startup `nlptutti` updates remain enabled
+  by default. Mobile sharing still submits in one step.
 
 ## 26.1029 - 2026-10-29
 

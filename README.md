@@ -16,14 +16,13 @@
 
 Docker Hub: <https://hub.docker.com/r/modenaf360/youtube-dl-nas/>
 
-Current release: `26.1029` (`2026-10-29`)
+Current release: `26.1105` (`2026-11-05`)
 
-**This release:** a desktop bookmarklet that opens the current page in the
-dashboard for review, and optional download notifications to Discord, Slack,
-ntfy, Telegram, or any JSON webhook. `yt-dlp` no longer inherits the dashboard
-credentials or tokens. Existing volumes, mobile sharing, and REST/MCP
-authentication remain unchanged, and no new setting is required.
-[Changelog](CHANGELOG.md#261029---2026-10-29)
+**This release:** a wider, quieter library with on-demand details, local subtitle
+search with playable timestamps, and read-only AI connections that can be limited
+to a collection. No LLM API key, database, or new container is required. Keep both
+existing volumes; mobile sharing and existing tokens continue to work.
+[Changelog](CHANGELOG.md#261105---2026-11-05)
 
 ## Start Here
 
@@ -34,6 +33,7 @@ authentication remain unchanged, and no new setting is required.
 | Upgrade an existing container or diagnose a problem | [Operations guide](https://hyeonsangjeon.github.io/youtube-dl-nas/operations/) |
 | Send links from Android, iPhone, or iPad | [Mobile sharing guide](https://hyeonsangjeon.github.io/youtube-dl-nas/mobile/) |
 | Organize researched URLs and connect an AI client | [MCP Collections guide](docs/mcp/) |
+| Find a phrase in saved subtitles | [Content search](#local-content-search) · [한국어 사용법](https://hyeonsangjeon.github.io/youtube-dl-nas/dashboard/ko.html) |
 | Review the newest changes | [Latest release](https://github.com/hyeonsangjeon/youtube-dl-nas/releases/latest) |
 | Report a reproducible problem | [Issue form](https://github.com/hyeonsangjeon/youtube-dl-nas/issues/new/choose) |
 
@@ -51,6 +51,7 @@ authentication remain unchanged, and no new setting is required.
 
 - Queue video, audio, or subtitle downloads from a browser.
 - Connect an AI client to research, preview, and approve topic collections on the same NAS address, with paginated library lookup and no embedded LLM service.
+- Search saved subtitle text locally, jump to matching playback times, or give an AI client revocable read-only access to selected collections.
 - Choose an explicit Compatible MP4 profile when a client requires H.264 video and AAC audio; existing Best and resolution profiles keep their current behavior.
 - Keep the last successfully queued dashboard profile ready on each device without auto-submitting the next URL.
 - Use the login, terms, and dashboard flows in English, Korean, Simplified Chinese, or Polish, with browser-language detection and a saved language preference.
@@ -76,12 +77,12 @@ authentication remain unchanged, and no new setting is required.
 
 ## Screenshots
 
-Release 26.1012, using synthetic demo media. The GIF walks through naming options,
-history actions, and failure recovery without adding another submission step.
+Release 26.1105 layout, using synthetic demo media. The GIF above was recorded on
+26.1012 and demonstrates the unchanged naming and recovery workflow.
 
 <p>
-  <img src="pic/dashboard-desktop.png" alt="youtube-dl-nas desktop dashboard" width="72%">
-  <img src="pic/dashboard-mobile.png" alt="youtube-dl-nas mobile history cards" width="23%">
+  <img src="pic/library-desktop-26.1105.png" alt="Full-width library with compact download form" width="72%">
+  <img src="pic/library-mobile-26.1105.png" alt="Mobile library with compact cards and visible search" width="23%">
 </p>
 
 ## Languages
@@ -96,7 +97,37 @@ The web app supports English, Korean (`ko-KR`), Simplified Chinese (`zh-CN`), an
 3. Use Files & History to switch between compact list and thumbnail grid views. The default sort is newest downloaded first.
 4. Search with the `Search` button or Enter, then move through results with 20-item page buttons.
 5. Preview video or audio directly, or select an item to open its source URL, metadata state, file details, and actions.
-6. For a subtitle file, select **Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
+6. For a subtitle file, open **More → Subtitle QA**, paste a verified reference transcript, optionally add comma-separated keywords, and run the comparison.
+
+### Local Content Search
+
+Choose **Subtitles** beside the library search box to find a word or phrase in
+saved SRT, VTT, ASS or SSA files. Results show the matching text and time. When a
+matching video/audio file is unambiguous, select the time to play that moment;
+otherwise, read the subtitle without guessing a video. **Read transcript** loads
+more context in bounded pages. Files without subtitles are not content-searchable.
+
+Search runs locally, with no AI account, API key, transcription or vector service.
+The same search and transcript tools are available through an optional
+[search-only MCP connection](docs/mcp/#local-content-search).
+
+Start with a saved subtitle file: **Files & History → Subtitles → type a phrase →
+Search**. Use **Files** again to search titles and filenames. This is literal
+phrase search, not semantic search or automatic transcription. **Read transcript**
+shows context; a timestamp plays only a uniquely associated video/audio file.
+If a file has no subtitles, download its subtitles first or place an authorized
+SRT/VTT/ASS/SSA sidecar beside it, then refresh the library. Search reports files
+it cannot read rather than silently claiming complete coverage.
+
+For an AI client, open **AI Connect**, keep **Search and read only**, choose the
+whole library or one collection, and copy the one-time token into that client's
+private configuration. Ask it to search a short phrase, read the matching context,
+and cite the file and time. Collection access includes only explicit members,
+so add the subtitle as well as the video. Use **Search and queue downloads** only
+when you also want that client to submit downloads. [Step-by-step guide](docs/mcp/)
+That client can receive the results you authorize. Existing download/share flows
+do not depend on an AI client. These changes are on the development branch, not
+in the current published image.
 
 Open **Options** to save thumbnail sidecars, choose the profile used when this device shares a URL to the installed PWA, or manage a bounded Netscape cookies file for restricted sources. **Compatible MP4** requests H.264/AAC without silently falling back to another codec; **Ask every time** returns the shared URL to the composer instead of queueing it immediately. The share setting is stored in a signed, HTTP-only preference cookie on that device.
 

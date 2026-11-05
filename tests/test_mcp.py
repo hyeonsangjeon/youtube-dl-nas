@@ -18,7 +18,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from mcp_server import (
-    API_PATH, MCP_PATH, MAX_BODY_BYTES, TOOLS, BackendError, WebAPI, create_app,
+    API_PATH, MCP_PATH, MAX_BODY_BYTES, TOOLS, SEARCH_TOOLS, BackendError, WebAPI, create_app,
 )
 from runtime import COMMIT_TIMEOUT_SECONDS, PREVIEW_TIMEOUT_SECONDS, PROXY_READ_TIMEOUT_SECONDS
 
@@ -105,7 +105,7 @@ async def sdk_session(client, url=URL):
         async with streamable_http_client(url, http_client=client) as (reader, writer, session_id):
             async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=4)) as session:
                 initialized = await session.initialize()
-                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.1029")
+                assert initialized.serverInfo.version == os.environ.get("APP_VERSION", "26.1105")
                 assert session_id() is None
                 yield session
 
@@ -165,6 +165,29 @@ async def test_library_cursor_and_order_reach_backend_unchanged():
         assert not result.isError
     library = next(request for request in backend.calls if request.url.path.endswith("/library"))
     assert dict(library.url.params) == {"q": "saved", "limit": "2", "sort": "oldest", "cursor": "opaque=="}
+
+
+@pytest.mark.anyio
+async def test_search_connection_exposes_only_read_tools_and_rejects_direct_writes():
+    backend = FakeBackend()
+    backend.overrides[API_PATH + "/mcp/auth"] = (200, {"authenticated": True, "access": "search"})
+    backend.overrides[API_PATH + "/library/search"] = (200, {"items": [], "has_more": False})
+    backend.overrides[API_PATH + "/library/sub-1/transcript"] = (200, {"cues": [{"start": 12.5, "text": "memory"}]})
+    backend.overrides[API_PATH + "/library/sub-1/files"] = (200, {"files": []})
+    async with asgi_client(backend, HEADERS) as client, sdk_session(client) as session:
+        assert {tool.name for tool in (await session.list_tools()).tools} == SEARCH_TOOLS
+        for name, args in (
+            ("search_subtitles", {"q": "memory", "date_from": "2026-11-01"}),
+            ("read_transcript", {"item_id": "sub-1", "offset": 2, "limit": 1}),
+            ("get_media_files", {"item_id": "sub-1"}),
+        ):
+            result = await session.call_tool(name, args)
+            assert not result.isError
+        result = await session.call_tool("enqueue_download", {"url": "https://example.com/video"})
+        assert result.isError and result.structuredContent["error"]["code"] == "read_only_connection"
+        assert (await session.call_tool("read_transcript", {"item_id": "../private"})).isError
+    assert not backend.writes()
+    assert next(request for request in backend.calls if request.url.path.endswith("/library/search")).url.params["date_from"] == "2026-11-01"
 
 
 @pytest.mark.anyio
@@ -507,6 +530,9 @@ async def test_real_web_api_issues_revokes_hashed_tokens_and_preserves_env_compa
         web_port = listener.getsockname()[1]
     auth_file = tmp_path / "Auth.json"
     auth_file.write_text("{}", encoding="utf-8")
+    media_dir = tmp_path / "downloads"
+    media_dir.mkdir()
+    (media_dir / "example.srt").write_text("1\n00:00:02,000 --> 00:00:05,000\nLocal memory 기억\n", encoding="utf-8")
     env = dict(os.environ)
     env.update({
         "AUTH_FILE": str(auth_file), "STATE_DIR": str(tmp_path / "state"),
@@ -584,6 +610,19 @@ async def test_real_web_api_issues_revokes_hashed_tokens_and_preserves_env_compa
                     client.headers["Authorization"] = "Bearer " + env["YDLNAS_API_TOKEN"]
                     async with sdk_session(client) as session:
                         assert not (await session.call_tool("get_capabilities")).isError
+                    read_token = (await dashboard.post(API_PATH + "/connections", json={
+                        "name": "Read-only integration", "access": "search",
+                    })).json()["token"]
+                    client.headers["Authorization"] = "Bearer " + read_token
+                    async with sdk_session(client) as session:
+                        assert {tool.name for tool in (await session.list_tools()).tools} == SEARCH_TOOLS
+                        found = await session.call_tool("search_subtitles", {"q": "기억"})
+                        assert not found.isError and len(found.structuredContent["items"]) == 1
+                        item_id = found.structuredContent["items"][0]["subtitle"]["uuid"]
+                        transcript = await session.call_tool("read_transcript", {"item_id": item_id})
+                        assert transcript.structuredContent["cues"][0]["start"] == 2
+                        denied = await session.call_tool("enqueue_download", {"url": "https://example.com/video"})
+                        assert denied.isError and denied.structuredContent["error"]["code"] == "read_only_connection"
     finally:
         process.terminate()
         try:
